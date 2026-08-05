@@ -274,6 +274,283 @@ export interface AttendanceSummary {
   created_at: string;
 }
 
+// --- Learner types ---
+
+export interface Learner {
+  id: string;
+  tenant_id: string;
+  upi: string;
+  full_name: string;
+  date_of_birth?: string;
+  grade: string;
+  stream?: string;
+  photo_url?: string;
+  guardian_ids: string[];
+  birth_cert_no?: string;
+  entry_level?: string;
+  special_needs: boolean;
+  is_active: boolean;
+  admission_date?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface GuardianBrief {
+  id: string;
+  full_name: string;
+  phone: string;
+  relation: string;
+}
+
+export interface CreateLearnerRequest {
+  upi: string;
+  full_name: string;
+  date_of_birth?: string;
+  grade: string;
+  stream?: string;
+  photo_url?: string;
+  guardian_ids?: string[];
+  birth_cert_no?: string;
+  entry_level?: string;
+  special_needs?: boolean;
+  admission_date?: string;
+}
+
+export interface UpdateLearnerRequest {
+  full_name?: string;
+  date_of_birth?: string;
+  grade?: string;
+  stream?: string;
+  photo_url?: string;
+  guardian_ids?: string[];
+  birth_cert_no?: string;
+  entry_level?: string;
+  special_needs?: boolean;
+  admission_date?: string;
+}
+
+export interface LearnerDocument {
+  id: string;
+  tenant_id: string;
+  learner_id: string;
+  doc_type: string;
+  file_name: string;
+  file_url: string;
+  mime_type?: string;
+  file_size?: number;
+  uploaded_by?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface LearnerProgression {
+  id: string;
+  tenant_id: string;
+  learner_id: string;
+  from_grade: string;
+  to_grade: string;
+  action: string;
+  term?: number;
+  year: number;
+  approved_by?: string;
+  notes?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+// --- Transport types ---
+
+export interface Vehicle {
+  id: string;
+  tenant_id: string;
+  registration: string;
+  make: string;
+  model: string;
+  capacity: number;
+  year?: number;
+  status: 'active' | 'maintenance' | 'retired';
+  insurance_expiry?: string;
+  inspection_expiry?: string;
+  driver_id?: string;
+  driver_name?: string;
+  driver_phone?: string;
+  notes?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateVehicleRequest {
+  registration: string;
+  make: string;
+  model: string;
+  capacity: number;
+  year?: number;
+  status?: string;
+  insurance_expiry?: string;
+  inspection_expiry?: string;
+  driver_id?: string;
+  driver_name?: string;
+  driver_phone?: string;
+  notes?: string;
+}
+
+export interface UpdateVehicleRequest {
+  registration?: string;
+  make?: string;
+  model?: string;
+  capacity?: number;
+  year?: number;
+  status?: string;
+  insurance_expiry?: string;
+  inspection_expiry?: string;
+  driver_id?: string;
+  driver_name?: string;
+  driver_phone?: string;
+  notes?: string;
+}
+
+export interface Stop {
+  id: string;
+  tenant_id: string;
+  route_id: string;
+  name: string;
+  sequence: number;
+  latitude?: number;
+  longitude?: number;
+  landmark?: string;
+  created_at: string;
+}
+
+export interface Route {
+  id: string;
+  tenant_id: string;
+  name: string;
+  description?: string;
+  vehicle_id?: string;
+  active: boolean;
+  created_at: string;
+  updated_at: string;
+  stops?: Stop[];
+}
+
+export interface CreateRouteRequest {
+  name: string;
+  description?: string;
+  vehicle_id?: string;
+  active?: boolean;
+  stops?: Stop[];
+}
+
+export interface UpdateRouteRequest {
+  name?: string;
+  description?: string;
+  vehicle_id?: string;
+  active?: boolean;
+}
+
+export interface StopInput {
+  name: string;
+  sequence: number;
+  latitude?: number;
+  longitude?: number;
+  landmark?: string;
+}
+
+export interface Assignment {
+  id: string;
+  tenant_id: string;
+  route_id: string;
+  learner_id: string;
+  stop_id: string;
+  direction: string;
+  created_at: string;
+  learner_name?: string;
+  grade?: string;
+  stream?: string;
+  stop_name?: string;
+}
+
+export interface CreateAssignmentRequest {
+  learner_id: string;
+  stop_id: string;
+  direction: string;
+}
+
+export interface Trip {
+  id: string;
+  tenant_id: string;
+  route_id: string;
+  route_name?: string;
+  vehicle_id?: string;
+  vehicle_registration?: string;
+  direction: string;
+  status: 'scheduled' | 'in_progress' | 'completed' | 'cancelled';
+  scheduled_departure: string;
+  actual_departure?: string;
+  actual_arrival?: string;
+  boarded_count: number;
+  created_by?: string;
+  notes?: string;
+  created_at: string;
+  updated_at: string;
+  last_latitude?: number;
+  last_longitude?: number;
+  last_reported?: string;
+}
+
+export interface CreateTripRequest {
+  route_id: string;
+  vehicle_id?: string;
+  direction: string;
+  scheduled_departure: string;
+  notes?: string;
+}
+
+export interface UpdateTripRequest {
+  route_id?: string;
+  vehicle_id?: string;
+  direction?: string;
+  scheduled_departure?: string;
+  notes?: string;
+}
+
+export interface TripCheckin {
+  id: string;
+  trip_id: string;
+  learner_id: string;
+  learner_name?: string;
+  stop_id?: string;
+  stop_name?: string;
+  action: string;
+  checked_at: string;
+  sms_notified: boolean;
+}
+
+export interface CreateCheckinRequest {
+  learner_id: string;
+  stop_id?: string;
+  action: string;
+}
+
+export interface TripPosition {
+  id: string;
+  trip_id: string;
+  latitude: number;
+  longitude: number;
+  speed_kmh?: number;
+  heading_deg?: number;
+  odometer_km?: number;
+  reported_at: string;
+}
+
+export interface ReportPositionRequest {
+  latitude: number;
+  longitude: number;
+  speed_kmh?: number;
+  heading_deg?: number;
+  odometer_km?: number;
+}
+
 // --- API functions ---
 
 export const api = {
@@ -405,4 +682,159 @@ export const api = {
 
   deleteAttendance: (id: string, token: string) =>
     request<void>(`/attendance/${id}`, { method: 'DELETE', token }),
+
+  // Learners
+  listLearners: (params: { grade?: string; stream?: string; search?: string; include_inactive?: boolean }, token: string) => {
+    const qs = new URLSearchParams();
+    if (params.grade) qs.set('grade', params.grade);
+    if (params.stream) qs.set('stream', params.stream);
+    if (params.search) qs.set('search', params.search);
+    if (params.include_inactive) qs.set('include_inactive', 'true');
+    return request<Learner[]>(`/learners?${qs.toString()}`, { token });
+  },
+
+  createLearner: (data: CreateLearnerRequest, token: string) =>
+    request<Learner>('/learners', { method: 'POST', body: data, token }),
+
+  getLearner: (id: string, token: string) =>
+    request<Learner>(`/learners/${id}`, { token }),
+
+  updateLearner: (id: string, data: UpdateLearnerRequest, token: string) =>
+    request<Learner>(`/learners/${id}`, { method: 'PATCH', body: data, token }),
+
+  deactivateLearner: (id: string, token: string) =>
+    request<void>(`/learners/${id}`, { method: 'DELETE', token }),
+
+  reactivateLearner: (id: string, token: string) =>
+    request<Learner>(`/learners/${id}/reactivate`, { method: 'POST', token }),
+
+  listLearnerGuardians: (id: string, token: string) =>
+    request<GuardianBrief[]>(`/learners/${id}/guardians`, { token }),
+
+  listLearnerProgressions: (id: string, token: string) =>
+    request<LearnerProgression[]>(`/learners/${id}/progressions`, { token }),
+
+  // Learner documents
+  listLearnerDocuments: (id: string, token: string) =>
+    request<LearnerDocument[]>(`/learners/${id}/documents`, { token }),
+
+  uploadLearnerDocument: (id: string, data: { doc_type: string; file_name: string; file_url: string; mime_type?: string; file_size?: number }, token: string) =>
+    request<LearnerDocument>(`/learners/${id}/documents`, { method: 'POST', body: data, token }),
+
+  deleteLearnerDocument: (docId: string, token: string) =>
+    request<void>(`/learners/documents/${docId}`, { method: 'DELETE', token }),
+
+  // Learner progression
+  promoteLearner: (id: string, data: { to_grade: string; term?: number; year?: number; notes?: string }, token: string) =>
+    request<LearnerProgression>(`/learners/${id}/promote`, { method: 'POST', body: data, token }),
+
+  retainLearner: (id: string, data: { term?: number; year?: number; notes?: string }, token: string) =>
+    request<LearnerProgression>(`/learners/${id}/retain`, { method: 'POST', body: data, token }),
+
+  transferOutLearner: (id: string, data: { term?: number; year?: number; notes?: string }, token: string) =>
+    request<LearnerProgression>(`/learners/${id}/transfer-out`, { method: 'POST', body: data, token }),
+
+  transferInLearner: (id: string, data: { to_grade: string; term?: number; year?: number; notes?: string }, token: string) =>
+    request<LearnerProgression>(`/learners/${id}/transfer-in`, { method: 'POST', body: data, token }),
+
+  // Vehicles
+  listVehicles: (params: { status?: string }, token: string) => {
+    const qs = new URLSearchParams();
+    if (params.status) qs.set('status', params.status);
+    return request<Vehicle[]>(`/vehicles?${qs.toString()}`, { token });
+  },
+
+  createVehicle: (data: CreateVehicleRequest, token: string) =>
+    request<Vehicle>('/vehicles', { method: 'POST', body: data, token }),
+
+  getVehicle: (id: string, token: string) =>
+    request<Vehicle>(`/vehicles/${id}`, { token }),
+
+  updateVehicle: (id: string, data: UpdateVehicleRequest, token: string) =>
+    request<Vehicle>(`/vehicles/${id}`, { method: 'PATCH', body: data, token }),
+
+  deleteVehicle: (id: string, token: string) =>
+    request<void>(`/vehicles/${id}`, { method: 'DELETE', token }),
+
+  // Routes
+  listRoutes: (token: string) =>
+    request<Route[]>('/routes', { token }),
+
+  createRoute: (data: CreateRouteRequest, token: string) =>
+    request<Route>('/routes', { method: 'POST', body: data, token }),
+
+  getRoute: (id: string, token: string) =>
+    request<Route>(`/routes/${id}`, { token }),
+
+  updateRoute: (id: string, data: UpdateRouteRequest, token: string) =>
+    request<Route>(`/routes/${id}`, { method: 'PATCH', body: data, token }),
+
+  deleteRoute: (id: string, token: string) =>
+    request<void>(`/routes/${id}`, { method: 'DELETE', token }),
+
+  // Stops
+  listRouteStops: (routeId: string, token: string) =>
+    request<Stop[]>(`/routes/${routeId}/stops`, { token }),
+
+  createRouteStop: (routeId: string, data: StopInput, token: string) =>
+    request<Stop>(`/routes/${routeId}/stops`, { method: 'POST', body: data, token }),
+
+  deleteRouteStop: (stopId: string, token: string) =>
+    request<void>(`/stops/${stopId}`, { method: 'DELETE', token }),
+
+  // Assignments
+  listRouteAssignments: (routeId: string, token: string) =>
+    request<Assignment[]>(`/routes/${routeId}/assignments`, { token }),
+
+  assignLearnerToRoute: (routeId: string, data: CreateAssignmentRequest, token: string) =>
+    request<Assignment>(`/routes/${routeId}/assignments`, { method: 'POST', body: data, token }),
+
+  removeRouteAssignment: (assignmentId: string, token: string) =>
+    request<void>(`/assignments/${assignmentId}`, { method: 'DELETE', token }),
+
+  // Trips
+  listTrips: (params: { status?: string; on_date?: string }, token: string) => {
+    const qs = new URLSearchParams();
+    if (params.status) qs.set('status', params.status);
+    if (params.on_date) qs.set('on_date', params.on_date);
+    return request<Trip[]>(`/trips?${qs.toString()}`, { token });
+  },
+
+  createTrip: (data: CreateTripRequest, token: string) =>
+    request<Trip>('/trips', { method: 'POST', body: data, token }),
+
+  getTrip: (id: string, token: string) =>
+    request<Trip>(`/trips/${id}`, { token }),
+
+  updateTrip: (id: string, data: UpdateTripRequest, token: string) =>
+    request<Trip>(`/trips/${id}`, { method: 'PATCH', body: data, token }),
+
+  deleteTrip: (id: string, token: string) =>
+    request<void>(`/trips/${id}`, { method: 'DELETE', token }),
+
+  startTrip: (id: string, token: string) =>
+    request<Trip>(`/trips/${id}/start`, { method: 'POST', token }),
+
+  completeTrip: (id: string, token: string) =>
+    request<Trip>(`/trips/${id}/complete`, { method: 'POST', token }),
+
+  cancelTrip: (id: string, token: string) =>
+    request<Trip>(`/trips/${id}/cancel`, { method: 'POST', token }),
+
+  // Tracking
+  listTripPositions: (id: string, params: { limit?: number }, token: string) => {
+    const qs = new URLSearchParams();
+    if (params.limit) qs.set('limit', String(params.limit));
+    return request<TripPosition[]>(`/trips/${id}/positions?${qs.toString()}`, { token });
+  },
+
+  reportTripPosition: (id: string, data: ReportPositionRequest, token: string) =>
+    request<TripPosition>(`/trips/${id}/positions`, { method: 'POST', body: data, token }),
+
+  // Check-ins
+  listTripCheckins: (id: string, token: string) =>
+    request<TripCheckin[]>(`/trips/${id}/checkins`, { token }),
+
+  checkInLearner: (id: string, data: CreateCheckinRequest, token: string) =>
+    request<TripCheckin>(`/trips/${id}/checkins`, { method: 'POST', body: data, token }),
 };

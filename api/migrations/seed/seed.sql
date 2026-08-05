@@ -83,3 +83,47 @@ BEGIN
         ON CONFLICT (tenant_id, upi) DO NOTHING;
     END LOOP;
 END $$;
+
+-- Transport (EPIC 4): 2 vehicles, 2 routes with stops, assignments, and a sample trip
+-- Requires: migrations 014-016 applied first
+
+-- Vehicles
+INSERT INTO vehicles (id, tenant_id, registration, make, model, capacity, year, status, insurance_expiry, inspection_expiry, driver_id, driver_name, driver_phone) VALUES
+    ('e0000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000001', 'KDE 123A', 'Toyota', 'HiAce', 14, 2019, 'active', '2025-12-31', '2025-09-30', 'b0000000-0000-0000-0000-000000000005', 'David Mwangi', '+254712345605'),
+    ('e0000000-0000-0000-0000-000000000002', 'a0000000-0000-0000-0000-000000000001', 'KDX 456B', 'Nissan', 'Civilian', 26, 2021, 'active', '2025-11-30', '2025-10-15', NULL, 'Samuel Mutua', '+254712345606')
+ON CONFLICT (tenant_id, registration) DO NOTHING;
+
+-- Routes
+INSERT INTO routes (id, tenant_id, name, description, vehicle_id, active) VALUES
+    ('f0000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000001', 'Route A - Kasarani', 'Kasarani area morning/evening pickup', 'e0000000-0000-0000-0000-000000000001', true),
+    ('f0000000-0000-0000-0000-000000000002', 'a0000000-0000-0000-0000-000000000001', 'Route B - Ruiru', 'Ruiru bypass corridor', 'e0000000-0000-0000-0000-000000000002', true)
+ON CONFLICT (tenant_id, name) DO NOTHING;
+
+-- Stops for Route A
+INSERT INTO stops (id, tenant_id, route_id, name, sequence, latitude, longitude, landmark) VALUES
+    ('f1000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000001', 'f0000000-0000-0000-0000-000000000001', 'Kasarani Stage', 1, -1.2197, 36.8953, 'Kasarani Stadium'),
+    ('f1000000-0000-0000-0000-000000000002', 'a0000000-0000-0000-0000-000000000001', 'f0000000-0000-0000-0000-000000000001', 'Mwiki', 2, -1.2078, 36.9156, 'Mwiki Shopping Centre'),
+    ('f1000000-0000-0000-0000-000000000003', 'a0000000-0000-0000-0000-000000000001', 'f0000000-0000-0000-0000-000000000001', 'Clay City', 3, -1.2300, 36.9061, 'Clay City Mall')
+ON CONFLICT DO NOTHING;
+
+-- Stops for Route B
+INSERT INTO stops (id, tenant_id, route_id, name, sequence, latitude, longitude, landmark) VALUES
+    ('f1000000-0000-0000-0000-000000000004', 'a0000000-0000-0000-0000-000000000001', 'f0000000-0000-0000-0000-000000000002', 'Ruiru Town', 1, -1.1470, 36.9691, 'Ruiru Catholic'),
+    ('f1000000-0000-0000-0000-000000000005', 'a0000000-0000-0000-0000-000000000001', 'f0000000-0000-0000-0000-000000000002', 'Juja Road', 2, -1.1758, 36.9433, 'Juja Road Junction'),
+    ('f1000000-0000-0000-0000-000000000006', 'a0000000-0000-0000-0000-000000000001', 'f0000000-0000-0000-0000-000000000002', 'Githurai 44', 3, -1.2545, 36.8946, 'Githurai 44 Stage')
+ON CONFLICT DO NOTHING;
+
+-- Assign a few learners to Route A (to_school and from_school)
+INSERT INTO route_assignments (tenant_id, route_id, learner_id, stop_id, direction) VALUES
+    ('a0000000-0000-0000-0000-000000000001', 'f0000000-0000-0000-0000-000000000001', 'd0000000-0000-0000-0000-000000000001', 'f1000000-0000-0000-0000-000000000001', 'both'),
+    ('a0000000-0000-0000-0000-000000000001', 'f0000000-0000-0000-0000-000000000001', 'd0000000-0000-0000-0000-000000000002', 'f1000000-0000-0000-0000-000000000002', 'to_school'),
+    ('a0000000-0000-0000-0000-000000000001', 'f0000000-0000-0000-0000-000000000002', 'd0000000-0000-0000-0000-000000000003', 'f1000000-0000-0000-0000-000000000005', 'both')
+ON CONFLICT DO NOTHING;
+
+-- Sample scheduled trip for Route A (tomorrow morning)
+INSERT INTO trips (id, tenant_id, route_id, vehicle_id, direction, status, scheduled_departure, created_by, notes)
+SELECT 'f2000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000001',
+       'f0000000-0000-0000-0000-000000000001', 'e0000000-0000-0000-0000-000000000001',
+       'to_school', 'scheduled', (CURRENT_DATE + 1) + INTERVAL '6:30' HOUR, 'b0000000-0000-0000-0000-000000000005',
+       'Morning pickup Route A'
+ON CONFLICT DO NOTHING;

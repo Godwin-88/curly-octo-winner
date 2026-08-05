@@ -20,8 +20,10 @@ import (
 	"github.com/shule360/api/internal/comms/sms"
 	"github.com/shule360/api/internal/comms/whatsapp"
 	"github.com/shule360/api/internal/config"
+	"github.com/shule360/api/internal/learner"
 	appmiddleware "github.com/shule360/api/internal/middleware"
 	"github.com/shule360/api/internal/nemis"
+	"github.com/shule360/api/internal/transport"
 	"github.com/shule360/api/pkg/backblaze"
 	"github.com/shule360/api/pkg/httputil"
 	supabaseclient "github.com/shule360/api/pkg/supabase"
@@ -77,7 +79,6 @@ func main() {
 
 	// Initialize NEMIS client (sandbox for development)
 	nemisClient := nemis.NewSandboxNEMISClient()
-	_ = nemisClient // Reserved for learner enrollment validation
 
 	// Initialize chatbot
 	chatbot := whatsapp.NewChatbot()
@@ -94,6 +95,14 @@ func main() {
 	assessmentSvc := assessment.NewService(sb.Pool)
 	attendanceSvc := attendance.NewService(sb.Pool)
 	academicHandler := academic.NewHandler(curriculumSvc, assessmentSvc, attendanceSvc)
+
+	// Initialize learner services (EPIC 3)
+	learnerSvc := learner.NewService(sb.Pool, nemisClient)
+	learnerHandler := learner.NewHandler(learnerSvc)
+
+	// Initialize transport services (EPIC 4)
+	transportSvc := transport.NewService(sb.Pool)
+	transportHandler := transport.NewHandler(transportSvc)
 
 	// Setup router
 	r := chi.NewRouter()
@@ -123,6 +132,8 @@ func main() {
 
 			commsHandler.Mount(r)
 			academicHandler.Mount(r)
+			learnerHandler.Mount(r)
+			transportHandler.Mount(r)
 		})
 	})
 

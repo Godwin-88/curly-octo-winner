@@ -15,6 +15,8 @@ import {
   BookOpen,
   ClipboardList,
   CalendarCheck,
+  MapPin,
+  Navigation,
 } from 'lucide-react';
 
 const navItems = [
@@ -40,7 +42,15 @@ const navItems = [
     ],
   },
   { href: '/learners', label: 'Learners', icon: Users },
-  { href: '/transport', label: 'Transport', icon: Bus },
+  {
+    label: 'Transport',
+    icon: Bus,
+    children: [
+      { href: '/vehicles', label: 'Vehicles', icon: Bus },
+      { href: '/routes', label: 'Routes', icon: MapPin },
+      { href: '/trips', label: 'Trips & Tracking', icon: Navigation },
+    ],
+  },
   { href: '/finance', label: 'Finance', icon: Wallet },
   { href: '/settings', label: 'Settings', icon: Settings },
 ];
