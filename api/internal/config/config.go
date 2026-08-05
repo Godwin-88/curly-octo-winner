@@ -32,6 +32,13 @@ type Config struct {
 	MetaWAPhoneNumberID      string
 	MetaWAWebhookVerifyToken string
 
+	MpesaConsumerKey    string
+	MpesaConsumerSecret string
+	MpesaPasskey        string
+	MpesaShortCode      string
+	MpesaCallbackURL    string
+	MpesaBaseURL        string
+
 	JWTSecret string
 	Port      string
 	AppEnv    string
@@ -60,6 +67,12 @@ func Load() (*Config, error) {
 		MetaWAToken:              os.Getenv("META_WA_TOKEN"),
 		MetaWAPhoneNumberID:      os.Getenv("META_WA_PHONE_NUMBER_ID"),
 		MetaWAWebhookVerifyToken: os.Getenv("META_WA_WEBHOOK_VERIFY_TOKEN"),
+		MpesaConsumerKey:         os.Getenv("MPESA_CONSUMER_KEY"),
+		MpesaConsumerSecret:      os.Getenv("MPESA_CONSUMER_SECRET"),
+		MpesaPasskey:             os.Getenv("MPESA_PASSKEY"),
+		MpesaShortCode:           os.Getenv("MPESA_SHORT_CODE"),
+		MpesaCallbackURL:         os.Getenv("MPESA_CALLBACK_URL"),
+		MpesaBaseURL:             os.Getenv("MPESA_BASE_URL"),
 		JWTSecret:                os.Getenv("JWT_SECRET"),
 		Port:                     os.Getenv("PORT"),
 		AppEnv:                   os.Getenv("APP_ENV"),

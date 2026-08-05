@@ -551,6 +551,181 @@ export interface ReportPositionRequest {
   odometer_km?: number;
 }
 
+// --- Finance types ---
+
+export interface FeeStructureItem {
+  id: string;
+  tenant_id: string;
+  fee_structure_id: string;
+  name: string;
+  amount_cents: number;
+  item_type: string;
+  is_optional: boolean;
+  sort_order: number;
+  created_at: string;
+}
+
+export interface FeeStructure {
+  id: string;
+  tenant_id: string;
+  name: string;
+  grade: string;
+  term: number;
+  year: number;
+  total_cents: number;
+  active: boolean;
+  notes?: string;
+  created_by?: string;
+  created_at: string;
+  updated_at: string;
+  items?: FeeStructureItem[];
+}
+
+export interface FeeItemInput {
+  name: string;
+  amount_cents: number;
+  item_type: string;
+  is_optional?: boolean;
+  sort_order?: number;
+}
+
+export interface CreateFeeStructureRequest {
+  name: string;
+  grade: string;
+  term: number;
+  year: number;
+  active?: boolean;
+  notes?: string;
+  created_by?: string;
+  items?: FeeItemInput[];
+}
+
+export interface UpdateFeeStructureRequest {
+  name?: string;
+  grade?: string;
+  term?: number;
+  year?: number;
+  active?: boolean;
+  notes?: string;
+}
+
+export interface InvoiceItem {
+  id: string;
+  tenant_id: string;
+  invoice_id: string;
+  name: string;
+  amount_cents: number;
+  item_type: string;
+  is_optional: boolean;
+  sort_order: number;
+  created_at: string;
+}
+
+export interface Invoice {
+  id: string;
+  tenant_id: string;
+  learner_id: string;
+  fee_structure_id?: string;
+  invoice_number: string;
+  term: number;
+  year: number;
+  issue_date: string;
+  due_date?: string;
+  total_cents: number;
+  discount_cents: number;
+  paid_cents: number;
+  status: 'draft' | 'unpaid' | 'partially_paid' | 'paid' | 'overdue' | 'void';
+  notes?: string;
+  created_by?: string;
+  created_at: string;
+  updated_at: string;
+  learner_name?: string;
+  grade?: string;
+  stream?: string;
+  balance_cents?: number;
+  items?: InvoiceItem[];
+}
+
+export interface CreateInvoiceRequest {
+  learner_id: string;
+  fee_structure_id?: string;
+  term: number;
+  year: number;
+  issue_date?: string;
+  due_date?: string;
+  notes?: string;
+  created_by?: string;
+  items?: FeeItemInput[];
+}
+
+export interface UpdateInvoiceRequest {
+  due_date?: string;
+  status?: string;
+  notes?: string;
+}
+
+export interface Discount {
+  id: string;
+  tenant_id: string;
+  invoice_id: string;
+  amount_cents: number;
+  discount_type: string;
+  reason?: string;
+  approved_by?: string;
+  created_at: string;
+}
+
+export interface CreateDiscountRequest {
+  amount_cents: number;
+  discount_type: string;
+  reason?: string;
+  approved_by?: string;
+}
+
+export interface Payment {
+  id: string;
+  tenant_id: string;
+  invoice_id: string;
+  amount_cents: number;
+  channel: 'mpesa' | 'bank' | 'cash' | 'cheque';
+  status: 'pending' | 'completed' | 'failed' | 'reversed';
+  reference?: string;
+  paid_by?: string;
+  phone?: string;
+  paid_at?: string;
+  received_by?: string;
+  notes?: string;
+  checkout_request_id?: string;
+  merchant_request_id?: string;
+  mpesa_receipt?: string;
+  mpesa_result_code?: string;
+  mpesa_result_desc?: string;
+  created_at: string;
+  updated_at: string;
+  invoice_number?: string;
+  learner_name?: string;
+  grade?: string;
+}
+
+export interface CreatePaymentRequest {
+  invoice_id: string;
+  amount_cents: number;
+  channel: string;
+  reference?: string;
+  paid_by?: string;
+  phone?: string;
+  paid_at?: string;
+  received_by?: string;
+  notes?: string;
+}
+
+export interface MpesaStkRequest {
+  invoice_id: string;
+  phone: string;
+  amount_cents: number;
+  paid_by?: string;
+}
+
 // --- API functions ---
 
 export const api = {
@@ -837,4 +1012,87 @@ export const api = {
 
   checkInLearner: (id: string, data: CreateCheckinRequest, token: string) =>
     request<TripCheckin>(`/trips/${id}/checkins`, { method: 'POST', body: data, token }),
+
+  // Fee structures
+  listFeeStructures: (params: { grade?: string; term?: number; year?: number }, token: string) => {
+    const qs = new URLSearchParams();
+    if (params.grade) qs.set('grade', params.grade);
+    if (params.term) qs.set('term', String(params.term));
+    if (params.year) qs.set('year', String(params.year));
+    return request<FeeStructure[]>(`/fee-structures?${qs.toString()}`, { token });
+  },
+
+  createFeeStructure: (data: CreateFeeStructureRequest, token: string) =>
+    request<FeeStructure>('/fee-structures', { method: 'POST', body: data, token }),
+
+  getFeeStructure: (id: string, token: string) =>
+    request<FeeStructure>(`/fee-structures/${id}`, { token }),
+
+  updateFeeStructure: (id: string, data: UpdateFeeStructureRequest, token: string) =>
+    request<FeeStructure>(`/fee-structures/${id}`, { method: 'PATCH', body: data, token }),
+
+  deleteFeeStructure: (id: string, token: string) =>
+    request<void>(`/fee-structures/${id}`, { method: 'DELETE', token }),
+
+  addFeeStructureItem: (id: string, data: FeeItemInput, token: string) =>
+    request<FeeStructureItem>(`/fee-structures/${id}/items`, { method: 'POST', body: data, token }),
+
+  deleteFeeStructureItem: (itemId: string, token: string) =>
+    request<void>(`/fee-structures/items/${itemId}`, { method: 'DELETE', token }),
+
+  // Invoices
+  listInvoices: (params: { status?: string; learner_id?: string; term?: number; year?: number }, token: string) => {
+    const qs = new URLSearchParams();
+    if (params.status) qs.set('status', params.status);
+    if (params.learner_id) qs.set('learner_id', params.learner_id);
+    if (params.term) qs.set('term', String(params.term));
+    if (params.year) qs.set('year', String(params.year));
+    return request<Invoice[]>(`/invoices?${qs.toString()}`, { token });
+  },
+
+  createInvoice: (data: CreateInvoiceRequest, token: string) =>
+    request<Invoice>('/invoices', { method: 'POST', body: data, token }),
+
+  getInvoice: (id: string, token: string) =>
+    request<Invoice>(`/invoices/${id}`, { token }),
+
+  updateInvoice: (id: string, data: UpdateInvoiceRequest, token: string) =>
+    request<Invoice>(`/invoices/${id}`, { method: 'PATCH', body: data, token }),
+
+  deleteInvoice: (id: string, token: string) =>
+    request<void>(`/invoices/${id}`, { method: 'DELETE', token }),
+
+  listInvoicePayments: (id: string, token: string) =>
+    request<Payment[]>(`/invoices/${id}/payments`, { token }),
+
+  listInvoiceDiscounts: (id: string, token: string) =>
+    request<Discount[]>(`/invoices/${id}/discounts`, { token }),
+
+  createInvoiceDiscount: (id: string, data: CreateDiscountRequest, token: string) =>
+    request<Discount>(`/invoices/${id}/discounts`, { method: 'POST', body: data, token }),
+
+  deleteInvoiceDiscount: (discountId: string, token: string) =>
+    request<void>(`/invoices/discounts/${discountId}`, { method: 'DELETE', token }),
+
+  // Payments
+  listPayments: (params: { status?: string; channel?: string; term?: number; year?: number }, token: string) => {
+    const qs = new URLSearchParams();
+    if (params.status) qs.set('status', params.status);
+    if (params.channel) qs.set('channel', params.channel);
+    if (params.term) qs.set('term', String(params.term));
+    if (params.year) qs.set('year', String(params.year));
+    return request<Payment[]>(`/payments?${qs.toString()}`, { token });
+  },
+
+  createPayment: (data: CreatePaymentRequest, token: string) =>
+    request<Payment>('/payments', { method: 'POST', body: data, token }),
+
+  getPayment: (id: string, token: string) =>
+    request<Payment>(`/payments/${id}`, { token }),
+
+  reversePayment: (id: string, token: string) =>
+    request<Payment>(`/payments/${id}/reverse`, { method: 'POST', token }),
+
+  initiateMpesaStk: (data: MpesaStkRequest, token: string) =>
+    request<Payment>('/payments/mpesa/stk', { method: 'POST', body: data, token }),
 };

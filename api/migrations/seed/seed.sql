@@ -127,3 +127,88 @@ SELECT 'f2000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-00000000
        'to_school', 'scheduled', (CURRENT_DATE + 1) + INTERVAL '6:30' HOUR, 'b0000000-0000-0000-0000-000000000005',
        'Morning pickup Route A'
 ON CONFLICT DO NOTHING;
+
+-- Finance (EPIC 5): fee structures, invoices, and sample payments
+-- Requires: migrations 017-019 applied first
+
+-- Fee structure for Grade 4, Term 1
+INSERT INTO fee_structures (id, tenant_id, name, grade, term, year, total_cents, active, notes, created_by) VALUES
+    ('a1000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000001', 'Grade 4 Term 1 Fees', 'Grade 4', 1, 2026, 1750000, true, 'Tuition, caution, transport and activity', 'b0000000-0000-0000-0000-000000000002')
+ON CONFLICT (tenant_id, grade, term, year) DO NOTHING;
+
+INSERT INTO fee_structure_items (id, tenant_id, fee_structure_id, name, amount_cents, item_type, is_optional, sort_order) VALUES
+    ('a1100000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000001', 'a1000000-0000-0000-0000-000000000001', 'Tuition', 1200000, 'tuition', false, 1),
+    ('a1100000-0000-0000-0000-000000000002', 'a0000000-0000-0000-0000-000000000001', 'a1000000-0000-0000-0000-000000000001', 'Caution', 100000, 'caution', false, 2),
+    ('a1100000-0000-0000-0000-000000000003', 'a0000000-0000-0000-0000-000000000001', 'a1000000-0000-0000-0000-000000000001', 'Transport', 300000, 'transport', false, 3),
+    ('a1100000-0000-0000-0000-000000000004', 'a0000000-0000-0000-0000-000000000001', 'a1000000-0000-0000-0000-000000000001', 'Activities', 150000, 'activity', true, 4)
+ON CONFLICT (fee_structure_id, name) DO NOTHING;
+
+-- Fee structure for Grade 5, Term 1
+INSERT INTO fee_structures (id, tenant_id, name, grade, term, year, total_cents, active, notes, created_by) VALUES
+    ('a1000000-0000-0000-0000-000000000002', 'a0000000-0000-0000-0000-000000000001', 'Grade 5 Term 1 Fees', 'Grade 5', 1, 2026, 1900000, true, 'Tuition, caution, transport and activity', 'b0000000-0000-0000-0000-000000000002')
+ON CONFLICT (tenant_id, grade, term, year) DO NOTHING;
+
+INSERT INTO fee_structure_items (id, tenant_id, fee_structure_id, name, amount_cents, item_type, is_optional, sort_order) VALUES
+    ('a1100000-0000-0000-0000-000000000005', 'a0000000-0000-0000-0000-000000000001', 'a1000000-0000-0000-0000-000000000002', 'Tuition', 1300000, 'tuition', false, 1),
+    ('a1100000-0000-0000-0000-000000000006', 'a0000000-0000-0000-0000-000000000001', 'a1000000-0000-0000-0000-000000000002', 'Caution', 100000, 'caution', false, 2),
+    ('a1100000-0000-0000-0000-000000000007', 'a0000000-0000-0000-0000-000000000001', 'a1000000-0000-0000-0000-000000000002', 'Transport', 300000, 'transport', false, 3),
+    ('a1100000-0000-0000-0000-000000000008', 'a0000000-0000-0000-0000-000000000001', 'a1000000-0000-0000-0000-000000000002', 'Activities', 200000, 'activity', true, 4)
+ON CONFLICT (fee_structure_id, name) DO NOTHING;
+
+-- Sample invoices for a few Grade 4 learners (Term 1 2026)
+INSERT INTO invoices (id, tenant_id, learner_id, fee_structure_id, invoice_number, term, year, issue_date, due_date, total_cents, discount_cents, paid_cents, status, created_by)
+SELECT 'a2000000-0000-0000-0000-00000000000' || lp, 'a0000000-0000-0000-0000-000000000001',
+       ('d0000000-0000-0000-0000-0000' || LPAD(lp::text, 8, '0'))::uuid,
+       'a1000000-0000-0000-0000-000000000001',
+       'INV-2026-1-' || LPAD(lp::text, 6, '0'),
+       1, 2026, CURRENT_DATE, (CURRENT_DATE + 30),
+       1750000, 0, 0, 'unpaid', 'b0000000-0000-0000-0000-000000000002'
+FROM generate_series(1, 6) AS lp
+ON CONFLICT (tenant_id, invoice_number) DO NOTHING;
+
+-- Copy fee structure items into the invoices' snapshot items
+INSERT INTO invoice_items (tenant_id, invoice_id, name, amount_cents, item_type, is_optional, sort_order)
+SELECT fsi.tenant_id, i.id, fsi.name, fsi.amount_cents, fsi.item_type, fsi.is_optional, fsi.sort_order
+FROM fee_structure_items fsi
+JOIN invoices i ON i.fee_structure_id = fsi.fee_structure_id
+WHERE fsi.fee_structure_id = 'a1000000-0000-0000-0000-000000000001'
+  AND NOT EXISTS (
+      SELECT 1 FROM invoice_items ii
+      WHERE ii.invoice_id = i.id AND ii.name = fsi.name
+  );
+
+-- A sample sibling discount on invoice 2 (learner 2 has a sibling in Grade 5)
+INSERT INTO discounts (id, tenant_id, invoice_id, amount_cents, discount_type, reason, approved_by)
+SELECT 'a3000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000001', i.id, 50000, 'sibling', 'Sibling discount (Grade 5 sibling)', 'b0000000-0000-0000-0000-000000000002'
+FROM invoices i
+WHERE i.invoice_number = 'INV-2026-1-000002'
+ON CONFLICT DO NOTHING;
+
+-- A sample completed M-Pesa payment on invoice 1
+INSERT INTO payments (id, tenant_id, invoice_id, amount_cents, channel, status, reference, paid_by, phone, paid_at, mpesa_receipt, received_by)
+SELECT 'a4000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000001', i.id, 1000000, 'mpesa', 'completed', 'STK', 'Grace Muthoni', '+254712345101', now() - INTERVAL '2 days', 'SFA1234567', 'b0000000-0000-0000-0000-000000000002'
+FROM invoices i
+WHERE i.invoice_number = 'INV-2026-1-000001'
+ON CONFLICT DO NOTHING;
+
+-- A sample cash payment on invoice 3
+INSERT INTO payments (id, tenant_id, invoice_id, amount_cents, channel, status, reference, paid_by, paid_at, received_by)
+SELECT 'a4000000-0000-0000-0000-000000000002', 'a0000000-0000-0000-0000-000000000001', i.id, 500000, 'cash', 'completed', 'REC-1001', 'Cashier', now() - INTERVAL '1 day', 'b0000000-0000-0000-0000-000000000002'
+FROM invoices i
+WHERE i.invoice_number = 'INV-2026-1-000003'
+ON CONFLICT DO NOTHING;
+
+-- Reconcile invoice ledger fields (paid_cents, discount_cents, status) for seeded invoices
+UPDATE invoices i SET
+    discount_cents = COALESCE((SELECT SUM(amount_cents) FROM discounts WHERE invoice_id = i.id), 0),
+    paid_cents = COALESCE((SELECT SUM(amount_cents) FROM payments WHERE invoice_id = i.id AND status = 'completed'), 0),
+    status = CASE
+        WHEN COALESCE((SELECT SUM(amount_cents) FROM payments WHERE invoice_id = i.id AND status = 'completed'), 0) >= i.total_cents - COALESCE((SELECT SUM(amount_cents) FROM discounts WHERE invoice_id = i.id), 0)
+            THEN 'paid'
+        WHEN COALESCE((SELECT SUM(amount_cents) FROM payments WHERE invoice_id = i.id AND status = 'completed'), 0) > 0
+            THEN 'partially_paid'
+        WHEN i.due_date IS NOT NULL AND i.due_date < CURRENT_DATE THEN 'overdue'
+        ELSE 'unpaid'
+    END
+WHERE i.tenant_id = 'a0000000-0000-0000-0000-000000000001'
+  AND i.invoice_number LIKE 'INV-2026-1-%';

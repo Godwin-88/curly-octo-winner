@@ -20,12 +20,14 @@ import (
 	"github.com/shule360/api/internal/comms/sms"
 	"github.com/shule360/api/internal/comms/whatsapp"
 	"github.com/shule360/api/internal/config"
+	"github.com/shule360/api/internal/finance"
 	"github.com/shule360/api/internal/learner"
 	appmiddleware "github.com/shule360/api/internal/middleware"
 	"github.com/shule360/api/internal/nemis"
 	"github.com/shule360/api/internal/transport"
 	"github.com/shule360/api/pkg/backblaze"
 	"github.com/shule360/api/pkg/httputil"
+	"github.com/shule360/api/pkg/mpesa"
 	supabaseclient "github.com/shule360/api/pkg/supabase"
 	"github.com/shule360/api/pkg/upstash"
 )
@@ -100,9 +102,18 @@ func main() {
 	learnerSvc := learner.NewService(sb.Pool, nemisClient)
 	learnerHandler := learner.NewHandler(learnerSvc)
 
+	// Initialize M-Pesa Daraja client (EPIC 5)
+	mpesaClient := mpesa.NewClient(cfg.MpesaConsumerKey, cfg.MpesaConsumerSecret,
+		cfg.MpesaPasskey, cfg.MpesaShortCode, cfg.MpesaBaseURL)
+
 	// Initialize transport services (EPIC 4)
 	transportSvc := transport.NewService(sb.Pool)
 	transportHandler := transport.NewHandler(transportSvc)
+
+	// Initialize finance services (EPIC 5)
+	financeSvc := finance.NewService(sb.Pool)
+	financeMpesa := finance.NewMpesaService(sb.Pool, mpesaClient, cfg.MpesaCallbackURL)
+	financeHandler := finance.NewHandler(financeSvc, financeMpesa)
 
 	// Setup router
 	r := chi.NewRouter()
@@ -134,6 +145,7 @@ func main() {
 			academicHandler.Mount(r)
 			learnerHandler.Mount(r)
 			transportHandler.Mount(r)
+			financeHandler.Mount(r)
 		})
 	})
 

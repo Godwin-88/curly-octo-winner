@@ -17,6 +17,9 @@ import {
   CalendarCheck,
   MapPin,
   Navigation,
+  FileText,
+  Receipt,
+  Smartphone,
 } from 'lucide-react';
 
 const navItems = [
@@ -51,7 +54,16 @@ const navItems = [
       { href: '/trips', label: 'Trips & Tracking', icon: Navigation },
     ],
   },
-  { href: '/finance', label: 'Finance', icon: Wallet },
+  {
+    label: 'Finance',
+    icon: Wallet,
+    children: [
+      { href: '/finance', label: 'Overview', icon: Wallet },
+      { href: '/finance/fees', label: 'Fee Structures', icon: FileText },
+      { href: '/finance/invoices', label: 'Invoices', icon: Receipt },
+      { href: '/finance/payments', label: 'Payments', icon: Smartphone },
+    ],
+  },
   { href: '/settings', label: 'Settings', icon: Settings },
 ];
 

@@ -2,7 +2,7 @@
 
 A multi-tenant school management platform for Kenyan public schools under the **Competency-Based Curriculum (CBC)**. Shule360 digitizes the full school lifecycle — communications, learner records, academics, transport, and finance — with a focus on the unique needs of Kenyan schools (NEMIS integration, Africa's Talking SMS, WhatsApp Business, CBC assessment rubrics).
 
-> **Status:** EPIC 4 complete — Transport (fleet, routes, trips, live tracking) + Learner Records + Academic + Communications
+> **Status:** EPIC 5 complete — Finance (fees, invoices, M-Pesa payments) + Transport + Learner Records + Academic + Communications
 
 ---
 
@@ -32,6 +32,7 @@ A multi-tenant school management platform for Kenyan public schools under the **
 | **Object Storage** | Backblaze B2 | Learner documents, media, evidence |
 | **SMS** | Africa's Talking | Bulk SMS, delivery receipts |
 | **WhatsApp** | Meta Cloud API v19.0 | Broadcasts, 2-way inbox, chatbot |
+| **M-Pesa** | Safaricom Daraja API | STK push fee collection |
 | **NEMIS** | Sandbox client (stub) | UPI validation, learner lookup |
 | **Frontend** | Next.js 16 (Turbopack) + React 19 + Tailwind | Admin dashboard |
 | **Fonts** | Raleway (next/font) | Brand typography |
@@ -53,6 +54,7 @@ flowchart TB
         ACAD["Academic Service<br/>Curriculum · Assessments · Attendance"]
         LEARN["Learner Service<br/>Enrollment · Documents · Progression"]
         TRANSP["Transport Service<br/>Vehicles · Routes · Trips · Tracking"]
+        FIN["Finance Service<br/>Fees · Invoices · Payments"]
         NEMIS["NEMIS Client<br/>UPI Validation"]
     end
 
@@ -67,6 +69,7 @@ flowchart TB
     subgraph External["External Providers"]
         AT["Africa's Talking<br/>SMS"]
         META["Meta WhatsApp<br/>Cloud API"]
+        MPESA["Safaricom Daraja<br/>M-Pesa"]
         NEMISAPI["NEMIS<br/>(Production)"]
     end
 
@@ -76,11 +79,15 @@ flowchart TB
     MID --> ACAD
     MID --> LEARN
     MID --> TRANSP
+    MID --> FIN
     LEARN --> NEMIS
     COMMS --> PG
     ACAD --> PG
     LEARN --> PG
     TRANSP --> PG
+    FIN --> PG
+    FIN -->|REST| MPESA
+    MPESA -->|STK Callback| ROUTER
     COMMS --> REDIS
     COMMS --> VECTOR
     COMMS --> SEARCH
@@ -120,6 +127,7 @@ graph TD
     INTERNAL --> MID["middleware/"]
     INTERNAL --> NEMIS["nemis/"]
     INTERNAL --> TRANSP["transport/"]
+    INTERNAL --> FIN["finance/"]
     INTERNAL --> TENANT["tenant/"]
     INTERNAL --> CONFIG["config/"]
 
@@ -127,6 +135,11 @@ graph TD
     TRANSP --> TTRIP["trips.go"]
     TRANSP --> TTYPE["types.go"]
     TRANSP --> THAND["handler.go"]
+
+    FIN --> FSVC["service.go"]
+    FIN --> FMPESA["mpesa.go"]
+    FIN --> FTYPE["types.go"]
+    FIN --> FHAND["handler.go"]
 
     ACAD --> ACADH["handler.go"]
     ACAD --> CURR["curriculum/"]
@@ -152,6 +165,7 @@ graph TD
     PKG --> SUPABASE["supabase/"]
     PKG --> UPSTASH["upstash/"]
     PKG --> B2["backblaze/"]
+    PKG --> MPESA["mpesa/"]
 
     MIG --> M001["001_tenants.sql"]
     MIG --> M002["002_staff_auth.sql"]
@@ -169,6 +183,9 @@ graph TD
     MIG --> M014["014_vehicles.sql"]
     MIG --> M015["015_routes.sql"]
     MIG --> M016["016_trips.sql"]
+    MIG --> M017["017_fee_structures.sql"]
+    MIG --> M018["018_invoices.sql"]
+    MIG --> M019["019_payments.sql"]
     MIG --> SEED["seed/seed.sql"]
 
     WEB --> APP["app/"]
@@ -187,6 +204,7 @@ graph TD
     ADMIN --> VEHICLES["vehicles/"]
     ADMIN --> ROUTES["routes/"]
     ADMIN --> TRIPS["trips/"]
+    ADMIN --> FINANCE["finance/"]
     COMP --> LAYOUT["layout/"]
     COMP --> COMMS["comms/"]
     COMP --> UI["ui/"]
@@ -224,6 +242,11 @@ shule360/
 │   │   │   ├── service.go        # Vehicles, routes, stops, assignments CRUD
 │   │   │   ├── trips.go          # Trips, GPS positions, check-ins
 │   │   │   └── handler.go        # 20 transport routes
+│   │   ├── finance/              # EPIC 5 — Finance
+│   │   │   ├── types.go          # Domain types & requests
+│   │   │   ├── service.go        # Fee structures, invoices, discounts, payments
+│   │   │   ├── mpesa.go          # M-Pesa STK push + callback confirmation
+│   │   │   └── handler.go        # 22 finance routes
 │   │   ├── middleware/           # JWT auth, tenant, rate limiting
 │   │   ├── nemis/                # NEMIS client interface + sandbox stub
 │   │   ├── tenant/               # Tenant service
@@ -232,8 +255,9 @@ shule360/
 │   │   ├── httputil/             # JSON response helpers
 │   │   ├── supabase/             # pgx pool + auth client
 │   │   ├── upstash/              # Redis, Vector, Search clients
-│   │   └── backblaze/            # B2 S3-compatible client
-│   ├── migrations/               # 16 SQL migrations + seed
+│   │   ├── backblaze/            # B2 S3-compatible client
+│   │   └── mpesa/                # Safaricom Daraja STK push client
+│   ├── migrations/               # 19 SQL migrations + seed
 │   ├── .env.example
 │   ├── Dockerfile
 │   ├── fly.toml
@@ -247,7 +271,8 @@ shule360/
     │   │   ├── learners/         # List, Register, Detail (EPIC 3)
     │   │   ├── vehicles/         # Fleet management (EPIC 4)
     │   │   ├── routes/           # Routes, stops, assignments (EPIC 4)
-    │   │   └── trips/            # Schedule, track, check-ins (EPIC 4)
+    │   │   ├── trips/            # Schedule, track, check-ins (EPIC 4)
+    │   │   └── finance/          # Overview, fees, invoices, payments (EPIC 5)
     │   ├── (auth)/login/         # Login page
     │   ├── layout.tsx            # Root layout (Raleway font)
     │   └── globals.css
@@ -279,6 +304,9 @@ erDiagram
     TENANTS ||--o{ VALUES : "defines"
     TENANTS ||--o{ VEHICLES : "owns"
     TENANTS ||--o{ ROUTES : "operates"
+    TENANTS ||--o{ FEE_STRUCTURES : "defines"
+    TENANTS ||--o{ INVOICES : "issues"
+    TENANTS ||--o{ PAYMENTS : "receives"
 
     STAFF ||--o{ MESSAGES : "sends"
     STAFF ||--o{ ATTENDANCE : "marks"
@@ -287,6 +315,10 @@ erDiagram
     STAFF ||--o{ LEARNER_PROGRESSIONS : "approves"
     STAFF ||--o{ VEHICLES : "drives"
     STAFF ||--o{ TRIPS : "creates"
+    STAFF ||--o{ FEE_STRUCTURES : "creates"
+    STAFF ||--o{ INVOICES : "creates"
+    STAFF ||--o{ PAYMENTS : "receives"
+    STAFF ||--o{ DISCOUNTS : "approves"
 
     GUARDIANS ||--o{ WA_CONVERSATIONS : "chats"
     GUARDIANS }o--o{ LEARNERS : "guardian_of"
@@ -297,6 +329,7 @@ erDiagram
     LEARNERS ||--o{ LEARNER_PROGRESSIONS : "undergoes"
     LEARNERS ||--o{ ROUTE_ASSIGNMENTS : "assigned_to"
     LEARNERS ||--o{ TRIP_CHECKINS : "boards"
+    LEARNERS ||--o{ INVOICES : "billed_for"
 
     MESSAGES ||--o{ MESSAGE_LOGS : "produces"
     WA_CONVERSATIONS ||--o{ WA_MESSAGES : "contains"
@@ -313,6 +346,12 @@ erDiagram
     STOPS ||--o{ ROUTE_ASSIGNMENTS : "serves"
     TRIPS ||--o{ TRIP_POSITIONS : "reports"
     TRIPS ||--o{ TRIP_CHECKINS : "tracks"
+
+    FEE_STRUCTURES ||--o{ FEE_STRUCTURE_ITEMS : "contains"
+    FEE_STRUCTURES ||--o{ INVOICES : "generates"
+    INVOICES ||--o{ INVOICE_ITEMS : "contains"
+    INVOICES ||--o{ DISCOUNTS : "applies"
+    INVOICES ||--o{ PAYMENTS : "settles"
 
     TENANTS {
         uuid id PK
@@ -517,6 +556,70 @@ erDiagram
         timestamp checked_at
         boolean sms_notified
     }
+    FEE_STRUCTURES {
+        uuid id PK
+        uuid tenant_id FK
+        text name
+        text grade
+        int term
+        int year
+        bigint total_cents
+        boolean active
+    }
+    FEE_STRUCTURE_ITEMS {
+        uuid id PK
+        uuid fee_structure_id FK
+        text name
+        bigint amount_cents
+        text item_type
+        boolean is_optional
+        int sort_order
+    }
+    INVOICES {
+        uuid id PK
+        uuid tenant_id FK
+        uuid learner_id FK
+        uuid fee_structure_id FK
+        text invoice_number
+        int term
+        int year
+        date issue_date
+        date due_date
+        bigint total_cents
+        bigint discount_cents
+        bigint paid_cents
+        text status
+    }
+    INVOICE_ITEMS {
+        uuid id PK
+        uuid invoice_id FK
+        text name
+        bigint amount_cents
+        text item_type
+        boolean is_optional
+        int sort_order
+    }
+    DISCOUNTS {
+        uuid id PK
+        uuid invoice_id FK
+        bigint amount_cents
+        text discount_type
+        text reason
+        uuid approved_by
+    }
+    PAYMENTS {
+        uuid id PK
+        uuid tenant_id FK
+        uuid invoice_id FK
+        bigint amount_cents
+        text channel
+        text status
+        text reference
+        text phone
+        timestamp paid_at
+        text mpesa_receipt
+        text checkout_request_id
+    }
 ```
 
 ### Logical Data Flow
@@ -530,6 +633,7 @@ sequenceDiagram
     participant NEMIS as NEMIS Sandbox
     participant AT as Africa's Talking
     participant WA as WhatsApp Cloud
+    participant MPESA as Safaricom Daraja
 
     rect rgb(240, 248, 255)
         Note over Admin,DB: EPIC 3 — Learner Enrollment
@@ -592,6 +696,19 @@ sequenceDiagram
         Web->>API: GET /trips/{id}
         API-->>Web: Trip + latest position
     end
+
+    rect rgb(255, 245, 245)
+        Note over Admin,DB: EPIC 5 — M-Pesa Fee Payment
+        Admin->>Web: Open invoice, initiate STK push
+        Web->>API: POST /payments/mpesa/stk
+        API->>DB: INSERT payments (pending)
+        API->>MPESA: STKPush(phone, amount)
+        MPESA-->>API: CheckoutRequestID
+        MPESA-->>API: STK Callback (result)
+        API->>DB: UPDATE payments (completed + receipt)
+        API->>DB: UPDATE invoices (paid_cents, status)
+        API-->>Web: Payment confirmed
+    end
 ```
 
 ---
@@ -608,6 +725,7 @@ All endpoints are prefixed with `/api/v1` and require a `Bearer` JWT (except web
 | POST | `/webhooks/whatsapp` | Meta WhatsApp inbound webhook | No |
 | GET | `/webhooks/whatsapp` | Meta webhook verification | No |
 | POST | `/webhooks/sms/dlr` | Africa's Talking delivery receipt | No |
+| POST | `/webhooks/mpesa/stk` | Safaricom M-Pesa STK push callback | No |
 
 ### Communications — Messages
 
@@ -732,6 +850,42 @@ All endpoints are prefixed with `/api/v1` and require a `Bearer` JWT (except web
 | GET | `/trips/{id}/checkins` | List boarded/alighted check-ins |
 | POST | `/trips/{id}/checkins` | Record check-in |
 
+### Finance — Fee Structures (EPIC 5)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/fee-structures` | List fee structures (`?grade=&term=&year=`) |
+| POST | `/fee-structures` | Create fee structure (+ items) |
+| GET | `/fee-structures/{id}` | Get fee structure with items |
+| PATCH | `/fee-structures/{id}` | Update fee structure |
+| DELETE | `/fee-structures/{id}` | Delete fee structure |
+| POST | `/fee-structures/{id}/items` | Add fee item |
+| DELETE | `/fee-structures/items/{itemId}` | Delete fee item |
+
+### Finance — Invoices & Discounts (EPIC 5)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/invoices` | List invoices (`?status=&learner_id=&term=&year=`) |
+| POST | `/invoices` | Create invoice (from fee structure or custom items) |
+| GET | `/invoices/{id}` | Get invoice with line items |
+| PATCH | `/invoices/{id}` | Update invoice (due date, status, notes) |
+| DELETE | `/invoices/{id}` | Delete invoice |
+| GET | `/invoices/{id}/payments` | List invoice payments |
+| GET | `/invoices/{id}/discounts` | List discounts |
+| POST | `/invoices/{id}/discounts` | Apply discount (scholarship/sibling/waiver) |
+| DELETE | `/invoices/discounts/{discountId}` | Remove discount |
+
+### Finance — Payments & M-Pesa (EPIC 5)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/payments` | List payments (`?status=&channel=&term=&year=`) |
+| POST | `/payments` | Record payment (cash/bank/cheque/manual M-Pesa) |
+| GET | `/payments/{id}` | Get payment |
+| POST | `/payments/{id}/reverse` | Reverse a completed payment |
+| POST | `/payments/mpesa/stk` | Initiate M-Pesa STK push |
+
 ---
 
 ## Authentication & Multi-Tenancy
@@ -752,6 +906,7 @@ All endpoints are prefixed with `/api/v1` and require a `Bearer` JWT (except web
 - Upstash Redis/Vector/Search
 - Backblaze B2 bucket
 - Africa's Talking + Meta WhatsApp credentials (for live sending)
+- Safaricom Daraja M-Pesa credentials (for STK push)
 
 ### 1. Backend
 
@@ -773,9 +928,9 @@ npm run dev                   # http://localhost:3000
 ### 3. Database Migrations
 
 ```bash
-# Apply migrations in order (001 → 016), then seed:
+# Apply migrations in order (001 → 019), then seed:
 psql "$DATABASE_URL" -f migrations/001_tenants.sql
-# ... repeat for 002-016 ...
+# ... repeat for 002-019 ...
 psql "$DATABASE_URL" -f migrations/seed/seed.sql
 ```
 
@@ -799,6 +954,9 @@ psql "$DATABASE_URL" -f migrations/seed/seed.sql
 | `B2_ACCOUNT_ID` / `B2_APPLICATION_KEY` / `B2_BUCKET_NAME` / `B2_ENDPOINT` | Backblaze B2 |
 | `AT_API_KEY` / `AT_USERNAME` / `AT_SENDER_ID` | Africa's Talking |
 | `META_WA_TOKEN` / `META_WA_PHONE_NUMBER_ID` / `META_WA_WEBHOOK_VERIFY_TOKEN` | WhatsApp Cloud API |
+| `MPESA_CONSUMER_KEY` / `MPESA_CONSUMER_SECRET` | Safaricom Daraja OAuth credentials |
+| `MPESA_PASSKEY` / `MPESA_SHORT_CODE` | M-Pesa STK push passkey + paybill |
+| `MPESA_CALLBACK_URL` / `MPESA_BASE_URL` | STK callback endpoint + Daraja base URL |
 
 ### Frontend (`web/.env.local`)
 
@@ -833,7 +991,7 @@ npx next build         # production build + type check
 | **EPIC 2** | ✅ Complete | Academic — CBC Curriculum, Formative Assessments, Attendance |
 | **EPIC 3** | ✅ Complete | Learner Records — Enrollment, Documents, Progression, Transfers |
 | **EPIC 4** | ✅ Complete | Transport — Fleet, Routes, Trips, Live GPS Tracking, Boarding Check-ins |
-| **EPIC 5** | ⏳ Planned | Finance — Fees, Invoices, Payments (M-Pesa) |
+| **EPIC 5** | ✅ Complete | Finance — Fee Structures, Invoices, Discounts, Payments (M-Pesa STK) |
 | **EPIC 6** | ⏳ Planned | Reports & Analytics — Report cards, Dashboards |
 
 > **Note:** This README is updated after every epic to reflect the current architecture, schema, and endpoints.
