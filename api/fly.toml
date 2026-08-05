@@ -1,0 +1,49 @@
+# fly.toml
+# Shule360 API deployment config for Fly.io (free tier, single region: jnb)
+
+app = "shule360-api"
+primary_region = "jnb"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "8080"
+  APP_ENV = "production"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = true
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ["app"]
+
+[[vm]]
+  memory = "256mb"
+  cpu_kind = "shared"
+  cpus = 1
+
+# Secrets are set via: fly secrets set DATABASE_URL=... SUPABASE_URL=... etc.
+# List here for documentation:
+# [secrets]
+#   DATABASE_URL = "..."
+#   SUPABASE_URL = "..."
+#   SUPABASE_SERVICE_ROLE_KEY = "..."
+#   UPSTASH_REDIS_REST_URL = "..."
+#   UPSTASH_REDIS_REST_TOKEN = "..."
+#   UPSTASH_VECTOR_REST_URL = "..."
+#   UPSTASH_VECTOR_REST_TOKEN = "..."
+#   UPSTASH_SEARCH_REST_URL = "..."
+#   UPSTASH_SEARCH_REST_TOKEN = "..."
+#   B2_ACCOUNT_ID = "..."
+#   B2_APPLICATION_KEY = "..."
+#   B2_BUCKET_NAME = "..."
+#   B2_ENDPOINT = "..."
+#   AT_API_KEY = "..."
+#   AT_USERNAME = "..."
+#   AT_SENDER_ID = "..."
+#   META_WA_TOKEN = "..."
+#   META_WA_PHONE_NUMBER_ID = "..."
+#   META_WA_WEBHOOK_VERIFY_TOKEN = "..."
+#   JWT_SECRET = "..."

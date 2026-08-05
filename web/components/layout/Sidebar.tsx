@@ -1,0 +1,109 @@
+'use client';
+
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
+import {
+  LayoutDashboard,
+  MessageSquare,
+  MessageCircle,
+  Inbox,
+  Users,
+  GraduationCap,
+  Bus,
+  Wallet,
+  Settings,
+} from 'lucide-react';
+
+const navItems = [
+  { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  {
+    label: 'Communications',
+    icon: MessageSquare,
+    children: [
+      { href: '/communications', label: 'Overview', icon: MessageSquare },
+      { href: '/communications/sms', label: 'SMS Campaigns', icon: MessageSquare },
+      { href: '/communications/whatsapp', label: 'WhatsApp', icon: MessageCircle },
+      { href: '/communications/inbox', label: 'Inbox', icon: Inbox },
+    ],
+  },
+  { href: '/learners', label: 'Learners', icon: GraduationCap },
+  { href: '/transport', label: 'Transport', icon: Bus },
+  { href: '/finance', label: 'Finance', icon: Wallet },
+  { href: '/settings', label: 'Settings', icon: Settings },
+];
+
+export default function Sidebar() {
+  const pathname = usePathname();
+
+  return (
+    <aside className="fixed left-0 top-0 h-screen w-64 bg-gray-900 text-white flex flex-col">
+      <div className="p-6 border-b border-gray-800">
+        <h1 className="text-xl font-bold">Shule360</h1>
+        <p className="text-sm text-gray-400">School Management</p>
+      </div>
+
+      <nav className="flex-1 overflow-y-auto p-4 space-y-1">
+        {navItems.map((item) => {
+          const Icon = item.icon;
+          const isActive = pathname?.startsWith(item.href || '');
+
+          if (item.children) {
+            return (
+              <div key={item.label} className="mb-2">
+                <div className="flex items-center gap-2 px-3 py-2 text-sm text-gray-400">
+                  <Icon size={18} />
+                  <span>{item.label}</span>
+                </div>
+                <div className="ml-4 space-y-1">
+                  {item.children.map((child) => {
+                    const ChildIcon = child.icon;
+                    const isChildActive = pathname === child.href;
+                    return (
+                      <Link
+                        key={child.href}
+                        href={child.href}
+                        className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm transition-colors ${
+                          isChildActive
+                            ? 'bg-blue-600 text-white'
+                            : 'text-gray-300 hover:bg-gray-800'
+                        }`}
+                      >
+                        <ChildIcon size={16} />
+                        <span>{child.label}</span>
+                      </Link>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          }
+
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm transition-colors ${
+                isActive ? 'bg-blue-600 text-white' : 'text-gray-300 hover:bg-gray-800'
+              }`}
+            >
+              <Icon size={18} />
+              <span>{item.label}</span>
+            </Link>
+          );
+        })}
+      </nav>
+
+      <div className="p-4 border-t border-gray-800">
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center text-sm font-bold">
+            JK
+          </div>
+          <div>
+            <p className="text-sm font-medium">John Kamau</p>
+            <p className="text-xs text-gray-400">Principal</p>
+          </div>
+        </div>
+      </div>
+    </aside>
+  );
+}

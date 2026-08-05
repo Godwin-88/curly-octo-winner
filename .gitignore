@@ -1,0 +1,35 @@
+# Environment files
+.env
+.env.local
+!.env.example
+!.env.local.example
+
+# Bevel secrets
+.bevel/do_not_share/
+
+# Dependencies
+node_modules/
+
+# Build output
+.next/
+dist/
+build/
+
+# Logs
+*.log
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Keys and certs
+*.pem
+*.key
+
+# Credentials
+credentials.json
+*.secret
