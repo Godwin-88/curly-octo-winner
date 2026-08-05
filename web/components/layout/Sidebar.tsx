@@ -12,6 +12,9 @@ import {
   Bus,
   Wallet,
   Settings,
+  BookOpen,
+  ClipboardList,
+  CalendarCheck,
 } from 'lucide-react';
 
 const navItems = [
@@ -26,7 +29,17 @@ const navItems = [
       { href: '/communications/inbox', label: 'Inbox', icon: Inbox },
     ],
   },
-  { href: '/learners', label: 'Learners', icon: GraduationCap },
+  {
+    label: 'Academic',
+    icon: GraduationCap,
+    children: [
+      { href: '/academic', label: 'Overview', icon: GraduationCap },
+      { href: '/academic/curriculum', label: 'Curriculum', icon: BookOpen },
+      { href: '/academic/assessments', label: 'Assessments', icon: ClipboardList },
+      { href: '/academic/attendance', label: 'Attendance', icon: CalendarCheck },
+    ],
+  },
+  { href: '/learners', label: 'Learners', icon: Users },
   { href: '/transport', label: 'Transport', icon: Bus },
   { href: '/finance', label: 'Finance', icon: Wallet },
   { href: '/settings', label: 'Settings', icon: Settings },

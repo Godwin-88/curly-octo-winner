@@ -12,6 +12,10 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
+	"github.com/shule360/api/internal/academic"
+	"github.com/shule360/api/internal/academic/assessment"
+	"github.com/shule360/api/internal/academic/attendance"
+	"github.com/shule360/api/internal/academic/curriculum"
 	"github.com/shule360/api/internal/comms"
 	"github.com/shule360/api/internal/comms/sms"
 	"github.com/shule360/api/internal/comms/whatsapp"
@@ -78,12 +82,18 @@ func main() {
 	// Initialize chatbot
 	chatbot := whatsapp.NewChatbot()
 
-	// Initialize services
+	// Initialize comms service
 	commsService := comms.NewCommsService(sb.Pool, redisClient, atClient, waClient)
 	commsHandler := comms.NewHandler(commsService)
 
 	// Initialize WhatsApp webhook handler
 	waWebhook := whatsapp.NewWebhookHandler(cfg.MetaWAWebhookVerifyToken, sb.Pool, chatbot, waClient)
+
+	// Initialize academic services
+	curriculumSvc := curriculum.NewService(sb.Pool)
+	assessmentSvc := assessment.NewService(sb.Pool)
+	attendanceSvc := attendance.NewService(sb.Pool)
+	academicHandler := academic.NewHandler(curriculumSvc, assessmentSvc, attendanceSvc)
 
 	// Setup router
 	r := chi.NewRouter()
@@ -112,6 +122,7 @@ func main() {
 			r.Use(appmiddleware.RateLimit(redisClient, 100, 10))
 
 			commsHandler.Mount(r)
+			academicHandler.Mount(r)
 		})
 	})
 

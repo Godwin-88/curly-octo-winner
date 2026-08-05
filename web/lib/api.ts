@@ -138,6 +138,142 @@ export interface ConversationMessage {
   timestamp: string;
 }
 
+// --- Academic types ---
+
+export interface LearningArea {
+  id: string;
+  tenant_id: string;
+  name: string;
+  kicd_code: string;
+  grade_level: string;
+  description?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Strand {
+  id: string;
+  tenant_id: string;
+  learning_area_id: string;
+  name: string;
+  kicd_code: string;
+  description?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SubStrand {
+  id: string;
+  tenant_id: string;
+  strand_id: string;
+  name: string;
+  kicd_code: string;
+  description?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface LearningOutcome {
+  id: string;
+  tenant_id: string;
+  sub_strand_id: string;
+  description: string;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CoreCompetency {
+  id: string;
+  tenant_id: string;
+  name: string;
+  kicd_code: string;
+  description?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Value {
+  id: string;
+  tenant_id: string;
+  name: string;
+  kicd_code: string;
+  description?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Assessment {
+  id: string;
+  tenant_id: string;
+  learner_id: string;
+  sub_strand_id: string;
+  rubric_level: number;
+  note: string;
+  evidence_urls: string[];
+  teacher_id: string;
+  term: number;
+  year: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateAssessmentRequest {
+  learner_id: string;
+  sub_strand_id: string;
+  rubric_level: number;
+  note?: string;
+  evidence_urls?: string[];
+  term: number;
+  year: number;
+}
+
+export interface AssessmentSummary {
+  id: string;
+  learner_id: string;
+  learner_name: string;
+  grade: string;
+  stream: string;
+  sub_strand_id: string;
+  sub_strand_name: string;
+  sub_strand_code: string;
+  strand_name: string;
+  learning_area: string;
+  rubric_level: number;
+  rubric_label: string;
+  note: string;
+  term: number;
+  year: number;
+  teacher_id: string;
+  created_at: string;
+}
+
+export interface AttendanceRecord {
+  id: string;
+  tenant_id: string;
+  learner_id: string;
+  date: string;
+  status: 'present' | 'absent' | 'late' | 'excused';
+  marked_by?: string;
+  reason?: string;
+  sms_notified: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AttendanceSummary {
+  id: string;
+  learner_id: string;
+  learner_name: string;
+  grade: string;
+  stream: string;
+  date: string;
+  status: 'present' | 'absent' | 'late' | 'excused';
+  reason?: string;
+  sms_notified: boolean;
+  created_at: string;
+}
+
 // --- API functions ---
 
 export const api = {
@@ -191,4 +327,82 @@ export const api = {
 
   updateConversationStatus: (id: string, status: string, token: string) =>
     request<void>(`/conversations/${id}/status`, { method: 'PATCH', body: { status }, token }),
+
+  // Curriculum
+  listLearningAreas: (token: string) =>
+    request<LearningArea[]>('/curriculum/learning-areas', { token }),
+
+  createLearningArea: (data: LearningArea, token: string) =>
+    request<LearningArea>('/curriculum/learning-areas', { method: 'POST', body: data, token }),
+
+  listStrands: (learningAreaId: string, token: string) =>
+    request<Strand[]>(`/curriculum/learning-areas/${learningAreaId}/strands`, { token }),
+
+  createStrand: (data: Strand, token: string) =>
+    request<Strand>('/curriculum/strands', { method: 'POST', body: data, token }),
+
+  listSubStrands: (strandId: string, token: string) =>
+    request<SubStrand[]>(`/curriculum/strands/${strandId}/sub-strands`, { token }),
+
+  createSubStrand: (data: SubStrand, token: string) =>
+    request<SubStrand>('/curriculum/sub-strands', { method: 'POST', body: data, token }),
+
+  listLearningOutcomes: (subStrandId: string, token: string) =>
+    request<LearningOutcome[]>(`/curriculum/sub-strands/${subStrandId}/learning-outcomes`, { token }),
+
+  createLearningOutcome: (data: LearningOutcome, token: string) =>
+    request<LearningOutcome>('/curriculum/learning-outcomes', { method: 'POST', body: data, token }),
+
+  listCoreCompetencies: (token: string) =>
+    request<CoreCompetency[]>('/curriculum/core-competencies', { token }),
+
+  createCoreCompetency: (data: CoreCompetency, token: string) =>
+    request<CoreCompetency>('/curriculum/core-competencies', { method: 'POST', body: data, token }),
+
+  listValues: (token: string) =>
+    request<Value[]>('/curriculum/values', { token }),
+
+  createValue: (data: Value, token: string) =>
+    request<Value>('/curriculum/values', { method: 'POST', body: data, token }),
+
+  // Assessments
+  createAssessment: (data: CreateAssessmentRequest, token: string) =>
+    request<Assessment>('/assessments', { method: 'POST', body: data, token }),
+
+  getAssessment: (id: string, token: string) =>
+    request<Assessment>(`/assessments/${id}`, { token }),
+
+  listAssessmentsByLearner: (learnerId: string, params: { term?: number; year?: number }, token: string) => {
+    const qs = new URLSearchParams();
+    if (params.term) qs.set('term', String(params.term));
+    if (params.year) qs.set('year', String(params.year));
+    return request<Assessment[]>(`/assessments/learner/${learnerId}?${qs.toString()}`, { token });
+  },
+
+  listTermSummaries: (params: { learner_id: string; term?: number; year?: number }, token: string) => {
+    const qs = new URLSearchParams();
+    qs.set('learner_id', params.learner_id);
+    if (params.term) qs.set('term', String(params.term));
+    if (params.year) qs.set('year', String(params.year));
+    return request<AssessmentSummary[]>(`/assessments/term-summary?${qs.toString()}`, { token });
+  },
+
+  deleteAssessment: (id: string, token: string) =>
+    request<void>(`/assessments/${id}`, { method: 'DELETE', token }),
+
+  // Attendance
+  markAttendance: (data: AttendanceRecord, token: string) =>
+    request<AttendanceRecord>('/attendance', { method: 'POST', body: data, token }),
+
+  listAttendanceByDate: (date: string, token: string) =>
+    request<AttendanceSummary[]>(`/attendance/date?date=${date}`, { token }),
+
+  listAttendanceByLearner: (learnerId: string, token: string) =>
+    request<AttendanceRecord[]>(`/attendance/learner/${learnerId}`, { token }),
+
+  getAttendance: (id: string, token: string) =>
+    request<AttendanceRecord>(`/attendance/${id}`, { token }),
+
+  deleteAttendance: (id: string, token: string) =>
+    request<void>(`/attendance/${id}`, { method: 'DELETE', token }),
 };
