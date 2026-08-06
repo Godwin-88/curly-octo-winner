@@ -1,0 +1,823 @@
+package hr
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+)
+
+// Service handles HR domain operations.
+type Service struct {
+	pool *pgxpool.Pool
+}
+
+// NewService creates an HR service.
+func NewService(pool *pgxpool.Pool) *Service {
+	return &Service{pool: pool}
+}
+
+// --- Staff profile operations ---
+
+const staffColumns = `s.id, s.tenant_id, s.full_name, s.email, s.phone, s.role::text, s.is_active,
+	s.tsc_number, s.national_id, s.kra_pin, s.date_of_birth::text, s.gender, s.department,
+	s.job_title, s.employment_type, s.hire_date::text, s.qualifications, s.subjects,
+	s.employment_history, s.emergency_contact, s.bank_details, s.photo_url, s.created_at, s.updated_at`
+
+func scanStaff(row pgx.Row) (*StaffProfile, error) {
+	var st StaffProfile
+	err := row.Scan(
+		&st.ID, &st.TenantID, &st.FullName, &st.Email, &st.Phone, &st.Role, &st.IsActive,
+		&st.TSCNumber, &st.NationalID, &st.KRAPin, &st.DateOfBirth, &st.Gender, &st.Department,
+		&st.JobTitle, &st.EmploymentType, &st.HireDate, &st.Qualifications, &st.Subjects,
+		&st.EmploymentHistory, &st.EmergencyContact, &st.BankDetails, &st.PhotoURL, &st.CreatedAt, &st.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if st.Qualifications == nil {
+		st.Qualifications = []any{}
+	}
+	if st.Subjects == nil {
+		st.Subjects = []any{}
+	}
+	if st.EmploymentHistory == nil {
+		st.EmploymentHistory = []any{}
+	}
+	if st.EmergencyContact == nil {
+		st.EmergencyContact = map[string]any{}
+	}
+	if st.BankDetails == nil {
+		st.BankDetails = map[string]any{}
+	}
+	return &st, nil
+}
+
+// ListStaff returns staff profiles optionally filtered by role/department/employment type.
+func (s *Service) ListStaff(ctx context.Context, tenantID uuid.UUID, role, department, employmentType string, includeInactive bool) ([]StaffProfile, error) {
+	query := fmt.Sprintf(`SELECT %s FROM staff s WHERE s.tenant_id = $1`, staffColumns)
+	args := []any{tenantID}
+	argIdx := 2
+
+	if role != "" {
+		query += fmt.Sprintf(` AND s.role::text = $%d`, argIdx)
+		args = append(args, role)
+		argIdx++
+	}
+	if department != "" {
+		query += fmt.Sprintf(` AND s.department = $%d`, argIdx)
+		args = append(args, department)
+		argIdx++
+	}
+	if employmentType != "" {
+		query += fmt.Sprintf(` AND s.employment_type = $%d`, argIdx)
+		args = append(args, employmentType)
+		argIdx++
+	}
+	if !includeInactive {
+		query += ` AND s.is_active = true`
+	}
+	query += ` ORDER BY s.full_name`
+
+	rows, err := s.pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var staff []StaffProfile
+	for rows.Next() {
+		st, err := scanStaff(rows)
+		if err != nil {
+			return nil, err
+		}
+		staff = append(staff, *st)
+	}
+	return staff, rows.Err()
+}
+
+// GetStaff returns a single staff profile.
+func (s *Service) GetStaff(ctx context.Context, tenantID, id uuid.UUID) (*StaffProfile, error) {
+	query := fmt.Sprintf(`SELECT %s FROM staff s WHERE s.tenant_id = $1 AND s.id = $2`, staffColumns)
+	return scanStaff(s.pool.QueryRow(ctx, query, tenantID, id))
+}
+
+// CreateStaff inserts a new staff profile.
+func (s *Service) CreateStaff(ctx context.Context, tenantID uuid.UUID, req CreateStaffRequest) (*StaffProfile, error) {
+	if req.FullName == "" || req.Email == "" {
+		return nil, errors.New("full_name and email are required")
+	}
+	role := req.Role
+	if role == "" {
+		role = "teacher"
+	}
+	employmentType := "permanent"
+	if req.EmploymentType != nil {
+		employmentType = *req.EmploymentType
+	}
+	isActive := true
+	if req.IsActive != nil {
+		isActive = *req.IsActive
+	}
+
+	query := fmt.Sprintf(`INSERT INTO staff (tenant_id, full_name, email, phone, role, is_active,
+		tsc_number, national_id, kra_pin, date_of_birth, gender, department, job_title,
+		employment_type, hire_date, qualifications, subjects, employment_history,
+		emergency_contact, bank_details, photo_url)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+		RETURNING %s`, staffColumns)
+	return scanStaff(s.pool.QueryRow(ctx, query,
+		tenantID, req.FullName, req.Email, req.Phone, role, isActive,
+		req.TSCNumber, req.NationalID, req.KRAPin, req.DateOfBirth, req.Gender, req.Department, req.JobTitle,
+		employmentType, req.HireDate, req.Qualifications, req.Subjects, req.EmploymentHistory,
+		req.EmergencyContact, req.BankDetails, req.PhotoURL,
+	))
+}
+
+// UpdateStaff partially updates a staff profile.
+func (s *Service) UpdateStaff(ctx context.Context, tenantID, id uuid.UUID, req UpdateStaffRequest) (*StaffProfile, error) {
+	if _, err := s.GetStaff(ctx, tenantID, id); err != nil {
+		return nil, err
+	}
+	query := fmt.Sprintf(`UPDATE staff s SET
+		full_name = COALESCE($3, s.full_name),
+		email = COALESCE($4, s.email),
+		phone = COALESCE($5, s.phone),
+		role = COALESCE($6, s.role),
+		is_active = COALESCE($7, s.is_active),
+		tsc_number = COALESCE($8, s.tsc_number),
+		national_id = COALESCE($9, s.national_id),
+		kra_pin = COALESCE($10, s.kra_pin),
+		date_of_birth = COALESCE($11, s.date_of_birth),
+		gender = COALESCE($12, s.gender),
+		department = COALESCE($13, s.department),
+		job_title = COALESCE($14, s.job_title),
+		employment_type = COALESCE($15, s.employment_type),
+		hire_date = COALESCE($16, s.hire_date),
+		qualifications = COALESCE($17, s.qualifications),
+		subjects = COALESCE($18, s.subjects),
+		employment_history = COALESCE($19, s.employment_history),
+		emergency_contact = COALESCE($20, s.emergency_contact),
+		bank_details = COALESCE($21, s.bank_details),
+		photo_url = COALESCE($22, s.photo_url)
+		WHERE s.tenant_id = $1 AND s.id = $2
+		RETURNING %s`, staffColumns)
+	return scanStaff(s.pool.QueryRow(ctx, query,
+		tenantID, id, req.FullName, req.Email, req.Phone, req.Role, req.IsActive,
+		req.TSCNumber, req.NationalID, req.KRAPin, req.DateOfBirth, req.Gender, req.Department, req.JobTitle,
+		req.EmploymentType, req.HireDate, req.Qualifications, req.Subjects, req.EmploymentHistory,
+		req.EmergencyContact, req.BankDetails, req.PhotoURL,
+	))
+}
+
+// DeleteStaff deactivates a staff member (soft delete via is_active=false).
+func (s *Service) DeleteStaff(ctx context.Context, tenantID, id uuid.UUID) error {
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE staff SET is_active = false WHERE tenant_id = $1 AND id = $2`, tenantID, id)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return pgx.ErrNoRows
+	}
+	return nil
+}
+
+// --- Staff documents ---
+
+const staffDocColumns = `id, tenant_id, staff_id, doc_type, file_name, file_url, mime_type, file_size, uploaded_by, created_at`
+
+func scanStaffDoc(row pgx.Row) (*StaffDocument, error) {
+	var d StaffDocument
+	err := row.Scan(&d.ID, &d.TenantID, &d.StaffID, &d.DocType, &d.FileName, &d.FileURL,
+		&d.MimeType, &d.FileSize, &d.UploadedBy, &d.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &d, nil
+}
+
+// ListStaffDocuments returns documents for a staff member.
+func (s *Service) ListStaffDocuments(ctx context.Context, tenantID, staffID uuid.UUID) ([]StaffDocument, error) {
+	query := fmt.Sprintf(`SELECT %s FROM staff_documents WHERE tenant_id = $1 AND staff_id = $2 ORDER BY created_at DESC`, staffDocColumns)
+	rows, err := s.pool.Query(ctx, query, tenantID, staffID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var docs []StaffDocument
+	for rows.Next() {
+		d, err := scanStaffDoc(rows)
+		if err != nil {
+			return nil, err
+		}
+		docs = append(docs, *d)
+	}
+	return docs, rows.Err()
+}
+
+// CreateStaffDocument adds a document to a staff profile.
+func (s *Service) CreateStaffDocument(ctx context.Context, tenantID, staffID uuid.UUID, req CreateStaffDocumentRequest) (*StaffDocument, error) {
+	if req.DocType == "" || req.FileName == "" || req.FileURL == "" {
+		return nil, errors.New("doc_type, file_name, and file_url are required")
+	}
+	query := fmt.Sprintf(`INSERT INTO staff_documents (tenant_id, staff_id, doc_type, file_name, file_url, mime_type, file_size, uploaded_by)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		RETURNING %s`, staffDocColumns)
+	return scanStaffDoc(s.pool.QueryRow(ctx, query,
+		tenantID, staffID, req.DocType, req.FileName, req.FileURL, req.MimeType, req.FileSize, req.UploadedBy,
+	))
+}
+
+// DeleteStaffDocument removes a staff document.
+func (s *Service) DeleteStaffDocument(ctx context.Context, tenantID, docID uuid.UUID) error {
+	tag, err := s.pool.Exec(ctx, `DELETE FROM staff_documents WHERE tenant_id = $1 AND id = $2`, tenantID, docID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return pgx.ErrNoRows
+	}
+	return nil
+}
+
+// --- Payroll operations ---
+
+const payrollColumns = `pr.id, pr.tenant_id, pr.staff_id, st.full_name, pr.month, pr.year,
+	pr.basic_salary_cents, pr.allowances_cents, pr.gross_cents, pr.paye_cents, pr.nhif_cents,
+	pr.nssf_cents, pr.other_deductions_cents, pr.net_cents, pr.status, pr.paid_at,
+	pr.created_by, pr.created_at, pr.updated_at`
+
+func scanPayroll(row pgx.Row) (*PayrollRun, error) {
+	var pr PayrollRun
+	err := row.Scan(
+		&pr.ID, &pr.TenantID, &pr.StaffID, &pr.StaffName, &pr.Month, &pr.Year,
+		&pr.BasicSalaryCents, &pr.AllowancesCents, &pr.GrossCents, &pr.PayeCents, &pr.NHIFCents,
+		&pr.NSSFCents, &pr.OtherDeductionsCents, &pr.NetCents, &pr.Status, &pr.PaidAt,
+		&pr.CreatedBy, &pr.CreatedAt, &pr.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &pr, nil
+}
+
+const payrollItemColumns = `id, tenant_id, payroll_run_id, item_type, name, amount_cents, sort_order, created_at`
+
+func scanPayrollItem(row pgx.Row) (*PayrollItem, error) {
+	var it PayrollItem
+	err := row.Scan(&it.ID, &it.TenantID, &it.PayrollRunID, &it.ItemType, &it.Name,
+		&it.AmountCents, &it.SortOrder, &it.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &it, nil
+}
+
+func (s *Service) listPayrollItems(ctx context.Context, tenantID, runID uuid.UUID) ([]PayrollItem, error) {
+	query := fmt.Sprintf(`SELECT %s FROM payroll_items WHERE tenant_id = $1 AND payroll_run_id = $2 ORDER BY sort_order, created_at`, payrollItemColumns)
+	rows, err := s.pool.Query(ctx, query, tenantID, runID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var items []PayrollItem
+	for rows.Next() {
+		it, err := scanPayrollItem(rows)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, *it)
+	}
+	return items, rows.Err()
+}
+
+// ListPayrollRuns returns payroll runs optionally filtered by month/year/status.
+func (s *Service) ListPayrollRuns(ctx context.Context, tenantID uuid.UUID, month, year int, status string) ([]PayrollRun, error) {
+	query := fmt.Sprintf(`SELECT %s FROM payroll_runs pr
+		JOIN staff st ON st.id = pr.staff_id
+		WHERE pr.tenant_id = $1`, payrollColumns)
+	args := []any{tenantID}
+	argIdx := 2
+
+	if month > 0 {
+		query += fmt.Sprintf(` AND pr.month = $%d`, argIdx)
+		args = append(args, month)
+		argIdx++
+	}
+	if year > 0 {
+		query += fmt.Sprintf(` AND pr.year = $%d`, argIdx)
+		args = append(args, year)
+		argIdx++
+	}
+	if status != "" {
+		query += fmt.Sprintf(` AND pr.status = $%d`, argIdx)
+		args = append(args, status)
+		argIdx++
+	}
+	query += ` ORDER BY pr.year DESC, pr.month DESC, st.full_name`
+
+	rows, err := s.pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var runs []PayrollRun
+	for rows.Next() {
+		pr, err := scanPayroll(rows)
+		if err != nil {
+			return nil, err
+		}
+		runs = append(runs, *pr)
+	}
+	return runs, rows.Err()
+}
+
+// GetPayrollRun returns a payroll run with items.
+func (s *Service) GetPayrollRun(ctx context.Context, tenantID, id uuid.UUID) (*PayrollRun, error) {
+	query := fmt.Sprintf(`SELECT %s FROM payroll_runs pr
+		JOIN staff st ON st.id = pr.staff_id
+		WHERE pr.tenant_id = $1 AND pr.id = $2`, payrollColumns)
+	pr, err := scanPayroll(s.pool.QueryRow(ctx, query, tenantID, id))
+	if err != nil {
+		return nil, err
+	}
+	items, err := s.listPayrollItems(ctx, tenantID, pr.ID)
+	if err != nil {
+		return nil, err
+	}
+	pr.Items = items
+	return pr, nil
+}
+
+// CreatePayrollRun creates a payroll run and computes gross/net.
+func (s *Service) CreatePayrollRun(ctx context.Context, tenantID uuid.UUID, req CreatePayrollRunRequest) (*PayrollRun, error) {
+	if req.StaffID == uuid.Nil || req.Month < 1 || req.Month > 12 || req.Year <= 0 {
+		return nil, errors.New("staff_id, month (1-12), and year are required")
+	}
+	if req.BasicSalaryCents < 0 || req.AllowancesCents < 0 || req.PayeCents < 0 ||
+		req.NHIFCents < 0 || req.NSSFCents < 0 || req.OtherDeductionsCents < 0 {
+		return nil, errors.New("payroll amounts cannot be negative")
+	}
+
+	gross := req.BasicSalaryCents + req.AllowancesCents
+	net := gross - req.PayeCents - req.NHIFCents - req.NSSFCents - req.OtherDeductionsCents
+	if net < 0 {
+		net = 0
+	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+
+	query := fmt.Sprintf(`INSERT INTO payroll_runs (tenant_id, staff_id, month, year,
+		basic_salary_cents, allowances_cents, gross_cents, paye_cents, nhif_cents, nssf_cents,
+		other_deductions_cents, net_cents, created_by)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+		RETURNING %s`, payrollColumns+`
+		FROM staff st WHERE st.id = payroll_runs.staff_id`)
+	pr, err := scanPayroll(tx.QueryRow(ctx, query,
+		tenantID, req.StaffID, req.Month, req.Year,
+		req.BasicSalaryCents, req.AllowancesCents, gross, req.PayeCents, req.NHIFCents, req.NSSFCents,
+		req.OtherDeductionsCents, net, req.CreatedBy,
+	))
+	if err != nil {
+		return nil, err
+	}
+
+	for idx, item := range req.Items {
+		itemType := item.ItemType
+		if itemType != "earning" && itemType != "deduction" {
+			itemType = "earning"
+		}
+		sortOrder := idx
+		if item.SortOrder != nil {
+			sortOrder = *item.SortOrder
+		}
+		itemQuery := fmt.Sprintf(`INSERT INTO payroll_items (tenant_id, payroll_run_id, item_type, name, amount_cents, sort_order)
+			VALUES ($1, $2, $3, $4, $5, $6)
+			RETURNING %s`, payrollItemColumns)
+		it, err := scanPayrollItem(tx.QueryRow(ctx, itemQuery,
+			tenantID, pr.ID, itemType, item.Name, item.AmountCents, sortOrder,
+		))
+		if err != nil {
+			return nil, err
+		}
+		pr.Items = append(pr.Items, *it)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return pr, nil
+}
+
+// UpdatePayrollRun partially updates a payroll run and recomputes gross/net.
+func (s *Service) UpdatePayrollRun(ctx context.Context, tenantID, id uuid.UUID, req UpdatePayrollRunRequest) (*PayrollRun, error) {
+	if _, err := s.GetPayrollRun(ctx, tenantID, id); err != nil {
+		return nil, err
+	}
+	query := fmt.Sprintf(`UPDATE payroll_runs pr SET
+		basic_salary_cents = COALESCE($3, pr.basic_salary_cents),
+		allowances_cents = COALESCE($4, pr.allowances_cents),
+		paye_cents = COALESCE($5, pr.paye_cents),
+		nhif_cents = COALESCE($6, pr.nhif_cents),
+		nssf_cents = COALESCE($7, pr.nssf_cents),
+		other_deductions_cents = COALESCE($8, pr.other_deductions_cents),
+		status = COALESCE($9, pr.status),
+		gross_cents = COALESCE($3, pr.basic_salary_cents) + COALESCE($4, pr.allowances_cents),
+		net_cents = GREATEST(COALESCE($3, pr.basic_salary_cents) + COALESCE($4, pr.allowances_cents)
+			- COALESCE($5, pr.paye_cents) - COALESCE($6, pr.nhif_cents)
+			- COALESCE($7, pr.nssf_cents) - COALESCE($8, pr.other_deductions_cents), 0),
+		paid_at = CASE WHEN $9 = 'paid' THEN COALESCE(pr.paid_at, now()) ELSE pr.paid_at END
+		WHERE pr.tenant_id = $1 AND pr.id = $2
+		RETURNING %s`, payrollColumns+`
+		FROM staff st WHERE st.id = pr.staff_id`)
+	pr, err := scanPayroll(s.pool.QueryRow(ctx, query,
+		tenantID, id, req.BasicSalaryCents, req.AllowancesCents, req.PayeCents, req.NHIFCents,
+		req.NSSFCents, req.OtherDeductionsCents, req.Status,
+	))
+	if err != nil {
+		return nil, err
+	}
+	items, err := s.listPayrollItems(ctx, tenantID, pr.ID)
+	if err != nil {
+		return nil, err
+	}
+	pr.Items = items
+	return pr, nil
+}
+
+// DeletePayrollRun removes a payroll run.
+func (s *Service) DeletePayrollRun(ctx context.Context, tenantID, id uuid.UUID) error {
+	tag, err := s.pool.Exec(ctx, `DELETE FROM payroll_runs WHERE tenant_id = $1 AND id = $2`, tenantID, id)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return pgx.ErrNoRows
+	}
+	return nil
+}
+
+// --- Leave operations ---
+
+const leaveColumns = `lr.id, lr.tenant_id, lr.staff_id, st.full_name, lr.leave_type,
+	lr.start_date::text, lr.end_date::text, lr.days, lr.reason, lr.status,
+	lr.approved_by, lr.approved_at, lr.denial_reason, lr.substitute_id, lr.created_at, lr.updated_at`
+
+func scanLeave(row pgx.Row) (*LeaveRequest, error) {
+	var lr LeaveRequest
+	err := row.Scan(
+		&lr.ID, &lr.TenantID, &lr.StaffID, &lr.StaffName, &lr.LeaveType,
+		&lr.StartDate, &lr.EndDate, &lr.Days, &lr.Reason, &lr.Status,
+		&lr.ApprovedBy, &lr.ApprovedAt, &lr.DenialReason, &lr.SubstituteID, &lr.CreatedAt, &lr.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &lr, nil
+}
+
+// ListLeaveRequests returns leave requests optionally filtered by status/staff/type.
+func (s *Service) ListLeaveRequests(ctx context.Context, tenantID uuid.UUID, status, staffID, leaveType string) ([]LeaveRequest, error) {
+	query := fmt.Sprintf(`SELECT %s FROM leave_requests lr
+		JOIN staff st ON st.id = lr.staff_id
+		WHERE lr.tenant_id = $1`, leaveColumns)
+	args := []any{tenantID}
+	argIdx := 2
+
+	if status != "" {
+		query += fmt.Sprintf(` AND lr.status = $%d`, argIdx)
+		args = append(args, status)
+		argIdx++
+	}
+	if staffID != "" {
+		query += fmt.Sprintf(` AND lr.staff_id = $%d`, argIdx)
+		args = append(args, staffID)
+		argIdx++
+	}
+	if leaveType != "" {
+		query += fmt.Sprintf(` AND lr.leave_type = $%d`, argIdx)
+		args = append(args, leaveType)
+		argIdx++
+	}
+	query += ` ORDER BY lr.created_at DESC`
+
+	rows, err := s.pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var leaves []LeaveRequest
+	for rows.Next() {
+		lr, err := scanLeave(rows)
+		if err != nil {
+			return nil, err
+		}
+		leaves = append(leaves, *lr)
+	}
+	return leaves, rows.Err()
+}
+
+// GetLeaveRequest returns a single leave request.
+func (s *Service) GetLeaveRequest(ctx context.Context, tenantID, id uuid.UUID) (*LeaveRequest, error) {
+	query := fmt.Sprintf(`SELECT %s FROM leave_requests lr
+		JOIN staff st ON st.id = lr.staff_id
+		WHERE lr.tenant_id = $1 AND lr.id = $2`, leaveColumns)
+	return scanLeave(s.pool.QueryRow(ctx, query, tenantID, id))
+}
+
+// CreateLeaveRequest creates a leave request and computes days.
+func (s *Service) CreateLeaveRequest(ctx context.Context, tenantID uuid.UUID, req CreateLeaveRequest) (*LeaveRequest, error) {
+	if req.StaffID == uuid.Nil || req.LeaveType == "" || req.StartDate == "" || req.EndDate == "" {
+		return nil, errors.New("staff_id, leave_type, start_date, and end_date are required")
+	}
+	start, err := time.Parse("2006-01-02", req.StartDate)
+	if err != nil {
+		return nil, errors.New("invalid start_date (expected YYYY-MM-DD)")
+	}
+	end, err := time.Parse("2006-01-02", req.EndDate)
+	if err != nil {
+		return nil, errors.New("invalid end_date (expected YYYY-MM-DD)")
+	}
+	if end.Before(start) {
+		return nil, errors.New("end_date must be on or after start_date")
+	}
+	days := int(end.Sub(start).Hours()/24) + 1
+
+	query := fmt.Sprintf(`INSERT INTO leave_requests (tenant_id, staff_id, leave_type, start_date, end_date, days, reason, substitute_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		RETURNING %s`, leaveColumns+`
+		FROM staff st WHERE st.id = leave_requests.staff_id`)
+	return scanLeave(s.pool.QueryRow(ctx, query,
+		tenantID, req.StaffID, req.LeaveType, req.StartDate, req.EndDate, days, req.Reason, req.SubstituteID,
+	))
+}
+
+// ApproveLeaveRequest approves a pending leave request.
+func (s *Service) ApproveLeaveRequest(ctx context.Context, tenantID, id uuid.UUID, req ApproveLeaveRequest) (*LeaveRequest, error) {
+	query := fmt.Sprintf(`UPDATE leave_requests lr SET
+		status = 'approved',
+		approved_by = COALESCE($3, lr.approved_by),
+		approved_at = now(),
+		substitute_id = COALESCE($4, lr.substitute_id)
+		WHERE lr.tenant_id = $1 AND lr.id = $2 AND lr.status = 'pending'
+		RETURNING %s`, leaveColumns+`
+		FROM staff st WHERE st.id = lr.staff_id`)
+	return scanLeave(s.pool.QueryRow(ctx, query, tenantID, id, req.ApprovedBy, req.SubstituteID))
+}
+
+// DenyLeaveRequest denies a pending leave request.
+func (s *Service) DenyLeaveRequest(ctx context.Context, tenantID, id uuid.UUID, req DenyLeaveRequest) (*LeaveRequest, error) {
+	query := fmt.Sprintf(`UPDATE leave_requests lr SET
+		status = 'denied',
+		approved_by = COALESCE($3, lr.approved_by),
+		approved_at = now(),
+		denial_reason = COALESCE($4, lr.denial_reason)
+		WHERE lr.tenant_id = $1 AND lr.id = $2 AND lr.status = 'pending'
+		RETURNING %s`, leaveColumns+`
+		FROM staff st WHERE st.id = lr.staff_id`)
+	return scanLeave(s.pool.QueryRow(ctx, query, tenantID, id, req.ApprovedBy, req.DenialReason))
+}
+
+// CancelLeaveRequest cancels a leave request.
+func (s *Service) CancelLeaveRequest(ctx context.Context, tenantID, id uuid.UUID) (*LeaveRequest, error) {
+	query := fmt.Sprintf(`UPDATE leave_requests lr SET status = 'cancelled'
+		WHERE lr.tenant_id = $1 AND lr.id = $2 AND lr.status IN ('pending', 'approved')
+		RETURNING %s`, leaveColumns+`
+		FROM staff st WHERE st.id = lr.staff_id`)
+	return scanLeave(s.pool.QueryRow(ctx, query, tenantID, id))
+}
+
+// --- Staff attendance operations ---
+
+const attendanceColumns = `sa.id, sa.tenant_id, sa.staff_id, st.full_name, sa.date::text,
+	sa.clock_in, sa.clock_out, sa.status, sa.notes, sa.marked_by, sa.created_at, sa.updated_at`
+
+func scanAttendance(row pgx.Row) (*StaffAttendance, error) {
+	var a StaffAttendance
+	err := row.Scan(
+		&a.ID, &a.TenantID, &a.StaffID, &a.StaffName, &a.Date,
+		&a.ClockIn, &a.ClockOut, &a.Status, &a.Notes, &a.MarkedBy, &a.CreatedAt, &a.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &a, nil
+}
+
+// ListStaffAttendance returns attendance records optionally filtered by date/staff/status.
+func (s *Service) ListStaffAttendance(ctx context.Context, tenantID uuid.UUID, date, staffID, status string) ([]StaffAttendance, error) {
+	query := fmt.Sprintf(`SELECT %s FROM staff_attendance sa
+		JOIN staff st ON st.id = sa.staff_id
+		WHERE sa.tenant_id = $1`, attendanceColumns)
+	args := []any{tenantID}
+	argIdx := 2
+
+	if date != "" {
+		query += fmt.Sprintf(` AND sa.date = $%d`, argIdx)
+		args = append(args, date)
+		argIdx++
+	}
+	if staffID != "" {
+		query += fmt.Sprintf(` AND sa.staff_id = $%d`, argIdx)
+		args = append(args, staffID)
+		argIdx++
+	}
+	if status != "" {
+		query += fmt.Sprintf(` AND sa.status = $%d`, argIdx)
+		args = append(args, status)
+		argIdx++
+	}
+	query += ` ORDER BY sa.date DESC, st.full_name`
+
+	rows, err := s.pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var records []StaffAttendance
+	for rows.Next() {
+		a, err := scanAttendance(rows)
+		if err != nil {
+			return nil, err
+		}
+		records = append(records, *a)
+	}
+	return records, rows.Err()
+}
+
+// CreateStaffAttendance upserts a daily attendance record.
+func (s *Service) CreateStaffAttendance(ctx context.Context, tenantID uuid.UUID, req CreateStaffAttendanceRequest) (*StaffAttendance, error) {
+	if req.StaffID == uuid.Nil || req.Date == "" {
+		return nil, errors.New("staff_id and date are required")
+	}
+	status := "present"
+	if req.Status != nil {
+		status = *req.Status
+	}
+	query := fmt.Sprintf(`INSERT INTO staff_attendance (tenant_id, staff_id, date, clock_in, clock_out, status, notes, marked_by)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		ON CONFLICT (tenant_id, staff_id, date) DO UPDATE SET
+			clock_in = COALESCE(EXCLUDED.clock_in, staff_attendance.clock_in),
+			clock_out = COALESCE(EXCLUDED.clock_out, staff_attendance.clock_out),
+			status = EXCLUDED.status,
+			notes = COALESCE(EXCLUDED.notes, staff_attendance.notes),
+			marked_by = COALESCE(EXCLUDED.marked_by, staff_attendance.marked_by)
+		RETURNING %s`, attendanceColumns+`
+		FROM staff st WHERE st.id = staff_attendance.staff_id`)
+	return scanAttendance(s.pool.QueryRow(ctx, query,
+		tenantID, req.StaffID, req.Date, req.ClockIn, req.ClockOut, status, req.Notes, req.MarkedBy,
+	))
+}
+
+// UpdateStaffAttendance partially updates an attendance record.
+func (s *Service) UpdateStaffAttendance(ctx context.Context, tenantID, id uuid.UUID, req UpdateStaffAttendanceRequest) (*StaffAttendance, error) {
+	query := fmt.Sprintf(`UPDATE staff_attendance sa SET
+		clock_in = COALESCE($3, sa.clock_in),
+		clock_out = COALESCE($4, sa.clock_out),
+		status = COALESCE($5, sa.status),
+		notes = COALESCE($6, sa.notes)
+		WHERE sa.tenant_id = $1 AND sa.id = $2
+		RETURNING %s`, attendanceColumns+`
+		FROM staff st WHERE st.id = sa.staff_id`)
+	return scanAttendance(s.pool.QueryRow(ctx, query, tenantID, id, req.ClockIn, req.ClockOut, req.Status, req.Notes))
+}
+
+// DeleteStaffAttendance removes an attendance record.
+func (s *Service) DeleteStaffAttendance(ctx context.Context, tenantID, id uuid.UUID) error {
+	tag, err := s.pool.Exec(ctx, `DELETE FROM staff_attendance WHERE tenant_id = $1 AND id = $2`, tenantID, id)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return pgx.ErrNoRows
+	}
+	return nil
+}
+
+// --- Appraisal operations ---
+
+const appraisalColumns = `sa.id, sa.tenant_id, sa.staff_id, st.full_name, sa.year, sa.term,
+	sa.appraiser_id, sa.scores, sa.overall_score, sa.rating, sa.comments, sa.status,
+	sa.created_at, sa.updated_at`
+
+func scanAppraisal(row pgx.Row) (*StaffAppraisal, error) {
+	var a StaffAppraisal
+	err := row.Scan(
+		&a.ID, &a.TenantID, &a.StaffID, &a.StaffName, &a.Year, &a.Term,
+		&a.AppraiserID, &a.Scores, &a.OverallScore, &a.Rating, &a.Comments, &a.Status,
+		&a.CreatedAt, &a.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if a.Scores == nil {
+		a.Scores = map[string]any{}
+	}
+	return &a, nil
+}
+
+// ListAppraisals returns appraisals optionally filtered by staff/year/term.
+func (s *Service) ListAppraisals(ctx context.Context, tenantID uuid.UUID, staffID string, year, term int) ([]StaffAppraisal, error) {
+	query := fmt.Sprintf(`SELECT %s FROM staff_appraisals sa
+		JOIN staff st ON st.id = sa.staff_id
+		WHERE sa.tenant_id = $1`, appraisalColumns)
+	args := []any{tenantID}
+	argIdx := 2
+
+	if staffID != "" {
+		query += fmt.Sprintf(` AND sa.staff_id = $%d`, argIdx)
+		args = append(args, staffID)
+		argIdx++
+	}
+	if year > 0 {
+		query += fmt.Sprintf(` AND sa.year = $%d`, argIdx)
+		args = append(args, year)
+		argIdx++
+	}
+	if term > 0 {
+		query += fmt.Sprintf(` AND sa.term = $%d`, argIdx)
+		args = append(args, term)
+		argIdx++
+	}
+	query += ` ORDER BY sa.year DESC, sa.term DESC, st.full_name`
+
+	rows, err := s.pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var appraisals []StaffAppraisal
+	for rows.Next() {
+		a, err := scanAppraisal(rows)
+		if err != nil {
+			return nil, err
+		}
+		appraisals = append(appraisals, *a)
+	}
+	return appraisals, rows.Err()
+}
+
+// GetAppraisal returns a single appraisal.
+func (s *Service) GetAppraisal(ctx context.Context, tenantID, id uuid.UUID) (*StaffAppraisal, error) {
+	query := fmt.Sprintf(`SELECT %s FROM staff_appraisals sa
+		JOIN staff st ON st.id = sa.staff_id
+		WHERE sa.tenant_id = $1 AND sa.id = $2`, appraisalColumns)
+	return scanAppraisal(s.pool.QueryRow(ctx, query, tenantID, id))
+}
+
+// CreateAppraisal creates a TSC-aligned appraisal.
+func (s *Service) CreateAppraisal(ctx context.Context, tenantID uuid.UUID, req CreateAppraisalRequest) (*StaffAppraisal, error) {
+	if req.StaffID == uuid.Nil || req.Year <= 0 {
+		return nil, errors.New("staff_id and year are required")
+	}
+	query := fmt.Sprintf(`INSERT INTO staff_appraisals (tenant_id, staff_id, year, term, appraiser_id, scores, comments)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		RETURNING %s`, appraisalColumns+`
+		FROM staff st WHERE st.id = staff_appraisals.staff_id`)
+	return scanAppraisal(s.pool.QueryRow(ctx, query,
+		tenantID, req.StaffID, req.Year, req.Term, req.AppraiserID, req.Scores, req.Comments,
+	))
+}
+
+// UpdateAppraisal partially updates an appraisal.
+func (s *Service) UpdateAppraisal(ctx context.Context, tenantID, id uuid.UUID, req UpdateAppraisalRequest) (*StaffAppraisal, error) {
+	query := fmt.Sprintf(`UPDATE staff_appraisals sa SET
+		scores = COALESCE($3, sa.scores),
+		overall_score = COALESCE($4, sa.overall_score),
+		rating = COALESCE($5, sa.rating),
+		comments = COALESCE($6, sa.comments),
+		status = COALESCE($7, sa.status)
+		WHERE sa.tenant_id = $1 AND sa.id = $2
+		RETURNING %s`, appraisalColumns+`
+		FROM staff st WHERE st.id = sa.staff_id`)
+	return scanAppraisal(s.pool.QueryRow(ctx, query,
+		tenantID, id, req.Scores, req.OverallScore, req.Rating, req.Comments, req.Status,
+	))
+}
+
+// DeleteAppraisal removes an appraisal.
+func (s *Service) DeleteAppraisal(ctx context.Context, tenantID, id uuid.UUID) error {
+	tag, err := s.pool.Exec(ctx, `DELETE FROM staff_appraisals WHERE tenant_id = $1 AND id = $2`, tenantID, id)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return pgx.ErrNoRows
+	}
+	return nil
+}

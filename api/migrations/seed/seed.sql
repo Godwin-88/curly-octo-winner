@@ -212,3 +212,164 @@ UPDATE invoices i SET
     END
 WHERE i.tenant_id = 'a0000000-0000-0000-0000-000000000001'
   AND i.invoice_number LIKE 'INV-2026-1-%';
+
+-- Reports & Analytics (EPIC 6): assessments, attendance, and a sample report card
+-- Requires: migrations 009-011, 020-021 applied first
+
+-- Seed formative assessments for a few learners across sub-strands (Term 1 2026)
+-- Uses the first few sub-strands from the curriculum and learners 1-6
+INSERT INTO assessments (tenant_id, learner_id, sub_strand_id, rubric_level, note, teacher_id, term, year)
+SELECT
+    'a0000000-0000-0000-0000-000000000001',
+    ('d0000000-0000-0000-0000-0000' || LPAD(lp::text, 8, '0'))::uuid,
+    ss.id,
+    (1 + ((lp + row_number() OVER (ORDER BY ss.id)) % 4))::int,
+    'Formative observation for ' || ss.name,
+    'b0000000-0000-0000-0000-000000000003',
+    1, 2026
+FROM generate_series(1, 6) AS lp
+CROSS JOIN (
+    SELECT id FROM sub_strands
+    WHERE tenant_id = 'a0000000-0000-0000-0000-000000000001'
+    ORDER BY id
+    LIMIT 4
+) ss
+ON CONFLICT DO NOTHING;
+
+-- Seed attendance for learners 1-6 (Term 1 2026: Jan-Apr)
+INSERT INTO attendance (tenant_id, learner_id, date, status, marked_by)
+SELECT
+    'a0000000-0000-0000-0000-000000000001',
+    ('d0000000-0000-0000-0000-0000' || LPAD(lp::text, 8, '0'))::uuid,
+    d::date,
+    CASE
+        WHEN (lp + extract(day from d)::int) % 10 = 0 THEN 'absent'
+        WHEN (lp + extract(day from d)::int) % 7 = 0 THEN 'late'
+        ELSE 'present'
+    END,
+    'b0000000-0000-0000-0000-000000000003'
+FROM generate_series(1, 6) AS lp
+CROSS JOIN generate_series('2026-01-05'::date, '2026-04-30'::date, '1 day'::interval) AS d
+ON CONFLICT (tenant_id, learner_id, date) DO NOTHING;
+
+-- Generate a sample report card for learner 1 (Term 1 2026)
+INSERT INTO report_cards (tenant_id, learner_id, term, year, status, overall_rating,
+    core_competency_remarks, teacher_comments, attendance_summary, generated_by)
+SELECT
+    'a0000000-0000-0000-0000-000000000001',
+    'd0000000-0000-0000-0000-000000000001',
+    1, 2026, 'final', 3,
+    '{"Communication and Collaboration": "Works well in groups and communicates clearly.", "Critical Thinking and Problem Solving": "Shows good reasoning in problem-solving tasks."}',
+    '{"Mathematics": "Consistent effort and improvement.", "English": "Good reading comprehension."}',
+    '{"total_days": 80, "present_days": 72, "absent_days": 4, "late_days": 3, "excused_days": 1, "attendance_rate": 90.0}',
+    'b0000000-0000-0000-0000-000000000003'
+ON CONFLICT (tenant_id, learner_id, term, year) DO NOTHING;
+
+-- Populate report card items from the learner's assessments (learner 1, Term 1 2026)
+INSERT INTO report_card_items (tenant_id, report_card_id, learning_area_id, strand_id, sub_strand_id, rubric_level, comment, sort_order)
+SELECT
+    a.tenant_id,
+    rc.id,
+    la.id,
+    str.id,
+    a.sub_strand_id,
+    a.rubric_level,
+    a.note,
+    row_number() OVER (ORDER BY la.name, str.name, s.name)
+FROM assessments a
+JOIN report_cards rc ON rc.learner_id = a.learner_id AND rc.term = a.term AND rc.year = a.year
+JOIN sub_strands s ON s.id = a.sub_strand_id
+JOIN strands str ON str.id = s.strand_id
+JOIN learning_areas la ON la.id = str.learning_area_id
+WHERE a.tenant_id = 'a0000000-0000-0000-0000-000000000001'
+  AND a.learner_id = 'd0000000-0000-0000-0000-000000000001'
+  AND a.term = 1 AND a.year = 2026
+  AND NOT EXISTS (
+      SELECT 1 FROM report_card_items rci
+      WHERE rci.report_card_id = rc.id AND rci.sub_strand_id = a.sub_strand_id
+  );
+
+-- Human Resources (EPIC 7): staff profiles, payroll, leave, attendance, appraisals
+-- Requires: migrations 022-024 applied first
+
+-- Enrich existing staff with HR profile fields
+UPDATE staff SET
+    tsc_number = 'TSC' || LPAD((row_number() OVER (ORDER BY id))::text, 6, '0'),
+    national_id = 'ID' || LPAD((row_number() OVER (ORDER BY id))::text, 7, '0'),
+    kra_pin = 'A00' || LPAD((row_number() OVER (ORDER BY id))::text, 5, '0') || 'K',
+    department = CASE role
+        WHEN 'principal' THEN 'Administration'
+        WHEN 'bursar' THEN 'Finance'
+        WHEN 'transport_manager' THEN 'Transport'
+        ELSE 'Academic'
+    END,
+    job_title = CASE role
+        WHEN 'principal' THEN 'Head Teacher'
+        WHEN 'bursar' THEN 'School Bursar'
+        WHEN 'transport_manager' THEN 'Transport Manager'
+        ELSE 'Class Teacher'
+    END,
+    employment_type = 'permanent',
+    hire_date = '2020-01-01'::date + (row_number() OVER (ORDER BY id) * 30 || ' days')::interval,
+    qualifications = '[{"name": "Bachelor of Education", "institution": "Kenyatta University", "year": 2015}]'::jsonb,
+    subjects = '["Mathematics", "English"]'::jsonb,
+    emergency_contact = '{"name": "Next of Kin", "phone": "+254700000000"}'::jsonb,
+    bank_details = '{"bank": "Equity Bank", "account": "1234567890", "branch": "Nairobi"}'::jsonb
+WHERE tenant_id = 'a0000000-0000-0000-0000-000000000001';
+
+-- Seed payroll runs for staff 1-5 (January 2026)
+INSERT INTO payroll_runs (tenant_id, staff_id, month, year, basic_salary_cents, allowances_cents,
+    gross_cents, paye_cents, nhif_cents, nssf_cents, other_deductions_cents, net_cents, status, created_by)
+SELECT
+    'a0000000-0000-0000-0000-000000000001',
+    st.id,
+    1, 2026,
+    5000000, 1000000,
+    6000000, 900000, 50000, 40000, 10000,
+    6000000 - 900000 - 50000 - 40000 - 10000,
+    'paid',
+    'b0000000-0000-0000-0000-000000000002'
+FROM staff st
+WHERE st.tenant_id = 'a0000000-0000-0000-0000-000000000001'
+  AND st.is_active = true
+ON CONFLICT (tenant_id, staff_id, month, year) DO NOTHING;
+
+-- Seed a pending leave request for teacher 1
+INSERT INTO leave_requests (tenant_id, staff_id, leave_type, start_date, end_date, days, reason, status)
+VALUES (
+    'a0000000-0000-0000-0000-000000000001',
+    'b0000000-0000-0000-0000-000000000003',
+    'annual', '2026-08-10', '2026-08-14', 5,
+    'Family vacation', 'pending'
+) ON CONFLICT DO NOTHING;
+
+-- Seed staff attendance for staff 1-5 (a few days in August 2026)
+INSERT INTO staff_attendance (tenant_id, staff_id, date, status, marked_by)
+SELECT
+    'a0000000-0000-0000-0000-000000000001',
+    st.id,
+    d::date,
+    CASE
+        WHEN (row_number() OVER (ORDER BY st.id, d) % 9) = 0 THEN 'absent'
+        WHEN (row_number() OVER (ORDER BY st.id, d) % 6) = 0 THEN 'late'
+        ELSE 'present'
+    END,
+    'b0000000-0000-0000-0000-000000000002'
+FROM staff st
+CROSS JOIN generate_series('2026-08-03'::date, '2026-08-07'::date, '1 day'::interval) AS d
+WHERE st.tenant_id = 'a0000000-0000-0000-0000-000000000001'
+  AND st.is_active = true
+ON CONFLICT (tenant_id, staff_id, date) DO NOTHING;
+
+-- Seed a TSC appraisal for teacher 1 (Term 1 2026)
+INSERT INTO staff_appraisals (tenant_id, staff_id, year, term, appraiser_id, scores, overall_score, rating, comments, status)
+VALUES (
+    'a0000000-0000-0000-0000-000000000001',
+    'b0000000-0000-0000-0000-000000000003',
+    2026, 1,
+    'b0000000-0000-0000-0000-000000000001',
+    '{"Professional Knowledge": 4, "Teaching Skills": 3, "Classroom Management": 4, "Student Assessment": 3, "Professional Development": 3}',
+    3.4, 'Good',
+    'Consistent and dedicated teacher. Shows strong classroom management.',
+    'approved'
+) ON CONFLICT (tenant_id, staff_id, year, term) DO NOTHING;

@@ -2,7 +2,7 @@
 
 A multi-tenant school management platform for Kenyan public schools under the **Competency-Based Curriculum (CBC)**. Shule360 digitizes the full school lifecycle — communications, learner records, academics, transport, and finance — with a focus on the unique needs of Kenyan schools (NEMIS integration, Africa's Talking SMS, WhatsApp Business, CBC assessment rubrics).
 
-> **Status:** EPIC 5 complete — Finance (fees, invoices, M-Pesa payments) + Transport + Learner Records + Academic + Communications
+> **Status:** EPIC 7 complete — Human Resources (Staff, Payroll, Leave) + Reports & Analytics + Finance + Transport + Learner Records + Academic + Communications
 
 ---
 
@@ -55,6 +55,8 @@ flowchart TB
         LEARN["Learner Service<br/>Enrollment · Documents · Progression"]
         TRANSP["Transport Service<br/>Vehicles · Routes · Trips · Tracking"]
         FIN["Finance Service<br/>Fees · Invoices · Payments"]
+        REPORTS["Reports Service<br/>Report Cards · Analytics"]
+        HR["HR Service<br/>Staff · Payroll · Leave"]
         NEMIS["NEMIS Client<br/>UPI Validation"]
     end
 
@@ -80,6 +82,7 @@ flowchart TB
     MID --> LEARN
     MID --> TRANSP
     MID --> FIN
+    MID --> REPORTS
     LEARN --> NEMIS
     COMMS --> PG
     ACAD --> PG
@@ -88,6 +91,7 @@ flowchart TB
     FIN --> PG
     FIN -->|REST| MPESA
     MPESA -->|STK Callback| ROUTER
+    REPORTS --> PG
     COMMS --> REDIS
     COMMS --> VECTOR
     COMMS --> SEARCH
@@ -128,6 +132,8 @@ graph TD
     INTERNAL --> NEMIS["nemis/"]
     INTERNAL --> TRANSP["transport/"]
     INTERNAL --> FIN["finance/"]
+    INTERNAL --> REPORTS["reports/"]
+    INTERNAL --> HR["hr/"]
     INTERNAL --> TENANT["tenant/"]
     INTERNAL --> CONFIG["config/"]
 
@@ -140,6 +146,15 @@ graph TD
     FIN --> FMPESA["mpesa.go"]
     FIN --> FTYPE["types.go"]
     FIN --> FHAND["handler.go"]
+
+    REPORTS --> RSVC["service.go"]
+    REPORTS --> RTYPE["types.go"]
+    REPORTS --> RHAND["handler.go"]
+
+    HR --> HSVC["service.go"]
+    HR --> HSVCLEAVE["service_leave.go"]
+    HR --> HTYPE["types.go"]
+    HR --> HHAND["handler.go"]
 
     ACAD --> ACADH["handler.go"]
     ACAD --> CURR["curriculum/"]
@@ -186,6 +201,11 @@ graph TD
     MIG --> M017["017_fee_structures.sql"]
     MIG --> M018["018_invoices.sql"]
     MIG --> M019["019_payments.sql"]
+    MIG --> M020["020_report_cards.sql"]
+    MIG --> M021["021_analytics_views.sql"]
+    MIG --> M022["022_staff_profiles.sql"]
+    MIG --> M023["023_payroll.sql"]
+    MIG --> M024["024_leave.sql"]
     MIG --> SEED["seed/seed.sql"]
 
     WEB --> APP["app/"]
@@ -205,6 +225,9 @@ graph TD
     ADMIN --> ROUTES["routes/"]
     ADMIN --> TRIPS["trips/"]
     ADMIN --> FINANCE["finance/"]
+    ADMIN --> REPORTS["reports/"]
+    ADMIN --> ANALYTICS["analytics/"]
+    ADMIN --> HR["hr/"]
     COMP --> LAYOUT["layout/"]
     COMP --> COMMS["comms/"]
     COMP --> UI["ui/"]
@@ -247,7 +270,16 @@ shule360/
 │   │   │   ├── service.go        # Fee structures, invoices, discounts, payments
 │   │   │   ├── mpesa.go          # M-Pesa STK push + callback confirmation
 │   │   │   └── handler.go        # 22 finance routes
-│   │   ├── middleware/           # JWT auth, tenant, rate limiting
+    │   │   ├── reports/              # EPIC 6 — Reports & Analytics
+    │   │   │   ├── types.go          # Report card + analytics types
+    │   │   │   ├── service.go        # Report card generation, analytics queries
+    │   │   │   └── handler.go        # 12 reports & analytics routes
+    │   │   ├── hr/                   # EPIC 7 — Human Resources
+    │   │   │   ├── types.go          # Staff, payroll, leave, appraisal types
+    │   │   │   ├── service.go        # Staff, documents, payroll CRUD
+    │   │   │   ├── service_leave.go  # Leave, staff attendance, appraisals
+    │   │   │   └── handler.go        # 28 HR routes
+    │   │   ├── middleware/           # JWT auth, tenant, rate limiting
 │   │   ├── nemis/                # NEMIS client interface + sandbox stub
 │   │   ├── tenant/               # Tenant service
 │   │   └── config/               # Env config loader
@@ -257,7 +289,7 @@ shule360/
 │   │   ├── upstash/              # Redis, Vector, Search clients
 │   │   ├── backblaze/            # B2 S3-compatible client
 │   │   └── mpesa/                # Safaricom Daraja STK push client
-│   ├── migrations/               # 19 SQL migrations + seed
+    │   ├── migrations/               # 24 SQL migrations + seed
 │   ├── .env.example
 │   ├── Dockerfile
 │   ├── fly.toml
@@ -272,7 +304,10 @@ shule360/
     │   │   ├── vehicles/         # Fleet management (EPIC 4)
     │   │   ├── routes/           # Routes, stops, assignments (EPIC 4)
     │   │   ├── trips/            # Schedule, track, check-ins (EPIC 4)
-    │   │   └── finance/          # Overview, fees, invoices, payments (EPIC 5)
+    │   │   ├── finance/          # Overview, fees, invoices, payments (EPIC 5)
+    │   │   ├── reports/          # Overview, report cards (EPIC 6)
+    │   │   ├── analytics/        # Learning analytics dashboard (EPIC 6)
+    │   │   └── hr/               # Overview, staff, payroll, leave, attendance, appraisals (EPIC 7)
     │   ├── (auth)/login/         # Login page
     │   ├── layout.tsx            # Root layout (Raleway font)
     │   └── globals.css
@@ -307,8 +342,21 @@ erDiagram
     TENANTS ||--o{ FEE_STRUCTURES : "defines"
     TENANTS ||--o{ INVOICES : "issues"
     TENANTS ||--o{ PAYMENTS : "receives"
+    TENANTS ||--o{ REPORT_CARDS : "generates"
+    TENANTS ||--o{ STAFF_DOCUMENTS : "stores"
+    TENANTS ||--o{ PAYROLL_RUNS : "processes"
+    TENANTS ||--o{ LEAVE_REQUESTS : "approves"
+    TENANTS ||--o{ STAFF_ATTENDANCE : "tracks"
+    TENANTS ||--o{ STAFF_APPRAISALS : "reviews"
 
     STAFF ||--o{ MESSAGES : "sends"
+    STAFF ||--o{ STAFF_DOCUMENTS : "owns"
+    STAFF ||--o{ PAYROLL_RUNS : "receives"
+    STAFF ||--o{ LEAVE_REQUESTS : "requests"
+    STAFF ||--o{ STAFF_ATTENDANCE : "records"
+    STAFF ||--o{ STAFF_APPRAISALS : "evaluated_in"
+    STAFF ||--o{ LEAVE_REQUESTS : "approves"
+    STAFF ||--o{ STAFF_APPRAISALS : "appraises"
     STAFF ||--o{ ATTENDANCE : "marks"
     STAFF ||--o{ ASSESSMENTS : "records"
     STAFF ||--o{ LEARNER_DOCUMENTS : "uploads"
@@ -319,6 +367,7 @@ erDiagram
     STAFF ||--o{ INVOICES : "creates"
     STAFF ||--o{ PAYMENTS : "receives"
     STAFF ||--o{ DISCOUNTS : "approves"
+    STAFF ||--o{ REPORT_CARDS : "generates"
 
     GUARDIANS ||--o{ WA_CONVERSATIONS : "chats"
     GUARDIANS }o--o{ LEARNERS : "guardian_of"
@@ -330,6 +379,7 @@ erDiagram
     LEARNERS ||--o{ ROUTE_ASSIGNMENTS : "assigned_to"
     LEARNERS ||--o{ TRIP_CHECKINS : "boards"
     LEARNERS ||--o{ INVOICES : "billed_for"
+    LEARNERS ||--o{ REPORT_CARDS : "receives"
 
     MESSAGES ||--o{ MESSAGE_LOGS : "produces"
     WA_CONVERSATIONS ||--o{ WA_MESSAGES : "contains"
@@ -352,6 +402,8 @@ erDiagram
     INVOICES ||--o{ INVOICE_ITEMS : "contains"
     INVOICES ||--o{ DISCOUNTS : "applies"
     INVOICES ||--o{ PAYMENTS : "settles"
+    REPORT_CARDS ||--o{ REPORT_CARD_ITEMS : "contains"
+    PAYROLL_RUNS ||--o{ PAYROLL_ITEMS : "contains"
 
     TENANTS {
         uuid id PK
@@ -620,6 +672,93 @@ erDiagram
         text mpesa_receipt
         text checkout_request_id
     }
+    REPORT_CARDS {
+        uuid id PK
+        uuid tenant_id FK
+        uuid learner_id FK
+        int term
+        int year
+        text status
+        int overall_rating
+        jsonb core_competency_remarks
+        jsonb teacher_comments
+        jsonb attendance_summary
+        uuid generated_by
+    }
+    REPORT_CARD_ITEMS {
+        uuid id PK
+        uuid report_card_id FK
+        uuid learning_area_id FK
+        uuid strand_id FK
+        uuid sub_strand_id FK
+        int rubric_level
+        text comment
+        int sort_order
+    }
+    STAFF_DOCUMENTS {
+        uuid id PK
+        uuid staff_id FK
+        text doc_type
+        text file_name
+        text file_url
+        text mime_type
+        bigint file_size
+    }
+    PAYROLL_RUNS {
+        uuid id PK
+        uuid staff_id FK
+        int month
+        int year
+        bigint basic_salary_cents
+        bigint allowances_cents
+        bigint gross_cents
+        bigint paye_cents
+        bigint nhif_cents
+        bigint nssf_cents
+        bigint other_deductions_cents
+        bigint net_cents
+        text status
+    }
+    PAYROLL_ITEMS {
+        uuid id PK
+        uuid payroll_run_id FK
+        text item_type
+        text name
+        bigint amount_cents
+        int sort_order
+    }
+    LEAVE_REQUESTS {
+        uuid id PK
+        uuid staff_id FK
+        text leave_type
+        date start_date
+        date end_date
+        int days
+        text reason
+        text status
+        uuid approved_by
+        uuid substitute_id
+    }
+    STAFF_ATTENDANCE {
+        uuid id PK
+        uuid staff_id FK
+        date date
+        timestamp clock_in
+        timestamp clock_out
+        text status
+        text notes
+    }
+    STAFF_APPRAISALS {
+        uuid id PK
+        uuid staff_id FK
+        int year
+        int term
+        uuid appraiser_id
+        jsonb scores
+        numeric overall_score
+        text rating
+        text status
+    }
 ```
 
 ### Logical Data Flow
@@ -886,6 +1025,81 @@ All endpoints are prefixed with `/api/v1` and require a `Bearer` JWT (except web
 | POST | `/payments/{id}/reverse` | Reverse a completed payment |
 | POST | `/payments/mpesa/stk` | Initiate M-Pesa STK push |
 
+### Reports — Report Cards (EPIC 6)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/reports` | List report cards (`?learner_id=&term=&year=`) |
+| GET | `/reports/{id}` | Get report card with items |
+| POST | `/reports/generate` | Generate/regenerate CBC report card (`?learner_id=&term=&year=`) |
+| PATCH | `/reports/{id}` | Update report card (status, rating, remarks) |
+| DELETE | `/reports/{id}` | Delete report card |
+
+### Analytics (EPIC 6)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/analytics/overview` | School overview (learner count) |
+| GET | `/analytics/strand-coverage` | Strand coverage heatmap (`?grade=&stream=&term=&year=`) |
+| GET | `/analytics/competency-distribution` | Rubric level distribution (`?strand_id=&grade=&stream=&term=&year=`) |
+| GET | `/analytics/teacher-velocity` | Assessments per teacher per week (`?term=&year=`) |
+| GET | `/analytics/learner-portfolio` | Per-learner rubric averages + attendance (`?grade=&stream=&term=&year=`) |
+| GET | `/analytics/at-risk` | At-risk learner radar (`?term=&year=`) |
+| GET | `/analytics/learners/{learnerId}/performance` | Per-learning-area performance (`?term=&year=`) |
+
+### HR — Staff (EPIC 7)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/staff` | List staff (`?role=&department=&employment_type=&include_inactive=`) |
+| POST | `/staff` | Create staff profile (TSC, KRA, qualifications) |
+| GET | `/staff/{id}` | Get staff profile |
+| PATCH | `/staff/{id}` | Update staff profile |
+| DELETE | `/staff/{id}` | Deactivate staff (soft delete) |
+| GET | `/staff/{id}/documents` | List staff documents |
+| POST | `/staff/{id}/documents` | Upload document reference |
+| DELETE | `/staff/documents/{docId}` | Delete document |
+
+### HR — Payroll (EPIC 7)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/payroll` | List payroll runs (`?month=&year=&status=`) |
+| POST | `/payroll` | Create payroll run (computes gross/net) |
+| GET | `/payroll/{id}` | Get payroll run with line items |
+| PATCH | `/payroll/{id}` | Update payroll run (recomputes gross/net) |
+| DELETE | `/payroll/{id}` | Delete payroll run |
+
+### HR — Leave (EPIC 7)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/leave` | List leave requests (`?status=&staff_id=&leave_type=`) |
+| POST | `/leave` | Create leave request (computes days) |
+| GET | `/leave/{id}` | Get leave request |
+| POST | `/leave/{id}/approve` | Approve pending leave |
+| POST | `/leave/{id}/deny` | Deny pending leave |
+| POST | `/leave/{id}/cancel` | Cancel leave |
+
+### HR — Staff Attendance (EPIC 7)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/staff-attendance` | List attendance (`?date=&staff_id=&status=`) |
+| POST | `/staff-attendance` | Record attendance (upsert per staff+date) |
+| PATCH | `/staff-attendance/{id}` | Update attendance (clock in/out, status) |
+| DELETE | `/staff-attendance/{id}` | Delete attendance record |
+
+### HR — Appraisals (EPIC 7)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/appraisals` | List appraisals (`?staff_id=&year=&term=`) |
+| POST | `/appraisals` | Create TSC-aligned appraisal |
+| GET | `/appraisals/{id}` | Get appraisal |
+| PATCH | `/appraisals/{id}` | Update appraisal (scores, rating, status) |
+| DELETE | `/appraisals/{id}` | Delete appraisal |
+
 ---
 
 ## Authentication & Multi-Tenancy
@@ -928,9 +1142,9 @@ npm run dev                   # http://localhost:3000
 ### 3. Database Migrations
 
 ```bash
-# Apply migrations in order (001 → 019), then seed:
+# Apply migrations in order (001 → 024), then seed:
 psql "$DATABASE_URL" -f migrations/001_tenants.sql
-# ... repeat for 002-019 ...
+# ... repeat for 002-024 ...
 psql "$DATABASE_URL" -f migrations/seed/seed.sql
 ```
 
@@ -992,6 +1206,7 @@ npx next build         # production build + type check
 | **EPIC 3** | ✅ Complete | Learner Records — Enrollment, Documents, Progression, Transfers |
 | **EPIC 4** | ✅ Complete | Transport — Fleet, Routes, Trips, Live GPS Tracking, Boarding Check-ins |
 | **EPIC 5** | ✅ Complete | Finance — Fee Structures, Invoices, Discounts, Payments (M-Pesa STK) |
-| **EPIC 6** | ⏳ Planned | Reports & Analytics — Report cards, Dashboards |
+| **EPIC 6** | ✅ Complete | Reports & Analytics — CBC Report Cards, Learning Dashboards, At-Risk Radar |
+| **EPIC 7** | ✅ Complete | Manage Human Resources — Staff, Payroll, Leave, Attendance, Appraisals |
 
 > **Note:** This README is updated after every epic to reflect the current architecture, schema, and endpoints.

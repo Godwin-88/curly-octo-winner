@@ -21,9 +21,11 @@ import (
 	"github.com/shule360/api/internal/comms/whatsapp"
 	"github.com/shule360/api/internal/config"
 	"github.com/shule360/api/internal/finance"
+	"github.com/shule360/api/internal/hr"
 	"github.com/shule360/api/internal/learner"
 	appmiddleware "github.com/shule360/api/internal/middleware"
 	"github.com/shule360/api/internal/nemis"
+	"github.com/shule360/api/internal/reports"
 	"github.com/shule360/api/internal/transport"
 	"github.com/shule360/api/pkg/backblaze"
 	"github.com/shule360/api/pkg/httputil"
@@ -115,6 +117,14 @@ func main() {
 	financeMpesa := finance.NewMpesaService(sb.Pool, mpesaClient, cfg.MpesaCallbackURL)
 	financeHandler := finance.NewHandler(financeSvc, financeMpesa)
 
+	// Initialize reports & analytics services (EPIC 6)
+	reportsSvc := reports.NewService(sb.Pool)
+	reportsHandler := reports.NewHandler(reportsSvc)
+
+	// Initialize HR services (EPIC 7)
+	hrSvc := hr.NewService(sb.Pool)
+	hrHandler := hr.NewHandler(hrSvc)
+
 	// Setup router
 	r := chi.NewRouter()
 
@@ -146,6 +156,8 @@ func main() {
 			learnerHandler.Mount(r)
 			transportHandler.Mount(r)
 			financeHandler.Mount(r)
+			reportsHandler.Mount(r)
+			hrHandler.Mount(r)
 		})
 	})
 

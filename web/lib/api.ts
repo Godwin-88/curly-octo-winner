@@ -726,6 +726,405 @@ export interface MpesaStkRequest {
   paid_by?: string;
 }
 
+// --- Reports & Analytics types ---
+
+export interface ReportCardItem {
+  id: string;
+  tenant_id: string;
+  report_card_id: string;
+  learning_area_id?: string;
+  strand_id?: string;
+  sub_strand_id?: string;
+  learning_area?: string;
+  strand_name?: string;
+  sub_strand_name?: string;
+  rubric_level?: number;
+  rubric_label?: string;
+  comment?: string;
+  sort_order: number;
+  created_at: string;
+}
+
+export interface ReportCard {
+  id: string;
+  tenant_id: string;
+  learner_id: string;
+  learner_name?: string;
+  grade?: string;
+  stream?: string;
+  upi?: string;
+  term: number;
+  year: number;
+  status: 'draft' | 'final';
+  overall_rating?: number;
+  core_competency_remarks?: Record<string, string>;
+  teacher_comments?: Record<string, string>;
+  attendance_summary?: Record<string, any>;
+  generated_by?: string;
+  generated_at: string;
+  created_at: string;
+  updated_at: string;
+  items?: ReportCardItem[];
+}
+
+export interface GenerateReportCardRequest {
+  status?: string;
+  overall_rating?: number;
+  core_competency_remarks?: Record<string, string>;
+  teacher_comments?: Record<string, string>;
+  generated_by?: string;
+}
+
+export interface UpdateReportCardRequest {
+  status?: string;
+  overall_rating?: number;
+  core_competency_remarks?: Record<string, string>;
+  teacher_comments?: Record<string, string>;
+}
+
+export interface SchoolOverview {
+  tenant_id: string;
+  learner_count: number;
+}
+
+export interface AlertLearner {
+  learner_id: string;
+  learner_name: string;
+  grade: string;
+  stream: string;
+  term: number;
+  year: number;
+  overall_avg_rubric: number;
+  attendance_rate: number;
+  assessed_areas: number;
+}
+
+export interface StrandCoverage {
+  tenant_id: string;
+  grade: string;
+  stream: string;
+  learning_area_id: string;
+  learning_area: string;
+  strand_id: string;
+  strand_name: string;
+  term: number;
+  year: number;
+  sub_strands_assessed: number;
+  learners_assessed: number;
+}
+
+export interface CompetencyDistribution {
+  tenant_id: string;
+  grade: string;
+  stream: string;
+  strand_id: string;
+  strand_name: string;
+  term: number;
+  year: number;
+  rubric_level: number;
+  learner_count: number;
+}
+
+export interface TeacherVelocity {
+  tenant_id: string;
+  teacher_id: string;
+  teacher_name: string;
+  term: number;
+  year: number;
+  week_start: string;
+  assessment_count: number;
+}
+
+export interface LearnerPortfolio {
+  tenant_id: string;
+  learner_id: string;
+  learner_name: string;
+  grade: string;
+  stream: string;
+  term: number;
+  year: number;
+  learning_areas_assessed: number;
+  overall_avg_rubric: number;
+  attendance_rate: number;
+}
+
+export interface LearningAreaPerformance {
+  tenant_id: string;
+  learner_id: string;
+  term: number;
+  year: number;
+  learning_area_id: string;
+  learning_area: string;
+  assessment_count: number;
+  avg_rubric_level: number;
+}
+
+// --- HR types ---
+
+export interface StaffProfile {
+  id: string;
+  tenant_id: string;
+  full_name: string;
+  email: string;
+  phone?: string;
+  role: string;
+  is_active: boolean;
+  tsc_number?: string;
+  national_id?: string;
+  kra_pin?: string;
+  date_of_birth?: string;
+  gender?: string;
+  department?: string;
+  job_title?: string;
+  employment_type: string;
+  hire_date?: string;
+  qualifications?: any[];
+  subjects?: any[];
+  employment_history?: any[];
+  emergency_contact?: Record<string, any>;
+  bank_details?: Record<string, any>;
+  photo_url?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateStaffRequest {
+  full_name: string;
+  email: string;
+  phone?: string;
+  role?: string;
+  is_active?: boolean;
+  tsc_number?: string;
+  national_id?: string;
+  kra_pin?: string;
+  date_of_birth?: string;
+  gender?: string;
+  department?: string;
+  job_title?: string;
+  employment_type?: string;
+  hire_date?: string;
+  qualifications?: any[];
+  subjects?: any[];
+  employment_history?: any[];
+  emergency_contact?: Record<string, any>;
+  bank_details?: Record<string, any>;
+  photo_url?: string;
+}
+
+export interface UpdateStaffRequest {
+  full_name?: string;
+  email?: string;
+  phone?: string;
+  role?: string;
+  is_active?: boolean;
+  tsc_number?: string;
+  national_id?: string;
+  kra_pin?: string;
+  date_of_birth?: string;
+  gender?: string;
+  department?: string;
+  job_title?: string;
+  employment_type?: string;
+  hire_date?: string;
+  qualifications?: any[];
+  subjects?: any[];
+  employment_history?: any[];
+  emergency_contact?: Record<string, any>;
+  bank_details?: Record<string, any>;
+  photo_url?: string;
+}
+
+export interface StaffDocument {
+  id: string;
+  tenant_id: string;
+  staff_id: string;
+  doc_type: string;
+  file_name: string;
+  file_url: string;
+  mime_type?: string;
+  file_size?: number;
+  uploaded_by?: string;
+  created_at: string;
+}
+
+export interface CreateStaffDocumentRequest {
+  doc_type: string;
+  file_name: string;
+  file_url: string;
+  mime_type?: string;
+  file_size?: number;
+  uploaded_by?: string;
+}
+
+export interface PayrollItem {
+  id: string;
+  tenant_id: string;
+  payroll_run_id: string;
+  item_type: 'earning' | 'deduction';
+  name: string;
+  amount_cents: number;
+  sort_order: number;
+  created_at: string;
+}
+
+export interface PayrollRun {
+  id: string;
+  tenant_id: string;
+  staff_id: string;
+  staff_name?: string;
+  month: number;
+  year: number;
+  basic_salary_cents: number;
+  allowances_cents: number;
+  gross_cents: number;
+  paye_cents: number;
+  nhif_cents: number;
+  nssf_cents: number;
+  other_deductions_cents: number;
+  net_cents: number;
+  status: 'draft' | 'approved' | 'paid';
+  paid_at?: string;
+  created_by?: string;
+  created_at: string;
+  updated_at: string;
+  items?: PayrollItem[];
+}
+
+export interface PayrollItemInput {
+  item_type: string;
+  name: string;
+  amount_cents: number;
+  sort_order?: number;
+}
+
+export interface CreatePayrollRunRequest {
+  staff_id: string;
+  month: number;
+  year: number;
+  basic_salary_cents: number;
+  allowances_cents: number;
+  paye_cents: number;
+  nhif_cents: number;
+  nssf_cents: number;
+  other_deductions_cents: number;
+  created_by?: string;
+  items?: PayrollItemInput[];
+}
+
+export interface UpdatePayrollRunRequest {
+  basic_salary_cents?: number;
+  allowances_cents?: number;
+  paye_cents?: number;
+  nhif_cents?: number;
+  nssf_cents?: number;
+  other_deductions_cents?: number;
+  status?: string;
+}
+
+export interface LeaveRequest {
+  id: string;
+  tenant_id: string;
+  staff_id: string;
+  staff_name?: string;
+  leave_type: string;
+  start_date: string;
+  end_date: string;
+  days: number;
+  reason?: string;
+  status: 'pending' | 'approved' | 'denied' | 'cancelled';
+  approved_by?: string;
+  approved_at?: string;
+  denial_reason?: string;
+  substitute_id?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateLeaveRequest {
+  staff_id: string;
+  leave_type: string;
+  start_date: string;
+  end_date: string;
+  reason?: string;
+  substitute_id?: string;
+}
+
+export interface ApproveLeaveRequest {
+  approved_by?: string;
+  substitute_id?: string;
+}
+
+export interface DenyLeaveRequest {
+  approved_by?: string;
+  denial_reason?: string;
+}
+
+export interface StaffAttendance {
+  id: string;
+  tenant_id: string;
+  staff_id: string;
+  staff_name?: string;
+  date: string;
+  clock_in?: string;
+  clock_out?: string;
+  status: string;
+  notes?: string;
+  marked_by?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateStaffAttendanceRequest {
+  staff_id: string;
+  date: string;
+  clock_in?: string;
+  clock_out?: string;
+  status?: string;
+  notes?: string;
+  marked_by?: string;
+}
+
+export interface UpdateStaffAttendanceRequest {
+  clock_in?: string;
+  clock_out?: string;
+  status?: string;
+  notes?: string;
+}
+
+export interface StaffAppraisal {
+  id: string;
+  tenant_id: string;
+  staff_id: string;
+  staff_name?: string;
+  year: number;
+  term?: number;
+  appraiser_id?: string;
+  scores?: Record<string, any>;
+  overall_score?: number;
+  rating?: string;
+  comments?: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateAppraisalRequest {
+  staff_id: string;
+  year: number;
+  term?: number;
+  appraiser_id?: string;
+  scores?: Record<string, any>;
+  comments?: string;
+}
+
+export interface UpdateAppraisalRequest {
+  scores?: Record<string, any>;
+  overall_score?: number;
+  rating?: string;
+  comments?: string;
+  status?: string;
+}
+
 // --- API functions ---
 
 export const api = {
@@ -1095,4 +1494,193 @@ export const api = {
 
   initiateMpesaStk: (data: MpesaStkRequest, token: string) =>
     request<Payment>('/payments/mpesa/stk', { method: 'POST', body: data, token }),
+
+  // Report cards
+  listReportCards: (params: { learner_id?: string; term?: number; year?: number }, token: string) => {
+    const qs = new URLSearchParams();
+    if (params.learner_id) qs.set('learner_id', params.learner_id);
+    if (params.term) qs.set('term', String(params.term));
+    if (params.year) qs.set('year', String(params.year));
+    return request<ReportCard[]>(`/reports?${qs.toString()}`, { token });
+  },
+
+  getReportCard: (id: string, token: string) =>
+    request<ReportCard>(`/reports/${id}`, { token }),
+
+  generateReportCard: (params: { learner_id: string; term: number; year: number }, data: GenerateReportCardRequest, token: string) =>
+    request<ReportCard>(`/reports/generate?learner_id=${params.learner_id}&term=${params.term}&year=${params.year}`, { method: 'POST', body: data, token }),
+
+  updateReportCard: (id: string, data: UpdateReportCardRequest, token: string) =>
+    request<ReportCard>(`/reports/${id}`, { method: 'PATCH', body: data, token }),
+
+  deleteReportCard: (id: string, token: string) =>
+    request<void>(`/reports/${id}`, { method: 'DELETE', token }),
+
+  // Analytics
+  getSchoolOverview: (token: string) =>
+    request<SchoolOverview>('/analytics/overview', { token }),
+
+  getStrandCoverage: (params: { grade?: string; stream?: string; term?: number; year?: number }, token: string) => {
+    const qs = new URLSearchParams();
+    if (params.grade) qs.set('grade', params.grade);
+    if (params.stream) qs.set('stream', params.stream);
+    if (params.term) qs.set('term', String(params.term));
+    if (params.year) qs.set('year', String(params.year));
+    return request<StrandCoverage[]>(`/analytics/strand-coverage?${qs.toString()}`, { token });
+  },
+
+  getCompetencyDistribution: (params: { strand_id?: string; grade?: string; stream?: string; term?: number; year?: number }, token: string) => {
+    const qs = new URLSearchParams();
+    if (params.strand_id) qs.set('strand_id', params.strand_id);
+    if (params.grade) qs.set('grade', params.grade);
+    if (params.stream) qs.set('stream', params.stream);
+    if (params.term) qs.set('term', String(params.term));
+    if (params.year) qs.set('year', String(params.year));
+    return request<CompetencyDistribution[]>(`/analytics/competency-distribution?${qs.toString()}`, { token });
+  },
+
+  getTeacherVelocity: (params: { term?: number; year?: number }, token: string) => {
+    const qs = new URLSearchParams();
+    if (params.term) qs.set('term', String(params.term));
+    if (params.year) qs.set('year', String(params.year));
+    return request<TeacherVelocity[]>(`/analytics/teacher-velocity?${qs.toString()}`, { token });
+  },
+
+  getLearnerPortfolio: (params: { grade?: string; stream?: string; term?: number; year?: number }, token: string) => {
+    const qs = new URLSearchParams();
+    if (params.grade) qs.set('grade', params.grade);
+    if (params.stream) qs.set('stream', params.stream);
+    if (params.term) qs.set('term', String(params.term));
+    if (params.year) qs.set('year', String(params.year));
+    return request<LearnerPortfolio[]>(`/analytics/learner-portfolio?${qs.toString()}`, { token });
+  },
+
+  getAtRiskLearners: (params: { term?: number; year?: number }, token: string) => {
+    const qs = new URLSearchParams();
+    if (params.term) qs.set('term', String(params.term));
+    if (params.year) qs.set('year', String(params.year));
+    return request<AlertLearner[]>(`/analytics/at-risk?${qs.toString()}`, { token });
+  },
+
+  getLearningAreaPerformance: (learnerId: string, params: { term?: number; year?: number }, token: string) => {
+    const qs = new URLSearchParams();
+    if (params.term) qs.set('term', String(params.term));
+    if (params.year) qs.set('year', String(params.year));
+    return request<LearningAreaPerformance[]>(`/analytics/learners/${learnerId}/performance?${qs.toString()}`, { token });
+  },
+
+  // Staff
+  listStaff: (params: { role?: string; department?: string; employment_type?: string; include_inactive?: boolean }, token: string) => {
+    const qs = new URLSearchParams();
+    if (params.role) qs.set('role', params.role);
+    if (params.department) qs.set('department', params.department);
+    if (params.employment_type) qs.set('employment_type', params.employment_type);
+    if (params.include_inactive) qs.set('include_inactive', 'true');
+    return request<StaffProfile[]>(`/staff?${qs.toString()}`, { token });
+  },
+
+  createStaff: (data: CreateStaffRequest, token: string) =>
+    request<StaffProfile>('/staff', { method: 'POST', body: data, token }),
+
+  getStaff: (id: string, token: string) =>
+    request<StaffProfile>(`/staff/${id}`, { token }),
+
+  updateStaff: (id: string, data: UpdateStaffRequest, token: string) =>
+    request<StaffProfile>(`/staff/${id}`, { method: 'PATCH', body: data, token }),
+
+  deleteStaff: (id: string, token: string) =>
+    request<void>(`/staff/${id}`, { method: 'DELETE', token }),
+
+  listStaffDocuments: (id: string, token: string) =>
+    request<StaffDocument[]>(`/staff/${id}/documents`, { token }),
+
+  createStaffDocument: (id: string, data: CreateStaffDocumentRequest, token: string) =>
+    request<StaffDocument>(`/staff/${id}/documents`, { method: 'POST', body: data, token }),
+
+  deleteStaffDocument: (docId: string, token: string) =>
+    request<void>(`/staff/documents/${docId}`, { method: 'DELETE', token }),
+
+  // Payroll
+  listPayrollRuns: (params: { month?: number; year?: number; status?: string }, token: string) => {
+    const qs = new URLSearchParams();
+    if (params.month) qs.set('month', String(params.month));
+    if (params.year) qs.set('year', String(params.year));
+    if (params.status) qs.set('status', params.status);
+    return request<PayrollRun[]>(`/payroll?${qs.toString()}`, { token });
+  },
+
+  createPayrollRun: (data: CreatePayrollRunRequest, token: string) =>
+    request<PayrollRun>('/payroll', { method: 'POST', body: data, token }),
+
+  getPayrollRun: (id: string, token: string) =>
+    request<PayrollRun>(`/payroll/${id}`, { token }),
+
+  updatePayrollRun: (id: string, data: UpdatePayrollRunRequest, token: string) =>
+    request<PayrollRun>(`/payroll/${id}`, { method: 'PATCH', body: data, token }),
+
+  deletePayrollRun: (id: string, token: string) =>
+    request<void>(`/payroll/${id}`, { method: 'DELETE', token }),
+
+  // Leave
+  listLeaveRequests: (params: { status?: string; staff_id?: string; leave_type?: string }, token: string) => {
+    const qs = new URLSearchParams();
+    if (params.status) qs.set('status', params.status);
+    if (params.staff_id) qs.set('staff_id', params.staff_id);
+    if (params.leave_type) qs.set('leave_type', params.leave_type);
+    return request<LeaveRequest[]>(`/leave?${qs.toString()}`, { token });
+  },
+
+  createLeaveRequest: (data: CreateLeaveRequest, token: string) =>
+    request<LeaveRequest>('/leave', { method: 'POST', body: data, token }),
+
+  getLeaveRequest: (id: string, token: string) =>
+    request<LeaveRequest>(`/leave/${id}`, { token }),
+
+  approveLeaveRequest: (id: string, data: ApproveLeaveRequest, token: string) =>
+    request<LeaveRequest>(`/leave/${id}/approve`, { method: 'POST', body: data, token }),
+
+  denyLeaveRequest: (id: string, data: DenyLeaveRequest, token: string) =>
+    request<LeaveRequest>(`/leave/${id}/deny`, { method: 'POST', body: data, token }),
+
+  cancelLeaveRequest: (id: string, token: string) =>
+    request<LeaveRequest>(`/leave/${id}/cancel`, { method: 'POST', token }),
+
+  // Staff attendance
+  listStaffAttendance: (params: { date?: string; staff_id?: string; status?: string }, token: string) => {
+    const qs = new URLSearchParams();
+    if (params.date) qs.set('date', params.date);
+    if (params.staff_id) qs.set('staff_id', params.staff_id);
+    if (params.status) qs.set('status', params.status);
+    return request<StaffAttendance[]>(`/staff-attendance?${qs.toString()}`, { token });
+  },
+
+  createStaffAttendance: (data: CreateStaffAttendanceRequest, token: string) =>
+    request<StaffAttendance>('/staff-attendance', { method: 'POST', body: data, token }),
+
+  updateStaffAttendance: (id: string, data: UpdateStaffAttendanceRequest, token: string) =>
+    request<StaffAttendance>(`/staff-attendance/${id}`, { method: 'PATCH', body: data, token }),
+
+  deleteStaffAttendance: (id: string, token: string) =>
+    request<void>(`/staff-attendance/${id}`, { method: 'DELETE', token }),
+
+  // Appraisals
+  listAppraisals: (params: { staff_id?: string; year?: number; term?: number }, token: string) => {
+    const qs = new URLSearchParams();
+    if (params.staff_id) qs.set('staff_id', params.staff_id);
+    if (params.year) qs.set('year', String(params.year));
+    if (params.term) qs.set('term', String(params.term));
+    return request<StaffAppraisal[]>(`/appraisals?${qs.toString()}`, { token });
+  },
+
+  createAppraisal: (data: CreateAppraisalRequest, token: string) =>
+    request<StaffAppraisal>('/appraisals', { method: 'POST', body: data, token }),
+
+  getAppraisal: (id: string, token: string) =>
+    request<StaffAppraisal>(`/appraisals/${id}`, { token }),
+
+  updateAppraisal: (id: string, data: UpdateAppraisalRequest, token: string) =>
+    request<StaffAppraisal>(`/appraisals/${id}`, { method: 'PATCH', body: data, token }),
+
+  deleteAppraisal: (id: string, token: string) =>
+    request<void>(`/appraisals/${id}`, { method: 'DELETE', token }),
 };

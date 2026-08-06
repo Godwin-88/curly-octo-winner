@@ -20,6 +20,13 @@ import {
   FileText,
   Receipt,
   Smartphone,
+  BarChart3,
+  FileBarChart,
+  Briefcase,
+  UserCog,
+  Banknote,
+  CalendarClock,
+  ClipboardCheck,
 } from 'lucide-react';
 
 const navItems = [
@@ -62,6 +69,27 @@ const navItems = [
       { href: '/finance/fees', label: 'Fee Structures', icon: FileText },
       { href: '/finance/invoices', label: 'Invoices', icon: Receipt },
       { href: '/finance/payments', label: 'Payments', icon: Smartphone },
+    ],
+  },
+  {
+    label: 'Reports & Analytics',
+    icon: BarChart3,
+    children: [
+      { href: '/reports', label: 'Overview', icon: BarChart3 },
+      { href: '/reports/cards', label: 'Report Cards', icon: FileBarChart },
+      { href: '/analytics', label: 'Analytics', icon: BarChart3 },
+    ],
+  },
+  {
+    label: 'Human Resources',
+    icon: Briefcase,
+    children: [
+      { href: '/hr', label: 'Overview', icon: Briefcase },
+      { href: '/hr/staff', label: 'Staff Directory', icon: UserCog },
+      { href: '/hr/payroll', label: 'Payroll', icon: Banknote },
+      { href: '/hr/leave', label: 'Leave', icon: CalendarClock },
+      { href: '/hr/attendance', label: 'Attendance', icon: CalendarClock },
+      { href: '/hr/appraisals', label: 'Appraisals', icon: ClipboardCheck },
     ],
   },
   { href: '/settings', label: 'Settings', icon: Settings },
