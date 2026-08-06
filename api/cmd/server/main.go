@@ -22,9 +22,11 @@ import (
 	"github.com/shule360/api/internal/config"
 	"github.com/shule360/api/internal/finance"
 	"github.com/shule360/api/internal/hr"
+	"github.com/shule360/api/internal/intelligence"
 	"github.com/shule360/api/internal/learner"
 	appmiddleware "github.com/shule360/api/internal/middleware"
 	"github.com/shule360/api/internal/nemis"
+	"github.com/shule360/api/internal/procurement"
 	"github.com/shule360/api/internal/reports"
 	"github.com/shule360/api/internal/transport"
 	"github.com/shule360/api/pkg/backblaze"
@@ -125,6 +127,15 @@ func main() {
 	hrSvc := hr.NewService(sb.Pool)
 	hrHandler := hr.NewHandler(hrSvc)
 
+	// Initialize procurement services (EPIC 8)
+	procurementSvc := procurement.NewService(sb.Pool)
+	procurementHandler := procurement.NewHandler(procurementSvc)
+
+	// Initialize intelligence services (EPIC 8: Digital Intelligence)
+	intelligenceSvc := intelligence.NewService(sb.Pool)
+	intelligenceAI := intelligence.NewAIService(sb.Pool, vectorClient)
+	intelligenceHandler := intelligence.NewHandler(intelligenceSvc, intelligenceAI)
+
 	// Setup router
 	r := chi.NewRouter()
 
@@ -158,6 +169,8 @@ func main() {
 			financeHandler.Mount(r)
 			reportsHandler.Mount(r)
 			hrHandler.Mount(r)
+			procurementHandler.Mount(r)
+			intelligenceHandler.Mount(r)
 		})
 	})
 

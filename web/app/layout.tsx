@@ -10,6 +10,9 @@ const raleway = Raleway({
 export const metadata: Metadata = {
   title: 'Shule360 - School Management System',
   description: 'CBC-aligned school management platform for Kenyan schools',
+  icons: {
+    icon: '/favicon.svg',
+  },
 };
 
 export default function RootLayout({

@@ -2,7 +2,7 @@
 
 A multi-tenant school management platform for Kenyan public schools under the **Competency-Based Curriculum (CBC)**. Shule360 digitizes the full school lifecycle — communications, learner records, academics, transport, and finance — with a focus on the unique needs of Kenyan schools (NEMIS integration, Africa's Talking SMS, WhatsApp Business, CBC assessment rubrics).
 
-> **Status:** EPIC 7 complete — Human Resources (Staff, Payroll, Leave) + Reports & Analytics + Finance + Transport + Learner Records + Academic + Communications
+> **Status:** EPIC 9 complete — Digital Intelligence (Financial Analytics, Communication Analytics, AI Assistant) + Procurement + Human Resources + Reports & Analytics + Finance + Transport + Learner Records + Academic + Communications
 
 ---
 
@@ -57,6 +57,8 @@ flowchart TB
         FIN["Finance Service<br/>Fees · Invoices · Payments"]
         REPORTS["Reports Service<br/>Report Cards · Analytics"]
         HR["HR Service<br/>Staff · Payroll · Leave"]
+        PROC["Procurement Service<br/>Suppliers · POs · GRNs · Payments"]
+        INTEL["Intelligence Service<br/>Financial · Comms Analytics · AI"]
         NEMIS["NEMIS Client<br/>UPI Validation"]
     end
 
@@ -83,6 +85,8 @@ flowchart TB
     MID --> TRANSP
     MID --> FIN
     MID --> REPORTS
+    MID --> PROC
+    MID --> INTEL
     LEARN --> NEMIS
     COMMS --> PG
     ACAD --> PG
@@ -92,6 +96,9 @@ flowchart TB
     FIN -->|REST| MPESA
     MPESA -->|STK Callback| ROUTER
     REPORTS --> PG
+    PROC --> PG
+    INTEL --> PG
+    INTEL --> VECTOR
     COMMS --> REDIS
     COMMS --> VECTOR
     COMMS --> SEARCH
@@ -134,6 +141,8 @@ graph TD
     INTERNAL --> FIN["finance/"]
     INTERNAL --> REPORTS["reports/"]
     INTERNAL --> HR["hr/"]
+    INTERNAL --> PROC["procurement/"]
+    INTERNAL --> INTEL["intelligence/"]
     INTERNAL --> TENANT["tenant/"]
     INTERNAL --> CONFIG["config/"]
 
@@ -155,6 +164,16 @@ graph TD
     HR --> HSVCLEAVE["service_leave.go"]
     HR --> HTYPE["types.go"]
     HR --> HHAND["handler.go"]
+
+    PROC --> PSVC["service.go"]
+    PROC --> PSVCORD["service_orders.go"]
+    PROC --> PTYPE["types.go"]
+    PROC --> PHAND["handler.go"]
+
+    INTEL --> ISVC["service.go"]
+    INTEL --> ISVCAI["service_ai.go"]
+    INTEL --> ITYPE["types.go"]
+    INTEL --> IHAND["handler.go"]
 
     ACAD --> ACADH["handler.go"]
     ACAD --> CURR["curriculum/"]
@@ -206,6 +225,11 @@ graph TD
     MIG --> M022["022_staff_profiles.sql"]
     MIG --> M023["023_payroll.sql"]
     MIG --> M024["024_leave.sql"]
+    MIG --> M025["025_suppliers.sql"]
+    MIG --> M026["026_requisitions.sql"]
+    MIG --> M027["027_purchase_orders.sql"]
+    MIG --> M028["028_supplier_payments.sql"]
+    MIG --> M029["029_intelligence_views.sql"]
     MIG --> SEED["seed/seed.sql"]
 
     WEB --> APP["app/"]
@@ -228,6 +252,8 @@ graph TD
     ADMIN --> REPORTS["reports/"]
     ADMIN --> ANALYTICS["analytics/"]
     ADMIN --> HR["hr/"]
+    ADMIN --> PROC["procurement/"]
+    ADMIN --> INTEL["intelligence/"]
     COMP --> LAYOUT["layout/"]
     COMP --> COMMS["comms/"]
     COMP --> UI["ui/"]
@@ -279,6 +305,16 @@ shule360/
     │   │   │   ├── service.go        # Staff, documents, payroll CRUD
     │   │   │   ├── service_leave.go  # Leave, staff attendance, appraisals
     │   │   │   └── handler.go        # 28 HR routes
+    │   │   ├── procurement/          # EPIC 8 — Procurement
+    │   │   │   ├── types.go          # Supplier, requisition, PO, GRN, payment types
+    │   │   │   ├── service.go        # Suppliers, requisitions CRUD + approval workflow
+    │   │   │   ├── service_orders.go # POs, GRNs, supplier payments (three-way match)
+    │   │   │   └── handler.go        # 26 procurement routes
+    │   │   ├── intelligence/         # EPIC 9 — Digital Intelligence
+    │   │   │   ├── types.go          # Financial, comms analytics + AI types
+    │   │   │   ├── service.go        # Financial & communication analytics, FAQ, templates
+    │   │   │   ├── service_ai.go     # Upstash Vector semantic search, auto-response
+    │   │   │   └── handler.go        # 17 intelligence routes
     │   │   ├── middleware/           # JWT auth, tenant, rate limiting
 │   │   ├── nemis/                # NEMIS client interface + sandbox stub
 │   │   ├── tenant/               # Tenant service
@@ -289,7 +325,7 @@ shule360/
 │   │   ├── upstash/              # Redis, Vector, Search clients
 │   │   ├── backblaze/            # B2 S3-compatible client
 │   │   └── mpesa/                # Safaricom Daraja STK push client
-    │   ├── migrations/               # 24 SQL migrations + seed
+    │   ├── migrations/               # 29 SQL migrations + seed
 │   ├── .env.example
 │   ├── Dockerfile
 │   ├── fly.toml
@@ -307,7 +343,9 @@ shule360/
     │   │   ├── finance/          # Overview, fees, invoices, payments (EPIC 5)
     │   │   ├── reports/          # Overview, report cards (EPIC 6)
     │   │   ├── analytics/        # Learning analytics dashboard (EPIC 6)
-    │   │   └── hr/               # Overview, staff, payroll, leave, attendance, appraisals (EPIC 7)
+    │   │   ├── hr/               # Overview, staff, payroll, leave, attendance, appraisals (EPIC 7)
+    │   │   ├── procurement/      # Overview, suppliers, requisitions, orders, receipts, payments (EPIC 8)
+    │   │   └── intelligence/     # Overview, financial, communications, AI assistant (EPIC 9)
     │   ├── (auth)/login/         # Login page
     │   ├── layout.tsx            # Root layout (Raleway font)
     │   └── globals.css
@@ -348,6 +386,13 @@ erDiagram
     TENANTS ||--o{ LEAVE_REQUESTS : "approves"
     TENANTS ||--o{ STAFF_ATTENDANCE : "tracks"
     TENANTS ||--o{ STAFF_APPRAISALS : "reviews"
+    TENANTS ||--o{ SUPPLIERS : "registers"
+    TENANTS ||--o{ PURCHASE_REQUISITIONS : "approves"
+    TENANTS ||--o{ PURCHASE_ORDERS : "issues"
+    TENANTS ||--o{ GOODS_RECEIPTS : "receives"
+    TENANTS ||--o{ SUPPLIER_PAYMENTS : "makes"
+    TENANTS ||--o{ FAQ_ENTRIES : "defines"
+    TENANTS ||--o{ MESSAGE_TEMPLATE_EMBEDDINGS : "stores"
 
     STAFF ||--o{ MESSAGES : "sends"
     STAFF ||--o{ STAFF_DOCUMENTS : "owns"
@@ -368,6 +413,10 @@ erDiagram
     STAFF ||--o{ PAYMENTS : "receives"
     STAFF ||--o{ DISCOUNTS : "approves"
     STAFF ||--o{ REPORT_CARDS : "generates"
+    STAFF ||--o{ PURCHASE_REQUISITIONS : "requests"
+    STAFF ||--o{ PURCHASE_ORDERS : "creates"
+    STAFF ||--o{ GOODS_RECEIPTS : "receives_as_officer"
+    STAFF ||--o{ SUPPLIER_PAYMENTS : "authorises"
 
     GUARDIANS ||--o{ WA_CONVERSATIONS : "chats"
     GUARDIANS }o--o{ LEARNERS : "guardian_of"
@@ -404,6 +453,31 @@ erDiagram
     INVOICES ||--o{ PAYMENTS : "settles"
     REPORT_CARDS ||--o{ REPORT_CARD_ITEMS : "contains"
     PAYROLL_RUNS ||--o{ PAYROLL_ITEMS : "contains"
+    PURCHASE_REQUISITIONS ||--o{ REQUISITION_ITEMS : "contains"
+    PURCHASE_ORDERS ||--o{ PURCHASE_ORDER_ITEMS : "contains"
+    PURCHASE_ORDERS ||--o{ GOODS_RECEIPTS : "receives"
+    GOODS_RECEIPTS ||--o{ GOODS_RECEIPT_ITEMS : "contains"
+    SUPPLIERS ||--o{ PURCHASE_ORDERS : "supplies"
+    SUPPLIERS ||--o{ SUPPLIER_PAYMENTS : "receives"
+    FAQ_ENTRIES {
+        uuid id PK
+        uuid tenant_id FK
+        text question
+        text answer
+        text category
+        text[] keywords
+        boolean is_active
+    }
+    MESSAGE_TEMPLATE_EMBEDDINGS {
+        uuid id PK
+        uuid tenant_id FK
+        text template_id
+        text content
+        text purpose
+        text tone
+        text language
+        text vector_id
+    }
 
     TENANTS {
         uuid id PK
@@ -759,6 +833,105 @@ erDiagram
         text rating
         text status
     }
+    SUPPLIERS {
+        uuid id PK
+        uuid tenant_id FK
+        text name
+        text business_registration
+        text kra_pin
+        text category
+        text contact_person
+        text phone
+        text email
+        text whatsapp_phone
+        text physical_address
+        text bank_branch
+        text bank_account_name
+        text bank_account_number
+        boolean is_active
+    }
+    PURCHASE_REQUISITIONS {
+        uuid id PK
+        uuid tenant_id FK
+        text requisition_no
+        text title
+        text department
+        uuid requested_by
+        date required_by
+        text justification
+        text status
+        uuid hod_approved_by
+        uuid approved_by
+        bigint total_estimate_cents
+    }
+    REQUISITION_ITEMS {
+        uuid id PK
+        uuid requisition_id FK
+        text item_name
+        text description
+        int quantity
+        text unit
+        bigint estimated_unit_cost_cents
+        bigint estimated_total_cents
+    }
+    PURCHASE_ORDERS {
+        uuid id PK
+        uuid tenant_id FK
+        text po_number
+        uuid requisition_id FK
+        uuid supplier_id FK
+        date order_date
+        date expected_delivery
+        text status
+        bigint total_amount_cents
+        uuid created_by
+    }
+    PURCHASE_ORDER_ITEMS {
+        uuid id PK
+        uuid purchase_order_id FK
+        text item_name
+        text description
+        int quantity
+        text unit
+        bigint unit_cost_cents
+        bigint total_cost_cents
+    }
+    GOODS_RECEIPTS {
+        uuid id PK
+        uuid tenant_id FK
+        text grn_number
+        uuid purchase_order_id FK
+        uuid supplier_id FK
+        date received_date
+        uuid received_by
+        text status
+        text notes
+    }
+    GOODS_RECEIPT_ITEMS {
+        uuid id PK
+        uuid goods_receipt_id FK
+        uuid po_item_id FK
+        text item_name
+        int quantity_received
+        int quantity_rejected
+        text unit
+        bigint unit_cost_cents
+        bigint total_cost_cents
+    }
+    SUPPLIER_PAYMENTS {
+        uuid id PK
+        uuid tenant_id FK
+        text payment_no
+        uuid supplier_id FK
+        uuid purchase_order_id FK
+        uuid goods_receipt_id FK
+        text invoice_number
+        bigint amount_cents
+        text payment_method
+        text status
+        uuid authorised_by
+        timestamp paid_at
+    }
 ```
 
 ### Logical Data Flow
@@ -1100,6 +1273,95 @@ All endpoints are prefixed with `/api/v1` and require a `Bearer` JWT (except web
 | PATCH | `/appraisals/{id}` | Update appraisal (scores, rating, status) |
 | DELETE | `/appraisals/{id}` | Delete appraisal |
 
+### Procurement — Suppliers (EPIC 8)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/suppliers` | List suppliers (`?category=&include_inactive=`) |
+| POST | `/suppliers` | Create supplier (KYC: registration, KRA PIN, bank) |
+| GET | `/suppliers/{id}` | Get supplier |
+| PATCH | `/suppliers/{id}` | Update supplier |
+| DELETE | `/suppliers/{id}` | Deactivate supplier (soft delete) |
+
+### Procurement — Requisitions (EPIC 8)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/requisitions` | List requisitions (`?status=&department=`) |
+| POST | `/requisitions` | Create requisition (with items, computes estimate) |
+| GET | `/requisitions/{id}` | Get requisition with items |
+| POST | `/requisitions/{id}/approve` | Approve (pending → hod_approved → approved) |
+| POST | `/requisitions/{id}/reject` | Reject with reason |
+| POST | `/requisitions/{id}/cancel` | Cancel requisition |
+| DELETE | `/requisitions/{id}` | Delete requisition |
+
+### Procurement — Purchase Orders (EPIC 8)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/purchase-orders` | List POs (`?status=&supplier_id=`) |
+| POST | `/purchase-orders` | Create PO (with items, computes total) |
+| GET | `/purchase-orders/{id}` | Get PO with items |
+| PATCH | `/purchase-orders/{id}` | Update PO (status, expected delivery, notes) |
+| DELETE | `/purchase-orders/{id}` | Delete PO |
+
+### Procurement — Goods Receipts (EPIC 8)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/goods-receipts` | List GRNs (`?status=&purchase_order_id=`) |
+| POST | `/goods-receipts` | Create GRN (verifies quantities, updates PO status) |
+| GET | `/goods-receipts/{id}` | Get GRN with items |
+| DELETE | `/goods-receipts/{id}` | Delete GRN |
+
+### Procurement — Supplier Payments (EPIC 8)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/supplier-payments` | List payments (`?status=&supplier_id=`) |
+| POST | `/supplier-payments` | Create payment (three-way match: PO → GRN → Invoice) |
+| GET | `/supplier-payments/{id}` | Get payment |
+| PATCH | `/supplier-payments/{id}` | Update payment (authorise, mark paid, cancel) |
+| DELETE | `/supplier-payments/{id}` | Delete payment |
+
+### Intelligence — Financial Analytics (EPIC 9)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/intelligence/financial/fee-collection` | Fee collection summary (`?term=&year=`) |
+| GET | `/intelligence/financial/payment-channels` | Payment channel breakdown (`?term=&year=`) |
+| GET | `/intelligence/financial/fee-defaulters` | Fee defaulters list (`?term=&year=`) |
+| GET | `/intelligence/financial/monthly-trend` | Monthly collection trend |
+
+### Intelligence — Communication Analytics (EPIC 9)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/intelligence/communications/campaigns` | Campaign delivery summary |
+| GET | `/intelligence/communications/channel-reach` | Channel reach per channel |
+| GET | `/intelligence/communications/failed-numbers` | Failed number analysis |
+
+### Intelligence — AI Knowledge Base (EPIC 9)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/intelligence/ai/faq` | List FAQ entries (`?category=`) |
+| POST | `/intelligence/ai/faq` | Create FAQ entry |
+| GET | `/intelligence/ai/faq/{id}` | Get FAQ entry |
+| PATCH | `/intelligence/ai/faq/{id}` | Update FAQ entry |
+| DELETE | `/intelligence/ai/faq/{id}` | Delete FAQ entry |
+| GET | `/intelligence/ai/templates` | List message template embeddings |
+| POST | `/intelligence/ai/templates` | Store template embedding |
+| DELETE | `/intelligence/ai/templates/{id}` | Delete template embedding |
+
+### Intelligence — AI Features (EPIC 9)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/intelligence/ai/suggest-templates` | Semantic template suggestions (`?purpose=&tone=&language=&top_k=`) |
+| POST | `/intelligence/ai/auto-respond` | Parent query auto-response (body: `{query}`) |
+| GET | `/intelligence/ai/portfolio-summary/{learnerId}` | Learner portfolio summary (`?term=&year=`) |
+
 ---
 
 ## Authentication & Multi-Tenancy
@@ -1142,9 +1404,9 @@ npm run dev                   # http://localhost:3000
 ### 3. Database Migrations
 
 ```bash
-# Apply migrations in order (001 → 024), then seed:
+# Apply migrations in order (001 → 029), then seed:
 psql "$DATABASE_URL" -f migrations/001_tenants.sql
-# ... repeat for 002-024 ...
+# ... repeat for 002-029 ...
 psql "$DATABASE_URL" -f migrations/seed/seed.sql
 ```
 
@@ -1208,5 +1470,7 @@ npx next build         # production build + type check
 | **EPIC 5** | ✅ Complete | Finance — Fee Structures, Invoices, Discounts, Payments (M-Pesa STK) |
 | **EPIC 6** | ✅ Complete | Reports & Analytics — CBC Report Cards, Learning Dashboards, At-Risk Radar |
 | **EPIC 7** | ✅ Complete | Manage Human Resources — Staff, Payroll, Leave, Attendance, Appraisals |
+| **EPIC 8** | ✅ Complete | Manage Supplier & Procurement Operations — Suppliers, Requisitions, Purchase Orders, Goods Receipt, Supplier Payments |
+| **EPIC 9** | ✅ Complete | Manage Digital Intelligence — Financial Analytics, Communication Analytics, AI Assistant (FAQ, Template Suggestions, Auto-Response) |
 
 > **Note:** This README is updated after every epic to reflect the current architecture, schema, and endpoints.

@@ -373,3 +373,111 @@ VALUES (
     'Consistent and dedicated teacher. Shows strong classroom management.',
     'approved'
 ) ON CONFLICT (tenant_id, staff_id, year, term) DO NOTHING;
+
+-- Seed suppliers (EPIC 8: Procurement)
+INSERT INTO suppliers (id, tenant_id, name, business_registration, kra_pin, category, contact_person, phone, email, whatsapp_phone, physical_address, bank_branch, bank_account_name, bank_account_number, bank_swift_code, is_active) VALUES
+    ('d0000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000001', 'Kenya Textbooks Ltd', 'KTL-2024-001', 'P000123456A', 'textbooks', 'Alice Wanjiru', '+254700111001', 'sales@kenyatextbooks.co.ke', '+254700111001', 'Nairobi Industrial Area', 'Equity Bank Industrial Area', 'Kenya Textbooks Ltd', '0123456789', 'EQBLKENA', true),
+    ('d0000000-0000-0000-0000-000000000002', 'a0000000-0000-0000-0000-000000000001', 'Stationery Plus', 'SP-2024-045', 'P000654321B', 'stationery', 'Brian Omondi', '+254700111002', 'orders@stationeryplus.co.ke', '+254700111002', 'Mombasa Road', 'KCB Mombasa Road', 'Stationery Plus', '9876543210', 'KCBLKENX', true),
+    ('d0000000-0000-0000-0000-000000000003', 'a0000000-0000-0000-0000-000000000001', 'Furniture World Kenya', 'FWK-2023-112', 'P000987654C', 'furniture', 'Catherine Njeri', '+254700111003', 'info@furnitureworld.co.ke', NULL, 'Thika Road', 'Co-op Bank Thika Road', 'Furniture World Kenya', '4567890123', 'COOPKENA', true),
+    ('d0000000-0000-0000-0000-000000000004', 'a0000000-0000-0000-0000-000000000001', 'ICT Solutions Ltd', 'ICT-2022-078', 'P000222333D', 'ict', 'Daniel Mutua', '+254700111004', 'sales@ictsolutions.co.ke', '+254700111004', 'Westlands', 'Stanbic Westlands', 'ICT Solutions Ltd', '7890123456', 'SBICKENX', true)
+ON CONFLICT (id) DO NOTHING;
+
+-- Seed a purchase requisition (pending)
+INSERT INTO purchase_requisitions (id, tenant_id, requisition_no, title, department, requested_by, required_by, justification, status, total_estimate_cents)
+VALUES (
+    'e0000000-0000-0000-0000-000000000001',
+    'a0000000-0000-0000-0000-000000000001',
+    'REQ-A1B2C3D4',
+    'Grade 4 Science Textbooks & Lab Supplies',
+    'Science Department',
+    'b0000000-0000-0000-0000-000000000003',
+    '2026-09-01',
+    'New KICD curriculum requires updated Grade 4 Science materials',
+    'hod_approved',
+    250000
+) ON CONFLICT (tenant_id, requisition_no) DO NOTHING;
+
+INSERT INTO requisition_items (tenant_id, requisition_id, item_name, description, quantity, unit, estimated_unit_cost_cents, estimated_total_cents) VALUES
+    ('a0000000-0000-0000-0000-000000000001', 'e0000000-0000-0000-0000-000000000001', 'Grade 4 Science Textbook', 'KICD approved 2026 edition', 100, 'books', 1800, 180000),
+    ('a0000000-0000-0000-0000-000000000001', 'e0000000-0000-0000-0000-000000000001', 'Lab Test Tubes', 'Borosilicate glass, pack of 10', 50, 'packs', 1400, 70000)
+ON CONFLICT DO NOTHING;
+
+-- Seed a purchase order (sent)
+INSERT INTO purchase_orders (id, tenant_id, po_number, requisition_id, supplier_id, order_date, expected_delivery, status, total_amount_cents, notes, created_by)
+VALUES (
+    'f0000000-0000-0000-0000-000000000001',
+    'a0000000-0000-0000-0000-000000000001',
+    'PO-5E6F7A8B',
+    'e0000000-0000-0000-0000-000000000001',
+    'd0000000-0000-0000-0000-000000000001',
+    '2026-08-01',
+    '2026-08-28',
+    'sent',
+    175000,
+    'PO for Grade 4 Science textbooks',
+    'b0000000-0000-0000-0000-000000000002'
+) ON CONFLICT (tenant_id, po_number) DO NOTHING;
+
+INSERT INTO purchase_order_items (tenant_id, purchase_order_id, item_name, description, quantity, unit, unit_cost_cents, total_cost_cents) VALUES
+    ('a0000000-0000-0000-0000-000000000001', 'f0000000-0000-0000-0000-000000000001', 'Grade 4 Science Textbook', 'KICD approved 2026 edition', 100, 'books', 1750, 175000)
+ON CONFLICT DO NOTHING;
+
+-- Seed a goods receipt (received)
+INSERT INTO goods_receipts (id, tenant_id, grn_number, purchase_order_id, supplier_id, received_date, received_by, status, notes)
+VALUES (
+    'c0000000-0000-0000-0000-000000000021',
+    'a0000000-0000-0000-0000-000000000001',
+    'GRN-11223344',
+    'f0000000-0000-0000-0000-000000000001',
+    'd0000000-0000-0000-0000-000000000001',
+    '2026-08-25',
+    'b0000000-0000-0000-0000-000000000003',
+    'received',
+    'All 100 textbooks delivered in good condition'
+) ON CONFLICT (tenant_id, grn_number) DO NOTHING;
+
+INSERT INTO goods_receipt_items (tenant_id, goods_receipt_id, item_name, quantity_received, quantity_rejected, unit, unit_cost_cents, total_cost_cents) VALUES
+    ('a0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000021', 'Grade 4 Science Textbook', 100, 0, 'books', 1750, 175000)
+ON CONFLICT DO NOTHING;
+
+-- Seed a supplier payment (authorised - three-way match complete)
+INSERT INTO supplier_payments (id, tenant_id, payment_no, supplier_id, purchase_order_id, goods_receipt_id, invoice_number, invoice_date, amount_cents, payment_method, status, authorised_by, authorised_at, notes, created_by)
+VALUES (
+    'd0000000-0000-0000-0000-000000000011',
+    'a0000000-0000-0000-0000-000000000001',
+    'PAY-99887766',
+    'd0000000-0000-0000-0000-000000000001',
+    'f0000000-0000-0000-0000-000000000001',
+    'c0000000-0000-0000-0000-000000000021',
+    'INV-2026-045',
+    '2026-08-25',
+    175000,
+    'bank',
+    'authorised',
+    'b0000000-0000-0000-0000-000000000002',
+    now(),
+    'Payment authorised after PO → GRN → Invoice three-way match',
+    'b0000000-0000-0000-0000-000000000002'
+) ON CONFLICT (tenant_id, payment_no) DO NOTHING;
+
+-- Digital Intelligence (EPIC 8): FAQ knowledge base and message template embeddings
+-- Requires: migration 029 applied first
+
+-- FAQ entries for the parent query auto-response chatbot
+INSERT INTO faq_entries (id, tenant_id, question, answer, category, keywords, is_active) VALUES
+    ('a5000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000001', 'What is my child''s fee balance?', 'Your child''s current fee balance is available in the parent portal under Fees. For assistance, contact the bursar at +254712345602.', 'fees', ARRAY['fee', 'balance', 'fees', 'pay'], true),
+    ('a5000000-0000-0000-0000-000000000002', 'a0000000-0000-0000-0000-000000000001', 'How can I pay school fees?', 'Fees can be paid via M-Pesa Paybill, bank transfer, cash at the bursar''s office, or cheque. M-Pesa receipts are sent automatically via SMS.', 'fees', ARRAY['pay', 'mpesa', 'payment', 'fees'], true),
+    ('a5000000-0000-0000-0000-000000000003', 'a0000000-0000-0000-0000-000000000001', 'When will my child''s results be released?', 'CBC report cards are released at the end of each term. You will receive a notification via WhatsApp when your child''s report is ready.', 'results', ARRAY['results', 'report', 'report card', 'grades'], true),
+    ('a5000000-0000-0000-0000-000000000004', 'a0000000-0000-0000-0000-000000000001', 'What time does the school bus arrive at my stop?', 'Bus arrival times are sent via SMS and WhatsApp when the bus departs school. You can also track the live bus location in the parent portal.', 'transport', ARRAY['bus', 'transport', 'pickup', 'drop'], true),
+    ('a5000000-0000-0000-0000-000000000005', 'a0000000-0000-0000-0000-000000000001', 'What is the school timetable?', 'The class timetable is available in the parent portal under Timetable. A copy is also sent to your WhatsApp at the start of each term.', 'timetable', ARRAY['timetable', 'schedule', 'classes'], true)
+ON CONFLICT (id) DO NOTHING;
+
+-- Message template embeddings for AI template suggestion
+INSERT INTO message_template_embeddings (id, tenant_id, template_id, content, purpose, tone, language) VALUES
+    ('a6000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000001', 'fee_reminder', 'Dear {{parent_name}}, this is a reminder that {{learner_name}} has an outstanding fee balance of KES {{fee_balance}}. Please settle before {{due_date}} to avoid disruption. Thank you.', 'fee reminder', 'formal', 'en'),
+    ('a6000000-0000-0000-0000-000000000002', 'a0000000-0000-0000-0000-000000000001', 'fee_receipt', 'Dear {{parent_name}}, we have received your payment of KES {{amount}} for {{learner_name}}. Receipt number {{receipt_no}}. Thank you for your prompt payment.', 'payment receipt', 'friendly', 'en'),
+    ('a6000000-0000-0000-0000-000000000003', 'a0000000-0000-0000-0000-000000000001', 'results_release', 'Dear {{parent_name}}, the CBC report card for {{learner_name}} (Term {{term}} {{year}}) is now available. Please check the parent portal or your WhatsApp for the full report.', 'results release', 'formal', 'en'),
+    ('a6000000-0000-0000-0000-000000000004', 'a0000000-0000-0000-0000-000000000001', 'bus_departure', 'Dear {{parent_name}}, the school bus {{bus_reg}} has departed school. ETA to {{stop_name}}: {{eta}}. Route: {{route_name}}.', 'bus departure alert', 'urgent', 'en'),
+    ('a6000000-0000-0000-0000-000000000005', 'a0000000-0000-0000-0000-000000000001', 'school_closure', 'Dear {{parent_name}}, school will close for {{holiday}} on {{date}}. Learners will be dismissed at {{time}}. Please arrange pickup accordingly.', 'school closure notice', 'formal', 'en'),
+    ('a6000000-0000-0000-0000-000000000006', 'a0000000-0000-0000-0000-000000000001', 'ukumbusho_ada', 'Mpendwa {{parent_name}}, tunakukumbusha kwamba {{learner_name}} ana deni la KES {{fee_balance}}. Tafadhali lipa kabla ya {{due_date}}. Asante.', 'fee reminder', 'formal', 'sw')
+ON CONFLICT (id) DO NOTHING;

@@ -27,6 +27,13 @@ import {
   Banknote,
   CalendarClock,
   ClipboardCheck,
+  ShoppingCart,
+  Truck,
+  PackageCheck,
+  CreditCard,
+  Brain,
+  TrendingUp,
+  MessageSquareText,
 } from 'lucide-react';
 
 const navItems = [
@@ -90,6 +97,28 @@ const navItems = [
       { href: '/hr/leave', label: 'Leave', icon: CalendarClock },
       { href: '/hr/attendance', label: 'Attendance', icon: CalendarClock },
       { href: '/hr/appraisals', label: 'Appraisals', icon: ClipboardCheck },
+    ],
+  },
+  {
+    label: 'Procurement',
+    icon: ShoppingCart,
+    children: [
+      { href: '/procurement', label: 'Overview', icon: ShoppingCart },
+      { href: '/procurement/suppliers', label: 'Suppliers', icon: Truck },
+      { href: '/procurement/requisitions', label: 'Requisitions', icon: ClipboardList },
+      { href: '/procurement/orders', label: 'Purchase Orders', icon: PackageCheck },
+      { href: '/procurement/receipts', label: 'Goods Receipts', icon: PackageCheck },
+      { href: '/procurement/payments', label: 'Supplier Payments', icon: CreditCard },
+    ],
+  },
+  {
+    label: 'Digital Intelligence',
+    icon: Brain,
+    children: [
+      { href: '/intelligence', label: 'Overview', icon: Brain },
+      { href: '/intelligence/financial', label: 'Financial Analytics', icon: TrendingUp },
+      { href: '/intelligence/communications', label: 'Communication Analytics', icon: MessageSquareText },
+      { href: '/intelligence/ai', label: 'AI Assistant', icon: Brain },
     ],
   },
   { href: '/settings', label: 'Settings', icon: Settings },

@@ -859,6 +859,157 @@ export interface LearningAreaPerformance {
   avg_rubric_level: number;
 }
 
+// --- Intelligence types (EPIC 8: Digital Intelligence) ---
+
+export interface FeeCollectionSummary {
+  tenant_id: string;
+  term: number;
+  year: number;
+  invoice_count: number;
+  total_billed_cents: number;
+  total_discount_cents: number;
+  total_collected_cents: number;
+  outstanding_cents: number;
+  collection_rate: number;
+}
+
+export interface PaymentChannelBreakdown {
+  tenant_id: string;
+  term: number;
+  year: number;
+  channel: string;
+  payment_count: number;
+  total_cents: number;
+}
+
+export interface FeeDefaulter {
+  tenant_id: string;
+  learner_id: string;
+  learner_name: string;
+  grade: string;
+  stream: string;
+  term: number;
+  year: number;
+  invoice_number: string;
+  total_cents: number;
+  discount_cents: number;
+  paid_cents: number;
+  balance_cents: number;
+  due_date?: string;
+  status: string;
+}
+
+export interface MonthlyCollectionTrend {
+  tenant_id: string;
+  month: string;
+  payment_count: number;
+  total_cents: number;
+}
+
+export interface CampaignDeliverySummary {
+  message_id: string;
+  tenant_id: string;
+  channel: string;
+  audience_type: string;
+  status: string;
+  sent_at?: string;
+  recipient_count: number;
+  delivered_count: number;
+  failed_count: number;
+  delivery_rate: number;
+}
+
+export interface ChannelReach {
+  tenant_id: string;
+  channel: string;
+  campaign_count: number;
+  total_recipients: number;
+  total_delivered: number;
+  total_failed: number;
+}
+
+export interface FailedNumber {
+  tenant_id: string;
+  message_id: string;
+  channel: string;
+  phone: string;
+  error_code?: string;
+  error_message?: string;
+  created_at: string;
+}
+
+export interface FAQEntry {
+  id: string;
+  tenant_id: string;
+  question: string;
+  answer: string;
+  category: string;
+  keywords: string[];
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateFAQEntryRequest {
+  question: string;
+  answer: string;
+  category: string;
+  keywords?: string[];
+  is_active?: boolean;
+}
+
+export interface UpdateFAQEntryRequest {
+  question?: string;
+  answer?: string;
+  category?: string;
+  keywords?: string[];
+  is_active?: boolean;
+}
+
+export interface MessageTemplateEmbedding {
+  id: string;
+  tenant_id: string;
+  template_id?: string;
+  content: string;
+  purpose?: string;
+  tone: string;
+  language: string;
+  vector_id?: string;
+  created_at: string;
+}
+
+export interface CreateTemplateEmbeddingRequest {
+  template_id?: string;
+  content: string;
+  purpose?: string;
+  tone: string;
+  language: string;
+}
+
+export interface TemplateSuggestion {
+  content: string;
+  purpose?: string;
+  tone: string;
+  language: string;
+  score: number;
+}
+
+export interface AutoResponse {
+  answer: string;
+  category: string;
+  score: number;
+  matched: boolean;
+}
+
+export interface PortfolioSummary {
+  learner_id: string;
+  learner_name: string;
+  term: number;
+  year: number;
+  summary: string;
+  note_count: number;
+}
+
 // --- HR types ---
 
 export interface StaffProfile {
@@ -1122,6 +1273,269 @@ export interface UpdateAppraisalRequest {
   overall_score?: number;
   rating?: string;
   comments?: string;
+  status?: string;
+}
+
+// --- Procurement types ---
+
+export interface Supplier {
+  id: string;
+  tenant_id: string;
+  name: string;
+  business_registration?: string;
+  kra_pin?: string;
+  category: string;
+  contact_person?: string;
+  phone?: string;
+  email?: string;
+  whatsapp_phone?: string;
+  physical_address?: string;
+  bank_branch?: string;
+  bank_account_name?: string;
+  bank_account_number?: string;
+  bank_swift_code?: string;
+  notes?: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateSupplierRequest {
+  name: string;
+  business_registration?: string;
+  kra_pin?: string;
+  category?: string;
+  contact_person?: string;
+  phone?: string;
+  email?: string;
+  whatsapp_phone?: string;
+  physical_address?: string;
+  bank_branch?: string;
+  bank_account_name?: string;
+  bank_account_number?: string;
+  bank_swift_code?: string;
+  notes?: string;
+  is_active?: boolean;
+}
+
+export interface UpdateSupplierRequest {
+  name?: string;
+  business_registration?: string;
+  kra_pin?: string;
+  category?: string;
+  contact_person?: string;
+  phone?: string;
+  email?: string;
+  whatsapp_phone?: string;
+  physical_address?: string;
+  bank_branch?: string;
+  bank_account_name?: string;
+  bank_account_number?: string;
+  bank_swift_code?: string;
+  notes?: string;
+  is_active?: boolean;
+}
+
+export interface RequisitionItem {
+  id: string;
+  tenant_id: string;
+  requisition_id: string;
+  item_name: string;
+  description?: string;
+  quantity: number;
+  unit?: string;
+  estimated_unit_cost_cents: number;
+  estimated_total_cents: number;
+  created_at: string;
+}
+
+export interface PurchaseRequisition {
+  id: string;
+  tenant_id: string;
+  requisition_no: string;
+  title: string;
+  department?: string;
+  requested_by?: string;
+  requested_by_name?: string;
+  requested_at: string;
+  required_by?: string;
+  justification?: string;
+  status: 'pending' | 'hod_approved' | 'approved' | 'rejected' | 'cancelled' | 'ordered';
+  hod_approved_by?: string;
+  hod_approved_at?: string;
+  approved_by?: string;
+  approved_at?: string;
+  rejection_reason?: string;
+  total_estimate_cents: number;
+  created_at: string;
+  updated_at: string;
+  items?: RequisitionItem[];
+}
+
+export interface RequisitionItemInput {
+  item_name: string;
+  description?: string;
+  quantity: number;
+  unit?: string;
+  estimated_unit_cost_cents: number;
+}
+
+export interface CreateRequisitionRequest {
+  title: string;
+  department?: string;
+  requested_by?: string;
+  required_by?: string;
+  justification?: string;
+  items: RequisitionItemInput[];
+}
+
+export interface PurchaseOrderItem {
+  id: string;
+  tenant_id: string;
+  purchase_order_id: string;
+  item_name: string;
+  description?: string;
+  quantity: number;
+  unit?: string;
+  unit_cost_cents: number;
+  total_cost_cents: number;
+  created_at: string;
+}
+
+export interface PurchaseOrder {
+  id: string;
+  tenant_id: string;
+  po_number: string;
+  requisition_id?: string;
+  supplier_id: string;
+  supplier_name?: string;
+  order_date: string;
+  expected_delivery?: string;
+  status: 'draft' | 'sent' | 'partially_received' | 'received' | 'cancelled';
+  total_amount_cents: number;
+  notes?: string;
+  created_by?: string;
+  created_at: string;
+  updated_at: string;
+  items?: PurchaseOrderItem[];
+}
+
+export interface PurchaseOrderItemInput {
+  item_name: string;
+  description?: string;
+  quantity: number;
+  unit?: string;
+  unit_cost_cents: number;
+}
+
+export interface CreatePurchaseOrderRequest {
+  requisition_id?: string;
+  supplier_id: string;
+  order_date?: string;
+  expected_delivery?: string;
+  notes?: string;
+  created_by?: string;
+  items: PurchaseOrderItemInput[];
+}
+
+export interface UpdatePurchaseOrderRequest {
+  expected_delivery?: string;
+  status?: string;
+  notes?: string;
+}
+
+export interface GoodsReceiptItem {
+  id: string;
+  tenant_id: string;
+  goods_receipt_id: string;
+  po_item_id?: string;
+  item_name: string;
+  quantity_received: number;
+  quantity_rejected: number;
+  unit?: string;
+  unit_cost_cents: number;
+  total_cost_cents: number;
+  created_at: string;
+}
+
+export interface GoodsReceipt {
+  id: string;
+  tenant_id: string;
+  grn_number: string;
+  purchase_order_id: string;
+  po_number?: string;
+  supplier_id: string;
+  supplier_name?: string;
+  received_date: string;
+  received_by?: string;
+  received_by_name?: string;
+  status: 'received' | 'partial' | 'rejected';
+  notes?: string;
+  created_at: string;
+  updated_at: string;
+  items?: GoodsReceiptItem[];
+}
+
+export interface GoodsReceiptItemInput {
+  po_item_id?: string;
+  item_name: string;
+  quantity_received: number;
+  quantity_rejected: number;
+  unit?: string;
+  unit_cost_cents: number;
+}
+
+export interface CreateGoodsReceiptRequest {
+  purchase_order_id: string;
+  received_date?: string;
+  received_by?: string;
+  notes?: string;
+  items: GoodsReceiptItemInput[];
+}
+
+export interface SupplierPayment {
+  id: string;
+  tenant_id: string;
+  payment_no: string;
+  supplier_id: string;
+  supplier_name?: string;
+  purchase_order_id?: string;
+  po_number?: string;
+  goods_receipt_id?: string;
+  grn_number?: string;
+  invoice_number?: string;
+  invoice_date?: string;
+  amount_cents: number;
+  payment_method: string;
+  status: 'pending' | 'authorised' | 'paid' | 'cancelled';
+  authorised_by?: string;
+  authorised_at?: string;
+  paid_at?: string;
+  reference?: string;
+  notes?: string;
+  created_by?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateSupplierPaymentRequest {
+  supplier_id: string;
+  purchase_order_id?: string;
+  goods_receipt_id?: string;
+  invoice_number?: string;
+  invoice_date?: string;
+  amount_cents: number;
+  payment_method?: string;
+  reference?: string;
+  notes?: string;
+  created_by?: string;
+}
+
+export interface UpdateSupplierPaymentRequest {
+  invoice_number?: string;
+  invoice_date?: string;
+  reference?: string;
+  notes?: string;
   status?: string;
 }
 
@@ -1683,4 +2097,191 @@ export const api = {
 
   deleteAppraisal: (id: string, token: string) =>
     request<void>(`/appraisals/${id}`, { method: 'DELETE', token }),
+
+  // Suppliers
+  listSuppliers: (params: { category?: string; include_inactive?: boolean }, token: string) => {
+    const qs = new URLSearchParams();
+    if (params.category) qs.set('category', params.category);
+    if (params.include_inactive) qs.set('include_inactive', 'true');
+    return request<Supplier[]>(`/suppliers?${qs.toString()}`, { token });
+  },
+
+  createSupplier: (data: CreateSupplierRequest, token: string) =>
+    request<Supplier>('/suppliers', { method: 'POST', body: data, token }),
+
+  getSupplier: (id: string, token: string) =>
+    request<Supplier>(`/suppliers/${id}`, { token }),
+
+  updateSupplier: (id: string, data: UpdateSupplierRequest, token: string) =>
+    request<Supplier>(`/suppliers/${id}`, { method: 'PATCH', body: data, token }),
+
+  deleteSupplier: (id: string, token: string) =>
+    request<void>(`/suppliers/${id}`, { method: 'DELETE', token }),
+
+  // Requisitions
+  listRequisitions: (params: { status?: string; department?: string }, token: string) => {
+    const qs = new URLSearchParams();
+    if (params.status) qs.set('status', params.status);
+    if (params.department) qs.set('department', params.department);
+    return request<PurchaseRequisition[]>(`/requisitions?${qs.toString()}`, { token });
+  },
+
+  createRequisition: (data: CreateRequisitionRequest, token: string) =>
+    request<PurchaseRequisition>('/requisitions', { method: 'POST', body: data, token }),
+
+  getRequisition: (id: string, token: string) =>
+    request<PurchaseRequisition>(`/requisitions/${id}`, { token }),
+
+  approveRequisition: (id: string, data: { approved_by?: string }, token: string) =>
+    request<PurchaseRequisition>(`/requisitions/${id}/approve`, { method: 'POST', body: data, token }),
+
+  rejectRequisition: (id: string, data: { approved_by?: string; rejection_reason?: string }, token: string) =>
+    request<PurchaseRequisition>(`/requisitions/${id}/reject`, { method: 'POST', body: data, token }),
+
+  cancelRequisition: (id: string, token: string) =>
+    request<PurchaseRequisition>(`/requisitions/${id}/cancel`, { method: 'POST', token }),
+
+  deleteRequisition: (id: string, token: string) =>
+    request<void>(`/requisitions/${id}`, { method: 'DELETE', token }),
+
+  // Purchase orders
+  listPurchaseOrders: (params: { status?: string; supplier_id?: string }, token: string) => {
+    const qs = new URLSearchParams();
+    if (params.status) qs.set('status', params.status);
+    if (params.supplier_id) qs.set('supplier_id', params.supplier_id);
+    return request<PurchaseOrder[]>(`/purchase-orders?${qs.toString()}`, { token });
+  },
+
+  createPurchaseOrder: (data: CreatePurchaseOrderRequest, token: string) =>
+    request<PurchaseOrder>('/purchase-orders', { method: 'POST', body: data, token }),
+
+  getPurchaseOrder: (id: string, token: string) =>
+    request<PurchaseOrder>(`/purchase-orders/${id}`, { token }),
+
+  updatePurchaseOrder: (id: string, data: UpdatePurchaseOrderRequest, token: string) =>
+    request<PurchaseOrder>(`/purchase-orders/${id}`, { method: 'PATCH', body: data, token }),
+
+  deletePurchaseOrder: (id: string, token: string) =>
+    request<void>(`/purchase-orders/${id}`, { method: 'DELETE', token }),
+
+  // Goods receipts
+  listGoodsReceipts: (params: { status?: string; purchase_order_id?: string }, token: string) => {
+    const qs = new URLSearchParams();
+    if (params.status) qs.set('status', params.status);
+    if (params.purchase_order_id) qs.set('purchase_order_id', params.purchase_order_id);
+    return request<GoodsReceipt[]>(`/goods-receipts?${qs.toString()}`, { token });
+  },
+
+  createGoodsReceipt: (data: CreateGoodsReceiptRequest, token: string) =>
+    request<GoodsReceipt>('/goods-receipts', { method: 'POST', body: data, token }),
+
+  getGoodsReceipt: (id: string, token: string) =>
+    request<GoodsReceipt>(`/goods-receipts/${id}`, { token }),
+
+  deleteGoodsReceipt: (id: string, token: string) =>
+    request<void>(`/goods-receipts/${id}`, { method: 'DELETE', token }),
+
+  // Supplier payments
+  listSupplierPayments: (params: { status?: string; supplier_id?: string }, token: string) => {
+    const qs = new URLSearchParams();
+    if (params.status) qs.set('status', params.status);
+    if (params.supplier_id) qs.set('supplier_id', params.supplier_id);
+    return request<SupplierPayment[]>(`/supplier-payments?${qs.toString()}`, { token });
+  },
+
+  createSupplierPayment: (data: CreateSupplierPaymentRequest, token: string) =>
+    request<SupplierPayment>('/supplier-payments', { method: 'POST', body: data, token }),
+
+  getSupplierPayment: (id: string, token: string) =>
+    request<SupplierPayment>(`/supplier-payments/${id}`, { token }),
+
+  updateSupplierPayment: (id: string, data: UpdateSupplierPaymentRequest, token: string) =>
+    request<SupplierPayment>(`/supplier-payments/${id}`, { method: 'PATCH', body: data, token }),
+
+  deleteSupplierPayment: (id: string, token: string) =>
+    request<void>(`/supplier-payments/${id}`, { method: 'DELETE', token }),
+
+  // Intelligence: financial analytics
+  getFeeCollectionSummary: (params: { term?: number; year?: number }, token: string) => {
+    const qs = new URLSearchParams();
+    if (params.term) qs.set('term', String(params.term));
+    if (params.year) qs.set('year', String(params.year));
+    return request<FeeCollectionSummary[]>(`/intelligence/financial/fee-collection?${qs.toString()}`, { token });
+  },
+
+  getPaymentChannelBreakdown: (params: { term?: number; year?: number }, token: string) => {
+    const qs = new URLSearchParams();
+    if (params.term) qs.set('term', String(params.term));
+    if (params.year) qs.set('year', String(params.year));
+    return request<PaymentChannelBreakdown[]>(`/intelligence/financial/payment-channels?${qs.toString()}`, { token });
+  },
+
+  getFeeDefaulters: (params: { term?: number; year?: number }, token: string) => {
+    const qs = new URLSearchParams();
+    if (params.term) qs.set('term', String(params.term));
+    if (params.year) qs.set('year', String(params.year));
+    return request<FeeDefaulter[]>(`/intelligence/financial/fee-defaulters?${qs.toString()}`, { token });
+  },
+
+  getMonthlyCollectionTrend: (token: string) =>
+    request<MonthlyCollectionTrend[]>('/intelligence/financial/monthly-trend', { token }),
+
+  // Intelligence: communication analytics
+  getCampaignDeliverySummary: (token: string) =>
+    request<CampaignDeliverySummary[]>('/intelligence/communications/campaigns', { token }),
+
+  getChannelReach: (token: string) =>
+    request<ChannelReach[]>('/intelligence/communications/channel-reach', { token }),
+
+  getFailedNumbers: (token: string) =>
+    request<FailedNumber[]>('/intelligence/communications/failed-numbers', { token }),
+
+  // Intelligence: FAQ knowledge base
+  listFAQEntries: (params: { category?: string }, token: string) => {
+    const qs = new URLSearchParams();
+    if (params.category) qs.set('category', params.category);
+    return request<FAQEntry[]>(`/intelligence/ai/faq?${qs.toString()}`, { token });
+  },
+
+  createFAQEntry: (data: CreateFAQEntryRequest, token: string) =>
+    request<FAQEntry>('/intelligence/ai/faq', { method: 'POST', body: data, token }),
+
+  getFAQEntry: (id: string, token: string) =>
+    request<FAQEntry>(`/intelligence/ai/faq/${id}`, { token }),
+
+  updateFAQEntry: (id: string, data: UpdateFAQEntryRequest, token: string) =>
+    request<FAQEntry>(`/intelligence/ai/faq/${id}`, { method: 'PATCH', body: data, token }),
+
+  deleteFAQEntry: (id: string, token: string) =>
+    request<void>(`/intelligence/ai/faq/${id}`, { method: 'DELETE', token }),
+
+  // Intelligence: template embeddings
+  listTemplateEmbeddings: (token: string) =>
+    request<MessageTemplateEmbedding[]>('/intelligence/ai/templates', { token }),
+
+  createTemplateEmbedding: (data: CreateTemplateEmbeddingRequest, token: string) =>
+    request<MessageTemplateEmbedding>('/intelligence/ai/templates', { method: 'POST', body: data, token }),
+
+  deleteTemplateEmbedding: (id: string, token: string) =>
+    request<void>(`/intelligence/ai/templates/${id}`, { method: 'DELETE', token }),
+
+  // Intelligence: AI features
+  suggestTemplates: (params: { purpose?: string; tone?: string; language?: string; top_k?: number }, token: string) => {
+    const qs = new URLSearchParams();
+    if (params.purpose) qs.set('purpose', params.purpose);
+    if (params.tone) qs.set('tone', params.tone);
+    if (params.language) qs.set('language', params.language);
+    if (params.top_k) qs.set('top_k', String(params.top_k));
+    return request<TemplateSuggestion[]>(`/intelligence/ai/suggest-templates?${qs.toString()}`, { token });
+  },
+
+  autoRespond: (query: string, token: string) =>
+    request<AutoResponse>('/intelligence/ai/auto-respond', { method: 'POST', body: { query }, token }),
+
+  getPortfolioSummary: (learnerId: string, params: { term: number; year: number }, token: string) => {
+    const qs = new URLSearchParams();
+    qs.set('term', String(params.term));
+    qs.set('year', String(params.year));
+    return request<PortfolioSummary>(`/intelligence/ai/portfolio-summary/${learnerId}?${qs.toString()}`, { token });
+  },
 };
