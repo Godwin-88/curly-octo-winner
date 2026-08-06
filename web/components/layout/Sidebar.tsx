@@ -34,6 +34,9 @@ import {
   Brain,
   TrendingUp,
   MessageSquareText,
+  ShieldCheck,
+  KeyRound,
+  UserCheck,
 } from 'lucide-react';
 
 const navItems = [
@@ -119,6 +122,17 @@ const navItems = [
       { href: '/intelligence/financial', label: 'Financial Analytics', icon: TrendingUp },
       { href: '/intelligence/communications', label: 'Communication Analytics', icon: MessageSquareText },
       { href: '/intelligence/ai', label: 'AI Assistant', icon: Brain },
+    ],
+  },
+  {
+    label: 'Digital Security',
+    icon: ShieldCheck,
+    children: [
+      { href: '/security', label: 'Overview', icon: ShieldCheck },
+      { href: '/security/roles', label: 'Role-Based Access', icon: KeyRound },
+      { href: '/security/audit', label: 'Audit Log', icon: ClipboardList },
+      { href: '/security/consent', label: 'Parent Consent', icon: UserCheck },
+      { href: '/security/data-protection', label: 'Data Protection', icon: FileBarChart },
     ],
   },
   { href: '/settings', label: 'Settings', icon: Settings },

@@ -2,7 +2,7 @@
 
 A multi-tenant school management platform for Kenyan public schools under the **Competency-Based Curriculum (CBC)**. Shule360 digitizes the full school lifecycle — communications, learner records, academics, transport, and finance — with a focus on the unique needs of Kenyan schools (NEMIS integration, Africa's Talking SMS, WhatsApp Business, CBC assessment rubrics).
 
-> **Status:** EPIC 9 complete — Digital Intelligence (Financial Analytics, Communication Analytics, AI Assistant) + Procurement + Human Resources + Reports & Analytics + Finance + Transport + Learner Records + Academic + Communications
+> **Status:** EPIC 10 complete — Digital Security & Compliance (RBAC, Audit Log, KDPA Data Protection, Parent Consent) + Digital Intelligence + Procurement + Human Resources + Reports & Analytics + Finance + Transport + Learner Records + Academic + Communications
 
 ---
 
@@ -59,6 +59,7 @@ flowchart TB
         HR["HR Service<br/>Staff · Payroll · Leave"]
         PROC["Procurement Service<br/>Suppliers · POs · GRNs · Payments"]
         INTEL["Intelligence Service<br/>Financial · Comms Analytics · AI"]
+        SEC["Security Service<br/>RBAC · Audit · KDPA Compliance"]
         NEMIS["NEMIS Client<br/>UPI Validation"]
     end
 
@@ -87,6 +88,7 @@ flowchart TB
     MID --> REPORTS
     MID --> PROC
     MID --> INTEL
+    MID --> SEC
     LEARN --> NEMIS
     COMMS --> PG
     ACAD --> PG
@@ -99,6 +101,7 @@ flowchart TB
     PROC --> PG
     INTEL --> PG
     INTEL --> VECTOR
+    SEC --> PG
     COMMS --> REDIS
     COMMS --> VECTOR
     COMMS --> SEARCH
@@ -143,6 +146,7 @@ graph TD
     INTERNAL --> HR["hr/"]
     INTERNAL --> PROC["procurement/"]
     INTERNAL --> INTEL["intelligence/"]
+    INTERNAL --> SEC["security/"]
     INTERNAL --> TENANT["tenant/"]
     INTERNAL --> CONFIG["config/"]
 
@@ -174,6 +178,10 @@ graph TD
     INTEL --> ISVCAI["service_ai.go"]
     INTEL --> ITYPE["types.go"]
     INTEL --> IHAND["handler.go"]
+
+    SEC --> SECSVC["service.go"]
+    SEC --> SECTYPE["types.go"]
+    SEC --> SECHAND["handler.go"]
 
     ACAD --> ACADH["handler.go"]
     ACAD --> CURR["curriculum/"]
@@ -230,6 +238,7 @@ graph TD
     MIG --> M027["027_purchase_orders.sql"]
     MIG --> M028["028_supplier_payments.sql"]
     MIG --> M029["029_intelligence_views.sql"]
+    MIG --> M030["030_security_compliance.sql"]
     MIG --> SEED["seed/seed.sql"]
 
     WEB --> APP["app/"]
@@ -254,6 +263,7 @@ graph TD
     ADMIN --> HR["hr/"]
     ADMIN --> PROC["procurement/"]
     ADMIN --> INTEL["intelligence/"]
+    ADMIN --> SEC["security/"]
     COMP --> LAYOUT["layout/"]
     COMP --> COMMS["comms/"]
     COMP --> UI["ui/"]
@@ -315,6 +325,10 @@ shule360/
     │   │   │   ├── service.go        # Financial & communication analytics, FAQ, templates
     │   │   │   ├── service_ai.go     # Upstash Vector semantic search, auto-response
     │   │   │   └── handler.go        # 17 intelligence routes
+    │   │   ├── security/             # EPIC 10 — Digital Security & Compliance
+    │   │   │   ├── types.go          # RBAC, sessions, audit, KDPA types
+    │   │   │   ├── service.go        # Permissions, refresh tokens, audit, consent, erasure
+    │   │   │   └── handler.go        # 20 security & compliance routes
     │   │   ├── middleware/           # JWT auth, tenant, rate limiting
 │   │   ├── nemis/                # NEMIS client interface + sandbox stub
 │   │   ├── tenant/               # Tenant service
@@ -325,7 +339,7 @@ shule360/
 │   │   ├── upstash/              # Redis, Vector, Search clients
 │   │   ├── backblaze/            # B2 S3-compatible client
 │   │   └── mpesa/                # Safaricom Daraja STK push client
-    │   ├── migrations/               # 29 SQL migrations + seed
+    │   ├── migrations/               # 30 SQL migrations + seed
 │   ├── .env.example
 │   ├── Dockerfile
 │   ├── fly.toml
@@ -345,7 +359,8 @@ shule360/
     │   │   ├── analytics/        # Learning analytics dashboard (EPIC 6)
     │   │   ├── hr/               # Overview, staff, payroll, leave, attendance, appraisals (EPIC 7)
     │   │   ├── procurement/      # Overview, suppliers, requisitions, orders, receipts, payments (EPIC 8)
-    │   │   └── intelligence/     # Overview, financial, communications, AI assistant (EPIC 9)
+    │   │   ├── intelligence/     # Overview, financial, communications, AI assistant (EPIC 9)
+    │   │   └── security/         # Overview, roles, audit, consent, data protection (EPIC 10)
     │   ├── (auth)/login/         # Login page
     │   ├── layout.tsx            # Root layout (Raleway font)
     │   └── globals.css
@@ -393,6 +408,11 @@ erDiagram
     TENANTS ||--o{ SUPPLIER_PAYMENTS : "makes"
     TENANTS ||--o{ FAQ_ENTRIES : "defines"
     TENANTS ||--o{ MESSAGE_TEMPLATE_EMBEDDINGS : "stores"
+    TENANTS ||--o{ REFRESH_TOKENS : "issues"
+    TENANTS ||--o{ AUDIT_LOGS : "records"
+    TENANTS ||--o{ DATA_PROCESSING_REGISTER : "maintains"
+    TENANTS ||--o{ CONSENT_AGREEMENTS : "captures"
+    TENANTS ||--o{ ERASURE_REQUESTS : "processes"
 
     STAFF ||--o{ MESSAGES : "sends"
     STAFF ||--o{ STAFF_DOCUMENTS : "owns"
@@ -417,8 +437,12 @@ erDiagram
     STAFF ||--o{ PURCHASE_ORDERS : "creates"
     STAFF ||--o{ GOODS_RECEIPTS : "receives_as_officer"
     STAFF ||--o{ SUPPLIER_PAYMENTS : "authorises"
+    STAFF ||--o{ REFRESH_TOKENS : "owns"
+    STAFF ||--o{ AUDIT_LOGS : "acts_in"
+    STAFF ||--o{ DATA_PROCESSING_REGISTER : "registers"
 
     GUARDIANS ||--o{ WA_CONVERSATIONS : "chats"
+    GUARDIANS ||--o{ CONSENT_AGREEMENTS : "grants"
     GUARDIANS }o--o{ LEARNERS : "guardian_of"
 
     LEARNERS ||--o{ ATTENDANCE : "has"
@@ -459,6 +483,65 @@ erDiagram
     GOODS_RECEIPTS ||--o{ GOODS_RECEIPT_ITEMS : "contains"
     SUPPLIERS ||--o{ PURCHASE_ORDERS : "supplies"
     SUPPLIERS ||--o{ SUPPLIER_PAYMENTS : "receives"
+    PERMISSIONS ||--o{ ROLE_PERMISSIONS : "granted_to"
+    REFRESH_TOKENS {
+        uuid id PK
+        uuid tenant_id FK
+        uuid staff_id FK
+        text token_hash
+        timestamp expires_at
+        timestamp revoked_at
+        uuid replaced_by
+        inet ip_address
+        text user_agent
+    }
+    AUDIT_LOGS {
+        uuid id PK
+        uuid tenant_id FK
+        uuid actor_staff_id FK
+        text action
+        text entity_type
+        uuid entity_id
+        jsonb details
+        inet ip_address
+        text user_agent
+    }
+    DATA_PROCESSING_REGISTER {
+        uuid id PK
+        uuid tenant_id FK
+        text activity
+        text purpose
+        text legal_basis
+        text data_subjects
+        text categories_of_data
+        text retention_period
+        boolean transfer_to_third_parties
+        text third_parties
+        text security_measures
+    }
+    CONSENT_AGREEMENTS {
+        uuid id PK
+        uuid tenant_id FK
+        uuid guardian_id FK
+        text consent_type
+        boolean granted
+        timestamp granted_at
+        timestamp revoked_at
+        inet ip_address
+        text source
+        text consent_version
+    }
+    ERASURE_REQUESTS {
+        uuid id PK
+        uuid tenant_id FK
+        text subject_type
+        uuid subject_id
+        text requested_by
+        text request_type
+        text status
+        text details
+        timestamp completed_at
+    }
     FAQ_ENTRIES {
         uuid id PK
         uuid tenant_id FK
@@ -1362,6 +1445,61 @@ All endpoints are prefixed with `/api/v1` and require a `Bearer` JWT (except web
 | POST | `/intelligence/ai/auto-respond` | Parent query auto-response (body: `{query}`) |
 | GET | `/intelligence/ai/portfolio-summary/{learnerId}` | Learner portfolio summary (`?term=&year=`) |
 
+### Security — RBAC (EPIC 10)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/security/permissions` | List permission catalog |
+| GET | `/security/roles` | List roles with permission matrix |
+| GET | `/security/roles/{role}` | Get permissions for a role |
+| POST | `/security/roles/{role}/permissions` | Grant permission to role (body: `{permission_code}`) |
+| DELETE | `/security/roles/{role}/permissions/{code}` | Revoke permission from role |
+
+### Security — Sessions (EPIC 10)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/security/sessions` | List active sessions for current staff |
+| DELETE | `/security/sessions/{id}` | Revoke a session (logout) |
+
+### Security — Audit Log (EPIC 10)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/security/audit` | List audit events (`?entity_type=&action=&limit=&offset=`) |
+
+### Security — Data Processing Register (EPIC 10)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/security/data-processing` | List KDPA processing register entries |
+| POST | `/security/data-processing` | Register a processing activity |
+| GET | `/security/data-processing/{id}` | Get processing record |
+| PATCH | `/security/data-processing/{id}` | Update processing record |
+| DELETE | `/security/data-processing/{id}` | Delete processing record |
+
+### Security — Consent Management (EPIC 10)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/security/consent` | List consent agreements (`?guardian_id=`) |
+| POST | `/security/consent/grant` | Grant consent (body: `{guardian_id, consent_type}`) |
+| POST | `/security/consent/revoke` | Revoke consent (body: `{guardian_id, consent_type}`) |
+
+### Security — Data Subject Rights (EPIC 10)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/security/erasure` | List data subject requests (`?status=`) |
+| POST | `/security/erasure` | Create erasure/access/rectification request |
+| PATCH | `/security/erasure/{id}/status` | Update request status (pending → in_progress → completed) |
+
+### Security — Summary (EPIC 10)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/security/summary` | Security & compliance dashboard metrics |
+
 ---
 
 ## Authentication & Multi-Tenancy
@@ -1404,9 +1542,9 @@ npm run dev                   # http://localhost:3000
 ### 3. Database Migrations
 
 ```bash
-# Apply migrations in order (001 → 029), then seed:
+# Apply migrations in order (001 → 030), then seed:
 psql "$DATABASE_URL" -f migrations/001_tenants.sql
-# ... repeat for 002-029 ...
+# ... repeat for 002-030 ...
 psql "$DATABASE_URL" -f migrations/seed/seed.sql
 ```
 
@@ -1472,5 +1610,6 @@ npx next build         # production build + type check
 | **EPIC 7** | ✅ Complete | Manage Human Resources — Staff, Payroll, Leave, Attendance, Appraisals |
 | **EPIC 8** | ✅ Complete | Manage Supplier & Procurement Operations — Suppliers, Requisitions, Purchase Orders, Goods Receipt, Supplier Payments |
 | **EPIC 9** | ✅ Complete | Manage Digital Intelligence — Financial Analytics, Communication Analytics, AI Assistant (FAQ, Template Suggestions, Auto-Response) |
+| **EPIC 10** | ✅ Complete | Manage Digital Security & Compliance — RBAC, JWT Refresh Tokens, Audit Log, Kenya Data Protection Act (Processing Register, Consent, Erasure) |
 
 > **Note:** This README is updated after every epic to reflect the current architecture, schema, and endpoints.

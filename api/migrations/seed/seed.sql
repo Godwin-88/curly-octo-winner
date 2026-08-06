@@ -481,3 +481,29 @@ INSERT INTO message_template_embeddings (id, tenant_id, template_id, content, pu
     ('a6000000-0000-0000-0000-000000000005', 'a0000000-0000-0000-0000-000000000001', 'school_closure', 'Dear {{parent_name}}, school will close for {{holiday}} on {{date}}. Learners will be dismissed at {{time}}. Please arrange pickup accordingly.', 'school closure notice', 'formal', 'en'),
     ('a6000000-0000-0000-0000-000000000006', 'a0000000-0000-0000-0000-000000000001', 'ukumbusho_ada', 'Mpendwa {{parent_name}}, tunakukumbusha kwamba {{learner_name}} ana deni la KES {{fee_balance}}. Tafadhali lipa kabla ya {{due_date}}. Asante.', 'fee reminder', 'formal', 'sw')
 ON CONFLICT (id) DO NOTHING;
+
+-- Digital Security & Compliance (EPIC 9): consent agreements and erasure requests
+-- Requires: migration 030 applied first
+
+-- Parent consent agreements (WhatsApp opt-in, data processing, transport)
+INSERT INTO consent_agreements (id, tenant_id, guardian_id, consent_type, granted, granted_at, source, consent_version) VALUES
+    ('a7000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000001', 'whatsapp_opt_in', true, now(), 'portal', 'v1.0'),
+    ('a7000000-0000-0000-0000-000000000002', 'a0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000001', 'data_processing', true, now(), 'portal', 'v1.0'),
+    ('a7000000-0000-0000-0000-000000000003', 'a0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000001', 'transport_opt_in', true, now(), 'portal', 'v1.0'),
+    ('a7000000-0000-0000-0000-000000000004', 'a0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000002', 'whatsapp_opt_in', true, now(), 'portal', 'v1.0'),
+    ('a7000000-0000-0000-0000-000000000005', 'a0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000002', 'data_processing', true, now(), 'portal', 'v1.0'),
+    ('a7000000-0000-0000-0000-000000000006', 'a0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000003', 'whatsapp_opt_in', true, now(), 'whatsapp', 'v1.0'),
+    ('a7000000-0000-0000-0000-000000000007', 'a0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000003', 'data_processing', true, now(), 'whatsapp', 'v1.0'),
+    ('a7000000-0000-0000-0000-000000000008', 'a0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000003', 'transport_opt_in', true, now(), 'whatsapp', 'v1.0'),
+    ('a7000000-0000-0000-0000-000000000009', 'a0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000004', 'whatsapp_opt_in', false, NULL, 'portal', 'v1.0'),
+    ('a7000000-0000-0000-0000-000000000010', 'a0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000005', 'whatsapp_opt_in', true, now(), 'portal', 'v1.0'),
+    ('a7000000-0000-0000-0000-000000000011', 'a0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000005', 'data_processing', true, now(), 'portal', 'v1.0'),
+    ('a7000000-0000-0000-0000-000000000012', 'a0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000005', 'transport_opt_in', true, now(), 'portal', 'v1.0')
+ON CONFLICT (guardian_id, consent_type) DO NOTHING;
+
+-- Sample data subject rights (erasure) requests
+INSERT INTO erasure_requests (id, tenant_id, subject_type, subject_id, requested_by, request_type, status, details) VALUES
+    ('a8000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000001', 'guardian', 'c0000000-0000-0000-0000-000000000004', 'Joseph Ochieng', 'erasure', 'pending', 'Requested deletion of all personal data after learner transfer'),
+    ('a8000000-0000-0000-0000-000000000002', 'a0000000-0000-0000-0000-000000000001', 'guardian', 'c0000000-0000-0000-0000-000000000006', 'Hellen Chebet', 'access', 'in_progress', 'Requested copy of all personal data held by the school'),
+    ('a8000000-0000-0000-0000-000000000003', 'a0000000-0000-0000-0000-000000000001', 'learner', 'd0000000-0000-0000-0000-000000000001', 'Grace Muthoni', 'rectification', 'completed', 'Corrected learner date of birth on record')
+ON CONFLICT (id) DO NOTHING;

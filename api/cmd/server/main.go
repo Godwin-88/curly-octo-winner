@@ -28,6 +28,7 @@ import (
 	"github.com/shule360/api/internal/nemis"
 	"github.com/shule360/api/internal/procurement"
 	"github.com/shule360/api/internal/reports"
+	"github.com/shule360/api/internal/security"
 	"github.com/shule360/api/internal/transport"
 	"github.com/shule360/api/pkg/backblaze"
 	"github.com/shule360/api/pkg/httputil"
@@ -136,6 +137,10 @@ func main() {
 	intelligenceAI := intelligence.NewAIService(sb.Pool, vectorClient)
 	intelligenceHandler := intelligence.NewHandler(intelligenceSvc, intelligenceAI)
 
+	// Initialize security & compliance services (EPIC 9: Digital Security & Compliance)
+	securitySvc := security.NewService(sb.Pool)
+	securityHandler := security.NewHandler(securitySvc)
+
 	// Setup router
 	r := chi.NewRouter()
 
@@ -171,6 +176,7 @@ func main() {
 			hrHandler.Mount(r)
 			procurementHandler.Mount(r)
 			intelligenceHandler.Mount(r)
+			securityHandler.Mount(r)
 		})
 	})
 

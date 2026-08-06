@@ -1010,6 +1010,134 @@ export interface PortfolioSummary {
   note_count: number;
 }
 
+// --- Security & Compliance types ---
+
+export interface Permission {
+  id: string;
+  code: string;
+  description?: string;
+  category?: string;
+  created_at: string;
+}
+
+export interface RolePermissionsResponse {
+  role: string;
+  permissions: Permission[];
+}
+
+export interface RefreshToken {
+  id: string;
+  tenant_id: string;
+  staff_id: string;
+  expires_at: string;
+  revoked_at?: string;
+  replaced_by?: string;
+  ip_address?: string;
+  user_agent?: string;
+  created_at: string;
+  last_used_at?: string;
+}
+
+export interface AuditLog {
+  id: string;
+  tenant_id: string;
+  actor_staff_id?: string;
+  action: string;
+  entity_type: string;
+  entity_id?: string;
+  details?: Record<string, unknown>;
+  ip_address?: string;
+  user_agent?: string;
+  created_at: string;
+}
+
+export interface DataProcessingRecord {
+  id: string;
+  tenant_id: string;
+  activity: string;
+  purpose: string;
+  legal_basis: string;
+  data_subjects: string;
+  categories_of_data?: string;
+  retention_period?: string;
+  transfer_to_third_parties: boolean;
+  third_parties?: string;
+  security_measures?: string;
+  registered_by?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateDataProcessingRecordRequest {
+  activity: string;
+  purpose: string;
+  legal_basis: string;
+  data_subjects: string;
+  categories_of_data?: string;
+  retention_period?: string;
+  transfer_to_third_parties: boolean;
+  third_parties?: string;
+  security_measures?: string;
+}
+
+export interface UpdateDataProcessingRecordRequest {
+  activity?: string;
+  purpose?: string;
+  legal_basis?: string;
+  data_subjects?: string;
+  categories_of_data?: string;
+  retention_period?: string;
+  transfer_to_third_parties?: boolean;
+  third_parties?: string;
+  security_measures?: string;
+}
+
+export interface ConsentAgreement {
+  id: string;
+  tenant_id: string;
+  guardian_id?: string;
+  consent_type: string;
+  granted: boolean;
+  granted_at?: string;
+  revoked_at?: string;
+  ip_address?: string;
+  source?: string;
+  consent_version?: string;
+  created_at: string;
+}
+
+export interface ErasureRequest {
+  id: string;
+  tenant_id: string;
+  subject_type: string;
+  subject_id: string;
+  requested_by: string;
+  request_type: string;
+  status: string;
+  details?: string;
+  completed_at?: string;
+  created_at: string;
+}
+
+export interface CreateErasureRequestRequest {
+  subject_type: string;
+  subject_id: string;
+  requested_by: string;
+  request_type: string;
+  details?: string;
+}
+
+export interface SecuritySummary {
+  total_staff: number;
+  active_sessions: number;
+  audit_events_24h: number;
+  consent_granted: number;
+  consent_revoked: number;
+  pending_erasure: number;
+  processing_records: number;
+  permission_count: number;
+}
+
 // --- HR types ---
 
 export interface StaffProfile {
@@ -2284,4 +2412,83 @@ export const api = {
     qs.set('year', String(params.year));
     return request<PortfolioSummary>(`/intelligence/ai/portfolio-summary/${learnerId}?${qs.toString()}`, { token });
   },
+
+  // Security: RBAC
+  listPermissions: (token: string) =>
+    request<Permission[]>('/security/permissions', { token }),
+
+  listRoles: (token: string) =>
+    request<RolePermissionsResponse[]>('/security/roles', { token }),
+
+  getRolePermissions: (role: string, token: string) =>
+    request<RolePermissionsResponse>(`/security/roles/${role}`, { token }),
+
+  grantRolePermission: (role: string, data: { permission_code: string }, token: string) =>
+    request<{ status: string }>(`/security/roles/${role}/permissions`, { method: 'POST', body: data, token }),
+
+  revokeRolePermission: (role: string, code: string, token: string) =>
+    request<void>(`/security/roles/${role}/permissions/${code}`, { method: 'DELETE', token }),
+
+  // Security: sessions
+  listSessions: (token: string) =>
+    request<RefreshToken[]>('/security/sessions', { token }),
+
+  revokeSession: (id: string, token: string) =>
+    request<void>(`/security/sessions/${id}`, { method: 'DELETE', token }),
+
+  // Security: audit log
+  listAuditLogs: (params: { entity_type?: string; action?: string; limit?: number; offset?: number }, token: string) => {
+    const qs = new URLSearchParams();
+    if (params.entity_type) qs.set('entity_type', params.entity_type);
+    if (params.action) qs.set('action', params.action);
+    if (params.limit) qs.set('limit', String(params.limit));
+    if (params.offset) qs.set('offset', String(params.offset));
+    return request<AuditLog[]>(`/security/audit?${qs.toString()}`, { token });
+  },
+
+  // Security: data processing register (KDPA)
+  listProcessingRecords: (token: string) =>
+    request<DataProcessingRecord[]>('/security/data-processing', { token }),
+
+  createProcessingRecord: (data: CreateDataProcessingRecordRequest, token: string) =>
+    request<DataProcessingRecord>('/security/data-processing', { method: 'POST', body: data, token }),
+
+  getProcessingRecord: (id: string, token: string) =>
+    request<DataProcessingRecord>(`/security/data-processing/${id}`, { token }),
+
+  updateProcessingRecord: (id: string, data: UpdateDataProcessingRecordRequest, token: string) =>
+    request<DataProcessingRecord>(`/security/data-processing/${id}`, { method: 'PATCH', body: data, token }),
+
+  deleteProcessingRecord: (id: string, token: string) =>
+    request<void>(`/security/data-processing/${id}`, { method: 'DELETE', token }),
+
+  // Security: consent management
+  listConsentAgreements: (params: { guardian_id?: string }, token: string) => {
+    const qs = new URLSearchParams();
+    if (params.guardian_id) qs.set('guardian_id', params.guardian_id);
+    return request<ConsentAgreement[]>(`/security/consent?${qs.toString()}`, { token });
+  },
+
+  grantConsent: (data: { guardian_id: string; consent_type: string; source?: string; consent_version?: string }, token: string) =>
+    request<ConsentAgreement>('/security/consent/grant', { method: 'POST', body: data, token }),
+
+  revokeConsent: (data: { guardian_id: string; consent_type: string }, token: string) =>
+    request<ConsentAgreement>('/security/consent/revoke', { method: 'POST', body: data, token }),
+
+  // Security: erasure / data subject rights
+  listErasureRequests: (params: { status?: string }, token: string) => {
+    const qs = new URLSearchParams();
+    if (params.status) qs.set('status', params.status);
+    return request<ErasureRequest[]>(`/security/erasure?${qs.toString()}`, { token });
+  },
+
+  createErasureRequest: (data: CreateErasureRequestRequest, token: string) =>
+    request<ErasureRequest>('/security/erasure', { method: 'POST', body: data, token }),
+
+  updateErasureRequestStatus: (id: string, data: { status: string }, token: string) =>
+    request<ErasureRequest>(`/security/erasure/${id}/status`, { method: 'PATCH', body: data, token }),
+
+  // Security: summary
+  getSecuritySummary: (token: string) =>
+    request<SecuritySummary>('/security/summary', { token }),
 };
