@@ -12,7 +12,6 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/google/uuid"
 
 	"github.com/shule360/api/internal/config"
 	"github.com/shule360/api/pkg/httputil"
@@ -71,32 +70,28 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Step 1: Find the Supabase Auth user by email
-	supabaseUser, err := h.findSupabaseUser(r.Context(), req.Email)
+	// Step 1: Verify credentials via Supabase Auth password grant
+	supabaseToken, err := h.verifyPassword(r.Context(), req.Email, req.Password)
 	if err != nil {
 		httputil.RespondUnauthorized(w, "INVALID_CREDENTIALS", "Invalid email or password")
 		return
 	}
 
-	// Step 2: Verify the password by calling the GoTrue token endpoint
-	if !h.verifyPassword(r.Context(), supabaseUser.ID, req.Email, req.Password) {
-		httputil.RespondUnauthorized(w, "INVALID_CREDENTIALS", "Invalid email or password")
-		return
-	}
-
-	// Step 3: Look up the staff record
-	staff, err := h.findStaffBySupabaseID(r.Context(), supabaseUser.ID)
+	// Step 2: Look up the staff record by email
+	staff, err := h.findStaffByEmail(r.Context(), req.Email)
 	if err != nil {
 		httputil.RespondUnauthorized(w, "INVALID_CREDENTIALS", "Invalid email or password")
 		return
 	}
 
-	// Step 4: Generate JWT
+	// Step 3: Generate JWT
 	token, err := h.generateToken(staff)
 	if err != nil {
 		httputil.RespondInternalError(w, fmt.Errorf("failed to generate token: %w", err))
 		return
 	}
+
+	_ = supabaseToken // Available for future use (e.g., refresh tokens)
 
 	httputil.RespondOK(w, LoginResponse{
 		Token: token,
@@ -111,49 +106,9 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// supabaseUser represents a minimal Supabase Auth user.
-type supabaseUser struct {
-	ID    string `json:"id"`
-	Email string `json:"email"`
-}
-
-// findSupabaseUser looks up a Supabase Auth user by email via the Admin API.
-func (h *Handler) findSupabaseUser(ctx context.Context, email string) (*supabaseUser, error) {
-	url := h.supabase.URL() + "/auth/v1/admin/users?email=" + email
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("apikey", h.supabase.ServiceKey())
-	req.Header.Set("Authorization", "Bearer "+h.supabase.ServiceKey())
-
-	resp, err := h.supabase.HTTPClient().Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("lookup supabase user: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := ioReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("read lookup response: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("lookup error (status %d): %s", resp.StatusCode, string(body))
-	}
-
-	var users []supabaseUser
-	if err := json.Unmarshal(body, &users); err != nil {
-		return nil, fmt.Errorf("unmarshal users: %w", err)
-	}
-	if len(users) == 0 {
-		return nil, fmt.Errorf("no user found")
-	}
-	return &users[0], nil
-}
-
-// verifyPassword verifies the password by calling the GoTrue token endpoint.
-func (h *Handler) verifyPassword(ctx context.Context, userID, email, password string) bool {
+// verifyPassword verifies credentials by calling the Supabase Auth password grant endpoint.
+// Returns the Supabase access token on success.
+func (h *Handler) verifyPassword(ctx context.Context, email, password string) (string, error) {
 	url := h.supabase.URL() + "/auth/v1/token?grant_type=password"
 	payload, _ := json.Marshal(map[string]string{
 		"email":    email,
@@ -162,7 +117,7 @@ func (h *Handler) verifyPassword(ctx context.Context, userID, email, password st
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
 	if err != nil {
-		return false
+		return "", err
 	}
 	req.Header.Set("apikey", h.supabase.ServiceKey())
 	req.Header.Set("Authorization", "Bearer "+h.supabase.ServiceKey())
@@ -170,11 +125,26 @@ func (h *Handler) verifyPassword(ctx context.Context, userID, email, password st
 
 	resp, err := h.supabase.HTTPClient().Do(req)
 	if err != nil {
-		return false
+		return "", fmt.Errorf("auth request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
-	return resp.StatusCode == http.StatusOK
+	body, err := ioReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("read response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("auth error (status %d): %s", resp.StatusCode, string(body))
+	}
+
+	var result struct {
+		AccessToken string `json:"access_token"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return "", fmt.Errorf("unmarshal response: %w", err)
+	}
+	return result.AccessToken, nil
 }
 
 // staffRow represents a staff record from the database.
@@ -187,16 +157,11 @@ type staffRow struct {
 	Phone    string
 }
 
-// findStaffBySupabaseID looks up the staff record by supabase_user_id.
-func (h *Handler) findStaffBySupabaseID(ctx context.Context, supabaseUserID string) (*staffRow, error) {
-	uid, err := uuid.Parse(supabaseUserID)
-	if err != nil {
-		return nil, fmt.Errorf("invalid supabase user id: %w", err)
-	}
-
+// findStaffByEmail looks up the staff record by email.
+func (h *Handler) findStaffByEmail(ctx context.Context, email string) (*staffRow, error) {
 	row := h.supabase.Pool.QueryRow(ctx,
-		"SELECT id, tenant_id, full_name, email, role::text, COALESCE(phone, '') FROM staff WHERE supabase_user_id = $1 AND is_active = true",
-		uid,
+		"SELECT id, tenant_id, full_name, email, role::text, COALESCE(phone, '') FROM staff WHERE email = $1 AND is_active = true",
+		email,
 	)
 
 	var s staffRow
