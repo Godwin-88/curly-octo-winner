@@ -7,6 +7,9 @@ const config: Config = {
   ],
   theme: {
     extend: {
+      fontFamily: {
+        sans: ['var(--font-raleway)', 'sans-serif'],
+      },
       colors: {
         primary: {
           DEFAULT: '#2563eb',
