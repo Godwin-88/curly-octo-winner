@@ -74,5 +74,3 @@ JOIN learners l ON l.id = a.learner_id AND l.tenant_id = a.tenant_id
 JOIN sub_strands s ON s.id = a.sub_strand_id AND s.tenant_id = a.tenant_id
 JOIN strands str ON str.id = s.strand_id AND str.tenant_id = a.tenant_id
 JOIN learning_areas la ON la.id = str.learning_area_id AND la.tenant_id = a.tenant_id;
-
-CREATE INDEX IF NOT EXISTS idx_assessment_summary_learner ON assessment_summary (tenant_id, learner_id, term, year);

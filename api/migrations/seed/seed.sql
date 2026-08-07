@@ -66,7 +66,7 @@ BEGIN
         END IF;
 
         -- Assign guardian (cyclically, each guardian gets 2-3 learners)
-        guardian_id := ('c0000000-0000-0000-0000-0000000000' || LPAD(((i - 1) % 20 + 1)::text, 3, '0'))::uuid;
+        guardian_id := ('c0000000-0000-0000-0000-0000000000' || LPAD(((i - 1) % 20 + 1)::text, 2, '0'))::uuid;
         guardian_arr := ARRAY[guardian_id];
 
         INSERT INTO learners (id, tenant_id, upi, full_name, date_of_birth, grade, stream, guardian_ids)
@@ -157,7 +157,7 @@ ON CONFLICT (fee_structure_id, name) DO NOTHING;
 
 -- Sample invoices for a few Grade 4 learners (Term 1 2026)
 INSERT INTO invoices (id, tenant_id, learner_id, fee_structure_id, invoice_number, term, year, issue_date, due_date, total_cents, discount_cents, paid_cents, status, created_by)
-SELECT 'a2000000-0000-0000-0000-00000000000' || lp, 'a0000000-0000-0000-0000-000000000001',
+SELECT ('a2000000-0000-0000-0000-00000000000' || lp)::uuid, 'a0000000-0000-0000-0000-000000000001',
        ('d0000000-0000-0000-0000-0000' || LPAD(lp::text, 8, '0'))::uuid,
        'a1000000-0000-0000-0000-000000000001',
        'INV-2026-1-' || LPAD(lp::text, 6, '0'),
@@ -229,7 +229,7 @@ SELECT
     1, 2026
 FROM generate_series(1, 6) AS lp
 CROSS JOIN (
-    SELECT id FROM sub_strands
+    SELECT id, name FROM sub_strands
     WHERE tenant_id = 'a0000000-0000-0000-0000-000000000001'
     ORDER BY id
     LIMIT 4
@@ -293,29 +293,35 @@ WHERE a.tenant_id = 'a0000000-0000-0000-0000-000000000001'
 -- Requires: migrations 022-024 applied first
 
 -- Enrich existing staff with HR profile fields
-UPDATE staff SET
-    tsc_number = 'TSC' || LPAD((row_number() OVER (ORDER BY id))::text, 6, '0'),
-    national_id = 'ID' || LPAD((row_number() OVER (ORDER BY id))::text, 7, '0'),
-    kra_pin = 'A00' || LPAD((row_number() OVER (ORDER BY id))::text, 5, '0') || 'K',
-    department = CASE role
+WITH ranked AS (
+    SELECT id, row_number() OVER (ORDER BY id) AS rn
+    FROM staff
+    WHERE tenant_id = 'a0000000-0000-0000-0000-000000000001'
+)
+UPDATE staff s SET
+    tsc_number = 'TSC' || LPAD(r.rn::text, 6, '0'),
+    national_id = 'ID' || LPAD(r.rn::text, 7, '0'),
+    kra_pin = 'A00' || LPAD(r.rn::text, 5, '0') || 'K',
+    department = CASE s.role
         WHEN 'principal' THEN 'Administration'
         WHEN 'bursar' THEN 'Finance'
         WHEN 'transport_manager' THEN 'Transport'
         ELSE 'Academic'
     END,
-    job_title = CASE role
+    job_title = CASE s.role
         WHEN 'principal' THEN 'Head Teacher'
         WHEN 'bursar' THEN 'School Bursar'
         WHEN 'transport_manager' THEN 'Transport Manager'
         ELSE 'Class Teacher'
     END,
     employment_type = 'permanent',
-    hire_date = '2020-01-01'::date + (row_number() OVER (ORDER BY id) * 30 || ' days')::interval,
+    hire_date = '2020-01-01'::date + (r.rn * 30 || ' days')::interval,
     qualifications = '[{"name": "Bachelor of Education", "institution": "Kenyatta University", "year": 2015}]'::jsonb,
     subjects = '["Mathematics", "English"]'::jsonb,
     emergency_contact = '{"name": "Next of Kin", "phone": "+254700000000"}'::jsonb,
     bank_details = '{"bank": "Equity Bank", "account": "1234567890", "branch": "Nairobi"}'::jsonb
-WHERE tenant_id = 'a0000000-0000-0000-0000-000000000001';
+FROM ranked r
+WHERE s.id = r.id;
 
 -- Seed payroll runs for staff 1-5 (January 2026)
 INSERT INTO payroll_runs (tenant_id, staff_id, month, year, basic_salary_cents, allowances_cents,
