@@ -86,26 +86,9 @@ func Load() (*Config, error) {
 	}
 
 	required := map[string]string{
-		"DATABASE_URL":                 cfg.DatabaseURL,
-		"SUPABASE_URL":                 cfg.SupabaseURL,
-		"SUPABASE_SERVICE_ROLE_KEY":    cfg.SupabaseServiceRoleKey,
-		"UPSTASH_REDIS_REST_URL":       cfg.UpstashRedisURL,
-		"UPSTASH_REDIS_REST_TOKEN":     cfg.UpstashRedisToken,
-		"UPSTASH_VECTOR_REST_URL":      cfg.UpstashVectorURL,
-		"UPSTASH_VECTOR_REST_TOKEN":    cfg.UpstashVectorToken,
-		"UPSTASH_SEARCH_REST_URL":      cfg.UpstashSearchURL,
-		"UPSTASH_SEARCH_REST_TOKEN":    cfg.UpstashSearchToken,
-		"B2_ACCOUNT_ID":                cfg.B2AccountID,
-		"B2_APPLICATION_KEY":           cfg.B2ApplicationKey,
-		"B2_BUCKET_NAME":               cfg.B2BucketName,
-		"B2_ENDPOINT":                  cfg.B2Endpoint,
-		"AT_API_KEY":                   cfg.ATAPIKey,
-		"AT_USERNAME":                  cfg.ATUsername,
-		"AT_SENDER_ID":                 cfg.ATSenderID,
-		"META_WA_TOKEN":                cfg.MetaWAToken,
-		"META_WA_PHONE_NUMBER_ID":      cfg.MetaWAPhoneNumberID,
-		"META_WA_WEBHOOK_VERIFY_TOKEN": cfg.MetaWAWebhookVerifyToken,
-		"JWT_SECRET":                   cfg.JWTSecret,
+		"DATABASE_URL":              cfg.DatabaseURL,
+		"SUPABASE_URL":              cfg.SupabaseURL,
+		"SUPABASE_SERVICE_ROLE_KEY": cfg.SupabaseServiceRoleKey,
 	}
 
 	var missing []string

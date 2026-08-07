@@ -73,8 +73,7 @@ func main() {
 	// Initialize Backblaze B2
 	b2Client, err := backblaze.NewB2Client(ctx, cfg.B2AccountID, cfg.B2ApplicationKey, cfg.B2BucketName, cfg.B2Endpoint)
 	if err != nil {
-		slog.Error("failed to initialize Backblaze B2", "error", err)
-		os.Exit(1)
+		slog.Warn("Backblaze B2 not initialized; document uploads unavailable", "error", err)
 	}
 	_ = b2Client
 
