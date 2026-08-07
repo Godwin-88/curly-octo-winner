@@ -4,7 +4,7 @@ services:
     env: docker
     dockerfilePath: ./api/Dockerfile
     plan: free
-    region: sa-east-1
+    region: frankfurt
     envVars:
       - key: PORT
         value: 8080
