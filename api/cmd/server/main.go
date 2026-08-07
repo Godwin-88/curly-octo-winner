@@ -11,11 +11,13 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/joho/godotenv"
 
 	"github.com/shule360/api/internal/academic"
 	"github.com/shule360/api/internal/academic/assessment"
 	"github.com/shule360/api/internal/academic/attendance"
 	"github.com/shule360/api/internal/academic/curriculum"
+	"github.com/shule360/api/internal/auth"
 	"github.com/shule360/api/internal/comms"
 	"github.com/shule360/api/internal/comms/sms"
 	"github.com/shule360/api/internal/comms/whatsapp"
@@ -38,6 +40,8 @@ import (
 )
 
 func main() {
+	_ = godotenv.Load(".env")
+
 	// Load config
 	cfg, err := config.Load()
 	if err != nil {
@@ -140,6 +144,9 @@ func main() {
 	securitySvc := security.NewService(sb.Pool)
 	securityHandler := security.NewHandler(securitySvc)
 
+	// Initialize auth handler
+	authHandler := auth.NewHandler(sb, cfg)
+
 	// Setup router
 	r := chi.NewRouter()
 
@@ -156,9 +163,13 @@ func main() {
 
 	// API routes
 	r.Route("/api/v1", func(r chi.Router) {
+		// Auth routes (no auth required)
+		authHandler.Mount(r)
+
 		// Webhooks (no auth)
 		r.Handle("/webhooks/whatsapp", waWebhook)
 		r.Post("/webhooks/sms/dlr", handleSMSDLR)
+		financeHandler.MountWebhooks(r)
 
 		// Authenticated routes
 		r.Group(func(r chi.Router) {

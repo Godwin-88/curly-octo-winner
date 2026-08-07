@@ -156,7 +156,7 @@ export default function Home() {
                   Shule360 digitizes the full school lifecycle — communications, learner records, academics, transport, and finance — purpose-built for Kenyan schools.
                 </p>
                 <div className="mt-8 flex flex-col sm:flex-row gap-4">
-                  <a href="/(auth)/login" className="inline-flex items-center justify-center px-6 py-3 bg-white text-blue-900 font-semibold rounded-lg hover:bg-blue-50 transition-colors shadow-lg">
+                  <a href="/auth/login" className="inline-flex items-center justify-center px-6 py-3 bg-white text-blue-900 font-semibold rounded-lg hover:bg-blue-50 transition-colors shadow-lg">
                     Get Started Free
                     <ArrowRight className="ml-2 w-5 h-5" />
                   </a>
@@ -270,7 +270,7 @@ export default function Home() {
             <h2 className="text-3xl md:text-4xl font-bold text-white">Ready to Transform Your School?</h2>
             <p className="mt-4 text-lg text-blue-100 max-w-2xl mx-auto">Every core module your school runs on — in one secure, CBC-aligned platform.</p>
             <div className="mt-8 flex flex-col sm:flex-row gap-4 justify-center">
-              <a href="/(auth)/login" className="inline-flex items-center justify-center px-8 py-4 bg-white text-blue-900 font-semibold rounded-lg hover:bg-blue-50 transition-colors shadow-lg text-lg">
+              <a href="/auth/login" className="inline-flex items-center justify-center px-8 py-4 bg-white text-blue-900 font-semibold rounded-lg hover:bg-blue-50 transition-colors shadow-lg text-lg">
                 Start Free Today
                 <ArrowRight className="ml-2 w-5 h-5" />
               </a>

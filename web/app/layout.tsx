@@ -22,7 +22,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className={raleway.variable}>
-      <body className="min-h-screen bg-gray-50 font-sans">
+      <body className="min-h-screen bg-gray-50 font-sans" suppressHydrationWarning>
         {children}
       </body>
     </html>

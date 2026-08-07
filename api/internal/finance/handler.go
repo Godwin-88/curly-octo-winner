@@ -57,7 +57,12 @@ func (h *Handler) Mount(r chi.Router) {
 		r.Post("/mpesa/stk", h.initiateSTKPush)
 	})
 
-	// M-Pesa STK callback (no auth; validates via checkout request)
+}
+
+// MountWebhooks registers webhook routes that require NO authentication.
+// Safaricom M-Pesa callbacks send no JWT, so they must NOT be behind the
+// auth middleware. Register under /api/v1 alongside the WhatsApp webhook.
+func (h *Handler) MountWebhooks(r chi.Router) {
 	r.Post("/webhooks/mpesa/stk", h.mpesaCallback)
 }
 

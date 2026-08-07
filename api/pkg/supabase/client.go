@@ -47,6 +47,21 @@ func (c *Client) Close() {
 	c.Pool.Close()
 }
 
+// URL returns the Supabase project URL.
+func (c *Client) URL() string {
+	return c.supabaseURL
+}
+
+// ServiceKey returns the Supabase service role key.
+func (c *Client) ServiceKey() string {
+	return c.serviceKey
+}
+
+// HTTPClient returns the underlying HTTP client.
+func (c *Client) HTTPClient() *http.Client {
+	return c.http
+}
+
 // CreateUser creates a user in Supabase Auth with a temporary password.
 // Returns the new user's UUID.
 func (c *Client) CreateUser(ctx context.Context, email, password string) (string, error) {
