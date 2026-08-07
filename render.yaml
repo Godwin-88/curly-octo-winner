@@ -1,10 +1,12 @@
 services:
   - type: web
     name: shule360-api
-    env: docker
-    dockerfilePath: ./api/Dockerfile
+    env: go
+    rootDir: api
     plan: free
     region: frankfurt
+    buildCommand: go build -o server ./cmd/server
+    startCommand: ./server
     envVars:
       - key: PORT
         value: 8080

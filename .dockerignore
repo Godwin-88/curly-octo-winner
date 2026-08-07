@@ -1,0 +1,17 @@
+# Version control
+.git
+.gitignore
+
+# Frontend (not needed for API build)
+web/
+web/**/node_modules
+
+# Editor/IDE
+.vscode
+.idea
+.kilo
+.bevel
+
+# Environment files
+*.env
+.env.local
