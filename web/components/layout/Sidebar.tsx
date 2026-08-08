@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
@@ -37,9 +38,24 @@ import {
   ShieldCheck,
   KeyRound,
   UserCheck,
+  ChevronDown,
+  PanelLeftClose,
 } from 'lucide-react';
 
-const navItems = [
+interface ChildItem {
+  href: string;
+  label: string;
+  icon: any;
+}
+
+interface NavItem {
+  href?: string;
+  label: string;
+  icon: any;
+  children?: ChildItem[];
+}
+
+const navItems: NavItem[] = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   {
     label: 'Communications',
@@ -140,27 +156,84 @@ const navItems = [
 
 export default function Sidebar() {
   const pathname = usePathname();
+  // Track which group is expanded (only one at a time)
+  const [expanded, setExpanded] = useState<string | null>(null);
+  // Collapse-all toggle hides sub-menu group labels
+  const [collapsed, setCollapsed] = useState(false);
+  // Hover flyout for collapsed groups
+  const [hovered, setHovered] = useState<string | null>(null);
+
+  const isGroupActive = (children?: ChildItem[]) =>
+    children?.some((child) => pathname === child.href) ?? false;
 
   return (
-    <aside className="fixed left-0 top-0 h-screen w-64 bg-gray-900 text-white flex flex-col">
-      <div className="p-6 border-b border-gray-800">
-        <h1 className="text-xl font-bold">Shule360</h1>
-        <p className="text-sm text-gray-400">School Management</p>
+    <aside className="fixed left-0 top-0 h-screen w-64 bg-gray-900 text-white flex flex-col z-40">
+      <div className="p-6 border-b border-gray-800 flex items-center justify-between">
+        <div>
+          <h1 className="text-xl font-bold">Shule360</h1>
+          <p className="text-sm text-gray-400">School Management</p>
+        </div>
+        <button
+          onClick={() => setCollapsed((c) => !c)}
+          className="p-1.5 rounded-md text-gray-400 hover:text-white hover:bg-gray-800 transition-colors"
+          title={collapsed ? 'Expand menus' : 'Collapse menus'}
+        >
+          <PanelLeftClose size={16} />
+        </button>
       </div>
 
       <nav className="flex-1 overflow-y-auto p-4 space-y-1">
         {navItems.map((item) => {
           const Icon = item.icon;
-          const isActive = pathname?.startsWith(item.href || '');
 
-          if (item.children) {
+          // Leaf item (no children)
+          if (!item.children) {
+            const isActive = pathname === item.href;
             return (
-              <div key={item.label} className="mb-2">
-                <div className="flex items-center gap-2 px-3 py-2 text-sm text-gray-400">
+              <Link
+                key={item.href}
+                href={item.href!}
+                className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm transition-colors ${
+                  isActive ? 'bg-blue-600 text-white' : 'text-gray-300 hover:bg-gray-800'
+                }`}
+              >
+                <Icon size={18} />
+                <span>{item.label}</span>
+              </Link>
+            );
+          }
+
+          // Group item with collapsible children
+          const isOpen = expanded === item.label;
+          const forceOpen = collapsed ? false : isOpen;
+
+          return (
+            <div
+              key={item.label}
+              className="relative"
+              onMouseEnter={() => setHovered(item.label)}
+              onMouseLeave={() => setHovered(null)}
+            >
+              <button
+                onClick={() => setExpanded(isOpen ? null : item.label)}
+                className={`w-full flex items-center justify-between px-3 py-2 rounded-md text-sm transition-colors ${
+                  isGroupActive(item.children)
+                    ? 'bg-blue-600/20 text-white'
+                    : 'text-gray-400 hover:bg-gray-800 hover:text-gray-200'
+                }`}
+              >
+                <span className="flex items-center gap-2">
                   <Icon size={18} />
                   <span>{item.label}</span>
-                </div>
-                <div className="ml-4 space-y-1">
+                </span>
+                <ChevronDown
+                  size={14}
+                  className={`transition-transform ${forceOpen ? 'rotate-180' : ''}`}
+                />
+              </button>
+
+              {forceOpen && (
+                <div className="ml-4 mt-1 space-y-1 pb-2 border-l border-gray-700 pl-3">
                   {item.children.map((child) => {
                     const ChildIcon = child.icon;
                     const isChildActive = pathname === child.href;
@@ -168,33 +241,47 @@ export default function Sidebar() {
                       <Link
                         key={child.href}
                         href={child.href}
-                        className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm transition-colors ${
+                        className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm transition-colors ${
                           isChildActive
                             ? 'bg-blue-600 text-white'
                             : 'text-gray-300 hover:bg-gray-800'
                         }`}
                       >
-                        <ChildIcon size={16} />
+                        <ChildIcon size={15} />
                         <span>{child.label}</span>
                       </Link>
                     );
                   })}
                 </div>
-              </div>
-            );
-          }
+              )}
 
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm transition-colors ${
-                isActive ? 'bg-blue-600 text-white' : 'text-gray-300 hover:bg-gray-800'
-              }`}
-            >
-              <Icon size={18} />
-              <span>{item.label}</span>
-            </Link>
+              {/* Hover flyout when collapsed */}
+              {collapsed && hovered === item.label && (
+                <div className="absolute left-full top-0 ml-2 w-56 bg-gray-800 rounded-md shadow-lg py-2 border border-gray-700 animate-fade-in">
+                  <div className="px-3 py-1.5 text-xs font-semibold text-gray-400 uppercase">
+                    {item.label}
+                  </div>
+                  {item.children.map((child) => {
+                    const ChildIcon = child.icon;
+                    const isChildActive = pathname === child.href;
+                    return (
+                      <Link
+                        key={child.href}
+                        href={child.href}
+                        className={`flex items-center gap-2 px-3 py-2 text-sm transition-colors ${
+                          isChildActive
+                            ? 'bg-blue-600 text-white'
+                            : 'text-gray-200 hover:bg-gray-700'
+                        }`}
+                      >
+                        <ChildIcon size={15} />
+                        <span>{child.label}</span>
+                      </Link>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           );
         })}
       </nav>

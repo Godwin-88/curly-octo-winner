@@ -16,13 +16,27 @@ export default function InboxPage() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState('');
-
-  const token = ''; // TODO: Get from auth context
-  const tenantId = ''; // TODO: Get from auth context
+  const [token, setToken] = useState('');
+  const [tenantId, setTenantId] = useState('');
 
   useEffect(() => {
-    loadConversations();
-  }, [statusFilter]);
+    // Read auth from localStorage (set on login), like the dashboard does
+    const t = typeof window !== 'undefined' ? localStorage.getItem('token') || '' : '';
+    setToken(t);
+    const staff = typeof window !== 'undefined' ? localStorage.getItem('staff') : null;
+    if (staff) {
+      try {
+        setTenantId(JSON.parse(staff).tenant_id || '');
+      } catch {
+        setTenantId('');
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    if (token) loadConversations();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [statusFilter, token]);
 
   useEffect(() => {
     if (!tenantId) return;

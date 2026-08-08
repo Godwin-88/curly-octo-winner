@@ -26,8 +26,14 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
     'Content-Type': 'application/json',
   };
 
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
+  // Fall back to the token stored at login if one wasn't explicitly passed.
+  // Many pages pass an empty token (via inline `const token = ''`), so reading
+  // from localStorage here centralizes auth and fixes "missing Authorization header".
+  const effectiveToken =
+    token || (typeof window !== 'undefined' ? window.localStorage.getItem('token') || '' : '');
+
+  if (effectiveToken) {
+    headers['Authorization'] = `Bearer ${effectiveToken}`;
   }
 
   const res = await fetch(`${API_BASE}${path}`, {

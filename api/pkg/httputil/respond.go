@@ -53,7 +53,11 @@ func RespondNotFound(w http.ResponseWriter, code, message string) {
 // RespondInternalError writes a 500 error and logs the underlying error.
 func RespondInternalError(w http.ResponseWriter, err error) {
 	slog.Error("internal server error", "error", err)
-	RespondError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An internal error occurred")
+	message := "An internal error occurred"
+	if err != nil {
+		message = err.Error()
+	}
+	RespondError(w, http.StatusInternalServerError, "INTERNAL_ERROR", message)
 }
 
 func writeJSON(w http.ResponseWriter, status int, payload any) {

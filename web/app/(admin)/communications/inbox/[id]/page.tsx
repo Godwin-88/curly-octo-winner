@@ -12,13 +12,27 @@ export default function ConversationThreadPage() {
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
   const [reply, setReply] = useState('');
   const [sending, setSending] = useState(false);
-
-  const token = ''; // TODO: Get from auth context
-  const tenantId = ''; // TODO: Get from auth context
+  const [token, setToken] = useState('');
+  const [tenantId, setTenantId] = useState('');
 
   useEffect(() => {
-    loadConversation();
-  }, [conversationId]);
+    // Read auth from localStorage (set on login), like the dashboard does
+    const t = typeof window !== 'undefined' ? localStorage.getItem('token') || '' : '';
+    setToken(t);
+    const staff = typeof window !== 'undefined' ? localStorage.getItem('staff') : null;
+    if (staff) {
+      try {
+        setTenantId(JSON.parse(staff).tenant_id || '');
+      } catch {
+        setTenantId('');
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    if (token) loadConversation();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conversationId, token]);
 
   useEffect(() => {
     if (!tenantId) return;
