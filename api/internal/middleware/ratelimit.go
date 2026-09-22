@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"net/http"
+	"strconv"
 
 	"github.com/shule360/api/pkg/httputil"
 	"github.com/shule360/api/pkg/upstash"
@@ -29,7 +30,7 @@ func RateLimit(redis *upstash.RedisClient, capacity, refillPerSecond int) func(h
 				return
 			}
 
-			w.Header().Set("X-RateLimit-Remaining", http.StatusText(remaining))
+			w.Header().Set("X-RateLimit-Remaining", strconv.Itoa(remaining))
 
 			if !allowed {
 				httputil.RespondError(w, http.StatusTooManyRequests, "RATE_LIMITED", "Too many requests. Please try again later.")

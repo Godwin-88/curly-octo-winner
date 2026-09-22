@@ -1,11 +1,13 @@
 'use client';
 
+import { useAuth } from '@/lib/auth';
+
 import { useEffect, useState } from 'react';
 import { Plus, Trash2, Eye } from 'lucide-react';
 import { api, StaffAppraisal, StaffProfile } from '@/lib/api';
 
 export default function AppraisalsPage() {
-  const token = ''; // TODO: Get from auth context
+  const { token } = useAuth();
   const [appraisals, setAppraisals] = useState<StaffAppraisal[]>([]);
   const [staff, setStaff] = useState<StaffProfile[]>([]);
   const [loading, setLoading] = useState(true);

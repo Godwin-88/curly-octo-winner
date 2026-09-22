@@ -1,5 +1,7 @@
 'use client';
 
+import { useAuth } from '@/lib/auth';
+
 import { useEffect, useState } from 'react';
 import { ClipboardList } from 'lucide-react';
 import { api, AuditLog } from '@/lib/api';
@@ -12,7 +14,7 @@ const ACTION_COLORS: Record<string, string> = {
 };
 
 export default function AuditLogPage() {
-  const token = ''; // TODO: Get from auth context
+  const { token } = useAuth();
   const [logs, setLogs] = useState<AuditLog[]>([]);
   const [entityType, setEntityType] = useState('');
   const [action, setAction] = useState('');

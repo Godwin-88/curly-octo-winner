@@ -1,11 +1,13 @@
 'use client';
 
+import { useAuth } from '@/lib/auth';
+
 import { useEffect, useState } from 'react';
 import { RefreshCw, Trash2, Eye } from 'lucide-react';
 import { api, ReportCard, Learner } from '@/lib/api';
 
 export default function ReportCardsPage() {
-  const token = ''; // TODO: Get from auth context
+  const { token } = useAuth();
   const [cards, setCards] = useState<ReportCard[]>([]);
   const [learners, setLearners] = useState<Learner[]>([]);
   const [selected, setSelected] = useState<ReportCard | null>(null);

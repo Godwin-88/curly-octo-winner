@@ -1,5 +1,7 @@
 'use client';
 
+import { useAuth } from '@/lib/auth';
+
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { api, DeliveryStats, Message, MessageLog } from '@/lib/api';
@@ -20,7 +22,7 @@ export default function DeliveryReportPage() {
   const [logs, setLogs] = useState<MessageLog[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const token = ''; // TODO: Get from auth context
+  const { token } = useAuth();
 
   useEffect(() => {
     loadData();

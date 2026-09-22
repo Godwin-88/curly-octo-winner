@@ -198,3 +198,18 @@ end
 	}
 	return result[0] == 1, int(result[1]), nil
 }
+
+// ParseIntReply parses an Upstash REST reply that is expected to be an integer
+// (e.g. INCR, EXPIRE). Upstash returns bare JSON numbers or one-element arrays
+// depending on the command, so both shapes are accepted.
+func ParseIntReply(body []byte) (int64, error) {
+	var n int64
+	if err := json.Unmarshal(body, &n); err == nil {
+		return n, nil
+	}
+	var arr []int64
+	if err := json.Unmarshal(body, &arr); err == nil && len(arr) > 0 {
+		return arr[0], nil
+	}
+	return 0, fmt.Errorf("unexpected integer reply: %s", string(body))
+}

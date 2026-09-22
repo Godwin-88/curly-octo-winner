@@ -1,5 +1,7 @@
 'use client';
 
+import { useAuth } from '@/lib/auth';
+
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, Save } from 'lucide-react';
@@ -11,7 +13,7 @@ const STREAMS = ['A', 'B', 'C', 'D', 'E'];
 
 export default function NewLearnerPage() {
   const router = useRouter();
-  const token = ''; // TODO: Get from auth context
+  const { token } = useAuth();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [form, setForm] = useState({

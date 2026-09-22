@@ -1,5 +1,7 @@
 'use client';
 
+import { useAuth } from '@/lib/auth';
+
 import { useEffect, useState } from 'react';
 import { Plus, Bus, AlertTriangle } from 'lucide-react';
 import { api, Vehicle } from '@/lib/api';
@@ -11,7 +13,7 @@ const STATUS_STYLES: Record<string, string> = {
 };
 
 export default function VehiclesPage() {
-  const token = ''; // TODO: Get from auth context
+  const { token } = useAuth();
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');

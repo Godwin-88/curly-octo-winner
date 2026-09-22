@@ -1,5 +1,7 @@
 'use client';
 
+import { useAuth } from '@/lib/auth';
+
 import { use, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -17,7 +19,7 @@ type Tab = 'overview' | 'documents' | 'progression' | 'attendance';
 export default function LearnerDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const router = useRouter();
-  const token = ''; // TODO: Get from auth context
+  const { token } = useAuth();
 
   const [learner, setLearner] = useState<Learner | null>(null);
   const [guardians, setGuardians] = useState<GuardianBrief[]>([]);

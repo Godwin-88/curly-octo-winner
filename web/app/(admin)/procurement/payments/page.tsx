@@ -1,9 +1,11 @@
 'use client';
 
+import { useAuth } from '@/lib/auth';
+
 import { useEffect, useState } from 'react';
 import { api, SupplierPayment, Supplier, PurchaseOrder, GoodsReceipt, CreateSupplierPaymentRequest } from '@/lib/api';
 
-const token = ''; // TODO: Get from auth context
+const { token } = useAuth();
 
 export default function PaymentsPage() {
   const [payments, setPayments] = useState<SupplierPayment[]>([]);

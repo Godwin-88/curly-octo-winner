@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { api, Conversation, ConversationMessage } from '@/lib/api';
 import { subscribeToMessages } from '@/lib/supabase';
+import { useAuth } from '@/lib/auth';
 
 export default function ConversationThreadPage() {
   const params = useParams();
@@ -12,22 +13,8 @@ export default function ConversationThreadPage() {
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
   const [reply, setReply] = useState('');
   const [sending, setSending] = useState(false);
-  const [token, setToken] = useState('');
-  const [tenantId, setTenantId] = useState('');
-
-  useEffect(() => {
-    // Read auth from localStorage (set on login), like the dashboard does
-    const t = typeof window !== 'undefined' ? localStorage.getItem('token') || '' : '';
-    setToken(t);
-    const staff = typeof window !== 'undefined' ? localStorage.getItem('staff') : null;
-    if (staff) {
-      try {
-        setTenantId(JSON.parse(staff).tenant_id || '');
-      } catch {
-        setTenantId('');
-      }
-    }
-  }, []);
+  const { token, staff } = useAuth();
+  const tenantId = staff?.tenant_id || '';
 
   useEffect(() => {
     if (token) loadConversation();

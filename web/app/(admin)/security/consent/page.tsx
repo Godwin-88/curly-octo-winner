@@ -1,5 +1,7 @@
 'use client';
 
+import { useAuth } from '@/lib/auth';
+
 import { useEffect, useState } from 'react';
 import { UserCheck, Check, X } from 'lucide-react';
 import { api, ConsentAgreement } from '@/lib/api';
@@ -13,7 +15,7 @@ const CONSENT_LABELS: Record<string, string> = {
 };
 
 export default function ConsentPage() {
-  const token = ''; // TODO: Get from auth context
+  const { token } = useAuth();
   const [consents, setConsents] = useState<ConsentAgreement[]>([]);
   const [guardianId, setGuardianId] = useState('');
   const [consentType, setConsentType] = useState('whatsapp_opt_in');

@@ -1,11 +1,13 @@
 'use client';
 
+import { useAuth } from '@/lib/auth';
+
 import { useEffect, useState } from 'react';
 import { Plus, MapPin, Trash2, Users, UserPlus } from 'lucide-react';
 import { api, Route, Vehicle, Learner, Assignment } from '@/lib/api';
 
 export default function RoutesPage() {
-  const token = ''; // TODO: Get from auth context
+  const { token } = useAuth();
   const [routes, setRoutes] = useState<Route[]>([]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [learners, setLearners] = useState<Learner[]>([]);

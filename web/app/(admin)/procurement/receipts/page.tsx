@@ -1,9 +1,11 @@
 'use client';
 
+import { useAuth } from '@/lib/auth';
+
 import { useEffect, useState } from 'react';
 import { api, GoodsReceipt, PurchaseOrder, CreateGoodsReceiptRequest, GoodsReceiptItemInput } from '@/lib/api';
 
-const token = ''; // TODO: Get from auth context
+const { token } = useAuth();
 
 export default function ReceiptsPage() {
   const [receipts, setReceipts] = useState<GoodsReceipt[]>([]);

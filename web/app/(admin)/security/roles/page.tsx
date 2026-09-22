@@ -1,5 +1,7 @@
 'use client';
 
+import { useAuth } from '@/lib/auth';
+
 import { useEffect, useState } from 'react';
 import { ShieldCheck, Check, Plus } from 'lucide-react';
 import { api, RolePermissionsResponse, Permission } from '@/lib/api';
@@ -14,7 +16,7 @@ const ROLE_LABELS: Record<string, string> = {
 };
 
 export default function RolesPage() {
-  const token = ''; // TODO: Get from auth context
+  const { token } = useAuth();
   const [roles, setRoles] = useState<RolePermissionsResponse[]>([]);
   const [allPermissions, setAllPermissions] = useState<Permission[]>([]);
   const [selectedRole, setSelectedRole] = useState<string>('principal');

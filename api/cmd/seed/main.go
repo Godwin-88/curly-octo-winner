@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"os"
 
+	"golang.org/x/crypto/bcrypt"
+
 	"github.com/joho/godotenv"
 	"github.com/shule360/api/internal/config"
 	"github.com/shule360/api/pkg/supabase"
@@ -109,6 +111,36 @@ func main() {
 	slog.Info("seed complete. Login credentials:")
 	for _, u := range users {
 		fmt.Printf("  %s / %s (%s)\n", u.Email, u.Password, u.Role)
+	}
+
+	// Seed guardian PINs
+	slog.Info("seeding guardian PINs")
+	guardianPINs := []struct {
+		Phone string
+		PIN   string
+	}{
+		{"+254712345678", "1234"},
+		{"+254723456789", "1234"},
+		{"+254734567890", "1234"},
+		{"+254745678901", "1234"},
+		{"+254756789012", "1234"},
+	}
+
+	for _, g := range guardianPINs {
+		hash, err := bcrypt.GenerateFromPassword([]byte(g.PIN), bcrypt.DefaultCost)
+		if err != nil {
+			slog.Error("failed to hash guardian PIN", "phone", g.Phone, "error", err)
+			continue
+		}
+		_, err = sb.Pool.Exec(ctx,
+			"UPDATE guardians SET pin_hash = $1 WHERE phone_primary = $2 AND tenant_id = 'a0000000-0000-0000-0000-000000000001'",
+			string(hash), g.Phone,
+		)
+		if err != nil {
+			slog.Error("failed to seed guardian PIN", "phone", g.Phone, "error", err)
+		} else {
+			slog.Info("seeded guardian PIN", "phone", g.Phone)
+		}
 	}
 }
 

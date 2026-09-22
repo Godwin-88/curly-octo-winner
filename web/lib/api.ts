@@ -1,6 +1,6 @@
 // Typed fetch wrapper for the Shule360 Go API
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080/api/v1';
+export const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080/api/v1';
 
 export class APIError extends Error {
   code: string;
@@ -43,6 +43,22 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   });
 
   if (!res.ok) {
+    // Global session-expiry handling: a 401 from an authenticated call means
+    // the JWT is invalid/expired. Clear both session scopes (localStorage +
+    // cookies) and bounce to the matching sign-in page. Login pages do their
+    // own fetch handling, so this never loops.
+    if (res.status === 401 && typeof window !== 'undefined') {
+      const hadGuardian = !!window.localStorage.getItem('guardian_token');
+      window.localStorage.removeItem('token');
+      window.localStorage.removeItem('staff');
+      window.localStorage.removeItem('guardian_token');
+      window.localStorage.removeItem('guardian');
+      document.cookie = 'shule360_token=; path=/; max-age=0; SameSite=Lax';
+      document.cookie = 'shule360_guardian_token=; path=/; max-age=0; SameSite=Lax';
+      window.location.href = hadGuardian ? '/parent/login' : '/auth/login';
+      throw new APIError('Session expired. Please sign in again.', 'UNAUTHORIZED', 401);
+    }
+
     const errorData = await res.json().catch(() => ({ error: 'Unknown error', code: 'UNKNOWN' }));
     throw new APIError(errorData.error || 'Request failed', errorData.code || 'UNKNOWN', res.status);
   }
@@ -1142,6 +1158,72 @@ export interface SecuritySummary {
   pending_erasure: number;
   processing_records: number;
   permission_count: number;
+}
+
+// --- SMS & Communications types ---
+
+export interface SMSCampaign {
+  id: string;
+  tenant_id: string;
+  name: string;
+  audience_type: string;
+  audience_filter: Record<string, unknown>;
+  content: string;
+  template_id?: string;
+  status: string;
+  recipient_count: number;
+  delivered_count: number;
+  failed_count: number;
+  scheduled_at?: string;
+  sent_at?: string;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SMSCampaignLog {
+  id: string;
+  campaign_id: string;
+  recipient_phone: string;
+  recipient_name: string;
+  channel: string;
+  status: string;
+  provider_msg_id?: string;
+  error_code?: string;
+  error_message?: string;
+  sent_at?: string;
+  delivered_at?: string;
+  created_at: string;
+}
+
+export interface SendSMSRequest {
+  name?: string;
+  audience_type: string;
+  audience_filter: Record<string, unknown>;
+  content: string;
+  template_id?: string;
+  scheduled_at?: string;
+}
+
+export interface SMSTemplate {
+  id: string;
+  tenant_id: string;
+  name: string;
+  content: string;
+  variables: string[];
+  category: string;
+  created_at: string;
+}
+
+export interface ReportCardPDF {
+  id: string;
+  report_card_id: string;
+  file_name: string;
+  file_url: string;
+  file_size_bytes: number;
+  mime_type: string;
+  generated_by?: string;
+  created_at: string;
 }
 
 // --- HR types ---
@@ -2497,4 +2579,50 @@ export const api = {
   // Security: summary
   getSecuritySummary: (token: string) =>
     request<SecuritySummary>('/security/summary', { token }),
+
+  // SMS campaigns
+  sendSMS: (data: SendSMSRequest, token: string) =>
+    request<SMSCampaign>('/sms/send', { method: 'POST', body: data, token }),
+
+  createSMSCampaign: (data: SendSMSRequest, token: string) =>
+    request<SMSCampaign>('/sms/campaign', { method: 'POST', body: data, token }),
+
+  listSMSCampaigns: (params: { limit?: number; offset?: number }, token: string) => {
+    const qs = new URLSearchParams();
+    if (params.limit) qs.set('limit', String(params.limit));
+    if (params.offset) qs.set('offset', String(params.offset));
+    return request<SMSCampaign[]>(`/sms/campaigns?${qs.toString()}`, { token });
+  },
+
+  getSMSCampaign: (id: string, token: string) =>
+    request<SMSCampaign>(`/sms/campaigns/${id}`, { token }),
+
+  getSMSCampaignLogs: (id: string, params: { limit?: number; offset?: number }, token: string) => {
+    const qs = new URLSearchParams();
+    if (params.limit) qs.set('limit', String(params.limit));
+    if (params.offset) qs.set('offset', String(params.offset));
+    return request<SMSCampaignLog[]>(`/sms/campaigns/${id}/logs?${qs.toString()}`, { token });
+  },
+
+  listSMSTemplates: (token: string) =>
+    request<SMSTemplate[]>('/sms/templates', { token }),
+
+  createSMSTemplate: (data: { name: string; content: string; variables?: string[]; category?: string }, token: string) =>
+    request<SMSTemplate>('/sms/templates', { method: 'POST', body: data, token }),
+
+  getSMSTemplate: (id: string, token: string) =>
+    request<SMSTemplate>(`/sms/templates/${id}`, { token }),
+
+  updateSMSTemplate: (id: string, data: { name?: string; content?: string; variables?: string[]; category?: string }, token: string) =>
+    request<{ status: string }>(`/sms/templates/${id}`, { method: 'PATCH', body: data, token }),
+
+  deleteSMSTemplate: (id: string, token: string) =>
+    request<void>(`/sms/templates/${id}`, { method: 'DELETE', token }),
+
+  // Report card PDFs
+  generateReportCardPDF: (reportCardId: string, token: string) =>
+    request<ReportCardPDF>(`/reports/${reportCardId}/pdf`, { method: 'POST', token }),
+
+  getReportCardPDF: (reportCardId: string, token: string) =>
+    request<ReportCardPDF>(`/reports/${reportCardId}/pdf`, { token }),
 };

@@ -15,6 +15,11 @@ node_modules/
 dist/
 build/
 api/server
+api/seed
+*.tsbuildinfo
+
+# AI tooling state / duplicate worktrees
+.kilo/
 
 # Go build artifacts
 *.exe

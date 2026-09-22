@@ -1,9 +1,11 @@
 'use client';
 
+import { useAuth } from '@/lib/auth';
+
 import { useEffect, useState } from 'react';
 import { api, Supplier, CreateSupplierRequest } from '@/lib/api';
 
-const token = ''; // TODO: Get from auth context
+const { token } = useAuth();
 
 const categories = ['textbooks', 'stationery', 'furniture', 'ict', 'uniforms', 'food', 'lab', 'construction', 'transport', 'general'];
 

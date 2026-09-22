@@ -26,9 +26,10 @@ import CompetencyBar from '@/components/dashboard/CompetencyBar';
 import LearningAreaRadar from '@/components/dashboard/LearningAreaRadar';
 import KenyaMap from '@/components/dashboard/KenyaMap';
 import { PILOT_SCHOOL } from '@/lib/nairobi';
+import { useAuth } from '@/lib/auth';
 
 export default function DashboardPage() {
-  const [token, setToken] = useState('');
+  const { token } = useAuth();
   const [loading, setLoading] = useState(true);
 
   const [overview, setOverview] = useState<SchoolOverview | null>(null);
@@ -47,12 +48,6 @@ export default function DashboardPage() {
   const [stream, setStream] = useState('');
   const [county, setCounty] = useState('');
   const [subCounty, setSubCounty] = useState('');
-
-  useEffect(() => {
-    // Read token from localStorage (set on login)
-    const t = typeof window !== 'undefined' ? localStorage.getItem('token') || '' : '';
-    setToken(t);
-  }, []);
 
   const load = async () => {
     if (!token) return;

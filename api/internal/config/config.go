@@ -28,6 +28,8 @@ type Config struct {
 	ATUsername string
 	ATSenderID string
 
+	GroqAPIKey string
+
 	MetaWAToken              string
 	MetaWAPhoneNumberID      string
 	MetaWAWebhookVerifyToken string
@@ -64,6 +66,7 @@ func Load() (*Config, error) {
 		ATAPIKey:                 os.Getenv("AT_API_KEY"),
 		ATUsername:               os.Getenv("AT_USERNAME"),
 		ATSenderID:               os.Getenv("AT_SENDER_ID"),
+		GroqAPIKey:               os.Getenv("GROQ_API_KEY"),
 		MetaWAToken:              os.Getenv("META_WA_TOKEN"),
 		MetaWAPhoneNumberID:      os.Getenv("META_WA_PHONE_NUMBER_ID"),
 		MetaWAWebhookVerifyToken: os.Getenv("META_WA_WEBHOOK_VERIFY_TOKEN"),
@@ -89,6 +92,9 @@ func Load() (*Config, error) {
 		"DATABASE_URL":              cfg.DatabaseURL,
 		"SUPABASE_URL":              cfg.SupabaseURL,
 		"SUPABASE_SERVICE_ROLE_KEY": cfg.SupabaseServiceRoleKey,
+		// JWT_SECRET must be provided explicitly: an empty secret would let
+		// anyone forge tokens signed with HMAC("").
+		"JWT_SECRET": cfg.JWTSecret,
 	}
 
 	var missing []string

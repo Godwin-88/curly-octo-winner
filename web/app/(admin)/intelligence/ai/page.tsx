@@ -1,11 +1,13 @@
 'use client';
 
+import { useAuth } from '@/lib/auth';
+
 import { useEffect, useState } from 'react';
 import { Brain, MessageSquare, Sparkles, Plus, Trash2, Send, BookOpen } from 'lucide-react';
 import { api, FAQEntry, MessageTemplateEmbedding, TemplateSuggestion, AutoResponse, PortfolioSummary } from '@/lib/api';
 
 export default function AIAssistantPage() {
-  const token = ''; // TODO: Get from auth context
+  const { token } = useAuth();
   const [faqs, setFaqs] = useState<FAQEntry[]>([]);
   const [templates, setTemplates] = useState<MessageTemplateEmbedding[]>([]);
   const [loading, setLoading] = useState(true);

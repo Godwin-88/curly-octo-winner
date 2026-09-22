@@ -1,11 +1,13 @@
 'use client';
 
+import { useAuth } from '@/lib/auth';
+
 import { useEffect, useState } from 'react';
 import { AlertTriangle, Users, BookOpen, ClipboardList } from 'lucide-react';
 import { api, StrandCoverage, CompetencyDistribution, TeacherVelocity, LearnerPortfolio, AlertLearner, SchoolOverview } from '@/lib/api';
 
 export default function AnalyticsDashboardPage() {
-  const token = ''; // TODO: Get from auth context
+  const { token } = useAuth();
   const [overview, setOverview] = useState<SchoolOverview | null>(null);
   const [coverage, setCoverage] = useState<StrandCoverage[]>([]);
   const [distribution, setDistribution] = useState<CompetencyDistribution[]>([]);

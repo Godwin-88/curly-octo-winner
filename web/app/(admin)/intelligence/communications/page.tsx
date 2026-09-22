@@ -1,11 +1,13 @@
 'use client';
 
+import { useAuth } from '@/lib/auth';
+
 import { useEffect, useState } from 'react';
 import { MessageSquare, CheckCircle2, XCircle, BarChart3 } from 'lucide-react';
 import { api, CampaignDeliverySummary, ChannelReach, FailedNumber } from '@/lib/api';
 
 export default function CommunicationAnalyticsPage() {
-  const token = ''; // TODO: Get from auth context
+  const { token } = useAuth();
   const [campaigns, setCampaigns] = useState<CampaignDeliverySummary[]>([]);
   const [reach, setReach] = useState<ChannelReach[]>([]);
   const [failed, setFailed] = useState<FailedNumber[]>([]);

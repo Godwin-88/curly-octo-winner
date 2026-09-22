@@ -1,5 +1,7 @@
 'use client';
 
+import { useAuth } from '@/lib/auth';
+
 import { useEffect, useState } from 'react';
 import { Plus, Trash2, Wallet } from 'lucide-react';
 import { api, FeeStructure, FeeItemInput } from '@/lib/api';
@@ -7,7 +9,7 @@ import { api, FeeStructure, FeeItemInput } from '@/lib/api';
 const ITEM_TYPES = ['tuition', 'caution', 'transport', 'activity', 'boarding', 'other'];
 
 export default function FeesPage() {
-  const token = ''; // TODO: Get from auth context
+  const { token } = useAuth();
   const [structures, setStructures] = useState<FeeStructure[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');

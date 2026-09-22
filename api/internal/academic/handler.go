@@ -18,9 +18,10 @@ import (
 
 // Handler contains the HTTP handlers for the academic API.
 type Handler struct {
-	curriculumSvc *curriculum.Service
-	assessmentSvc *assessment.Service
-	attendanceSvc *attendance.Service
+	curriculumSvc      *curriculum.Service
+	assessmentSvc      *assessment.Service
+	attendanceSvc      *attendance.Service
+	absenceAlertSvc    *attendance.AbsenceAlertService
 }
 
 // NewHandler creates a new academic handler.
@@ -28,11 +29,13 @@ func NewHandler(
 	curriculumSvc *curriculum.Service,
 	assessmentSvc *assessment.Service,
 	attendanceSvc *attendance.Service,
+	absenceAlertSvc *attendance.AbsenceAlertService,
 ) *Handler {
 	return &Handler{
-		curriculumSvc: curriculumSvc,
-		assessmentSvc: assessmentSvc,
-		attendanceSvc: attendanceSvc,
+		curriculumSvc:   curriculumSvc,
+		assessmentSvc:   assessmentSvc,
+		attendanceSvc:   attendanceSvc,
+		absenceAlertSvc: absenceAlertSvc,
 	}
 }
 
@@ -466,6 +469,11 @@ func (h *Handler) markAttendance(w http.ResponseWriter, r *http.Request) {
 		httputil.RespondBadRequest(w, "MARK_FAILED", err.Error())
 		return
 	}
+
+	if result.Status == "absent" && (result.Reason == "" || !result.SMSNotified) {
+		_ = h.absenceAlertSvc.CheckAndAlert(r.Context(), tenantID, result.Date, "", "")
+	}
+
 	httputil.RespondCreated(w, result)
 }
 

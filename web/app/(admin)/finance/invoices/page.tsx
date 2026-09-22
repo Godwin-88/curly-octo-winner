@@ -1,5 +1,7 @@
 'use client';
 
+import { useAuth } from '@/lib/auth';
+
 import { useEffect, useState } from 'react';
 import { Plus, Trash2, Smartphone, FileText, Wallet } from 'lucide-react';
 import { api, Invoice, FeeStructure, Learner, Payment, Discount } from '@/lib/api';
@@ -16,7 +18,7 @@ const STATUS_STYLES: Record<string, string> = {
 const DISCOUNT_TYPES = ['scholarship', 'sibling', 'waiver', 'other'];
 
 export default function InvoicesPage() {
-  const token = ''; // TODO: Get from auth context
+  const { token } = useAuth();
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [learners, setLearners] = useState<Learner[]>([]);
   const [feeStructures, setFeeStructures] = useState<FeeStructure[]>([]);

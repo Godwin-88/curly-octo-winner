@@ -1,5 +1,7 @@
 'use client';
 
+import { useAuth } from '@/lib/auth';
+
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Plus, Search, Users, GraduationCap } from 'lucide-react';
@@ -8,7 +10,7 @@ import { api, Learner } from '@/lib/api';
 const GRADES = ['PP1', 'PP2', 'Grade 1', 'Grade 2', 'Grade 3', 'Grade 4', 'Grade 5', 'Grade 6', 'Grade 7', 'Grade 8', 'Grade 9'];
 
 export default function LearnersPage() {
-  const token = ''; // TODO: Get from auth context
+  const { token } = useAuth();
   const [learners, setLearners] = useState<Learner[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');

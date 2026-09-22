@@ -1,12 +1,14 @@
 'use client';
 
+import { useAuth } from '@/lib/auth';
+
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { Wallet, FileText, Receipt, BadgeDollarSign, ArrowRight } from 'lucide-react';
 import { api, Invoice, Payment, FeeStructure } from '@/lib/api';
 
 export default function FinanceOverviewPage() {
-  const token = ''; // TODO: Get from auth context
+  const { token } = useAuth();
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
   const [structures, setStructures] = useState<FeeStructure[]>([]);

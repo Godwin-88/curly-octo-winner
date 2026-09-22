@@ -1,5 +1,7 @@
 'use client';
 
+import { useAuth } from '@/lib/auth';
+
 import { useEffect, useState } from 'react';
 import { Smartphone, CreditCard, CheckCircle, XCircle } from 'lucide-react';
 import { api, Payment } from '@/lib/api';
@@ -19,7 +21,7 @@ const STATUS_STYLES: Record<string, string> = {
 };
 
 export default function PaymentsPage() {
-  const token = ''; // TODO: Get from auth context
+  const { token } = useAuth();
   const [payments, setPayments] = useState<Payment[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');

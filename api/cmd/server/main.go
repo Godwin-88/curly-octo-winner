@@ -24,16 +24,20 @@ import (
 	"github.com/shule360/api/internal/comms/whatsapp"
 	"github.com/shule360/api/internal/config"
 	"github.com/shule360/api/internal/finance"
+	"github.com/shule360/api/internal/guardian_auth"
 	"github.com/shule360/api/internal/hr"
 	"github.com/shule360/api/internal/intelligence"
 	"github.com/shule360/api/internal/learner"
 	appmiddleware "github.com/shule360/api/internal/middleware"
 	"github.com/shule360/api/internal/nemis"
+	"github.com/shule360/api/internal/parent"
 	"github.com/shule360/api/internal/procurement"
 	"github.com/shule360/api/internal/reports"
 	"github.com/shule360/api/internal/security"
+	"github.com/shule360/api/internal/teacher"
 	"github.com/shule360/api/internal/transport"
 	"github.com/shule360/api/pkg/backblaze"
+	"github.com/shule360/api/pkg/groq"
 	"github.com/shule360/api/pkg/httputil"
 	"github.com/shule360/api/pkg/mpesa"
 	supabaseclient "github.com/shule360/api/pkg/supabase"
@@ -85,6 +89,9 @@ func main() {
 	// Initialize Africa's Talking SMS client
 	atClient := sms.NewATClient(cfg.ATAPIKey, cfg.ATUsername, cfg.ATSenderID, cfg.IsProduction())
 
+	// Initialize SMS service
+	smsService := sms.NewSMSService(sb.Pool, atClient)
+
 	// Initialize WhatsApp Cloud API client
 	waClient := whatsapp.NewWAClient(cfg.MetaWAToken, cfg.MetaWAPhoneNumberID)
 
@@ -96,7 +103,7 @@ func main() {
 
 	// Initialize comms service
 	commsService := comms.NewCommsService(sb.Pool, redisClient, atClient, waClient)
-	commsHandler := comms.NewHandler(commsService)
+	commsHandler := comms.NewHandlerWithSMS(commsService, smsService)
 
 	// Initialize WhatsApp webhook handler
 	waWebhook := whatsapp.NewWebhookHandler(cfg.MetaWAWebhookVerifyToken, sb.Pool, chatbot, waClient)
@@ -105,7 +112,8 @@ func main() {
 	curriculumSvc := curriculum.NewService(sb.Pool)
 	assessmentSvc := assessment.NewService(sb.Pool)
 	attendanceSvc := attendance.NewService(sb.Pool)
-	academicHandler := academic.NewHandler(curriculumSvc, assessmentSvc, attendanceSvc)
+	absenceAlertSvc := attendance.NewAbsenceAlertService(sb.Pool, atClient)
+	academicHandler := academic.NewHandler(curriculumSvc, assessmentSvc, attendanceSvc, absenceAlertSvc)
 
 	// Initialize learner services (EPIC 3)
 	learnerSvc := learner.NewService(sb.Pool, nemisClient)
@@ -138,15 +146,25 @@ func main() {
 
 	// Initialize intelligence services (EPIC 8: Digital Intelligence)
 	intelligenceSvc := intelligence.NewService(sb.Pool)
-	intelligenceAI := intelligence.NewAIService(sb.Pool, vectorClient)
+	groqClient := groq.NewClient(cfg.GroqAPIKey, "")
+	intelligenceAI := intelligence.NewAIService(sb.Pool, vectorClient, groqClient)
 	intelligenceHandler := intelligence.NewHandler(intelligenceSvc, intelligenceAI)
 
 	// Initialize security & compliance services (EPIC 9: Digital Security & Compliance)
 	securitySvc := security.NewService(sb.Pool)
 	securityHandler := security.NewHandler(securitySvc)
 
+	// Initialize guardian auth (parent portal)
+	guardianAuthHandler := guardian_auth.NewHandler(sb.Pool, cfg.JWTSecret, redisClient)
+
+	// Initialize parent portal handler
+	parentHandler := parent.NewHandler(sb.Pool)
+
+	// Initialize teacher PWA handler
+	teacherHandler := teacher.NewHandler(sb.Pool)
+
 	// Initialize auth handler
-	authHandler := auth.NewHandler(sb, cfg)
+	authHandler := auth.NewHandler(sb, cfg, redisClient)
 
 	// Setup router
 	r := chi.NewRouter()
@@ -175,8 +193,11 @@ func main() {
 
 	// API routes
 	r.Route("/api/v1", func(r chi.Router) {
-		// Auth routes (no auth required)
+		// Auth routes (no auth required). Brute-force protection is applied
+		// inside the handlers (middleware.CheckLoginRateLimit): 5 attempts per
+		// IP / per account per 15-minute window, fail-closed.
 		authHandler.Mount(r)
+		guardianAuthHandler.Mount(r)
 
 		// Webhooks (no auth)
 		r.Handle("/webhooks/whatsapp", waWebhook)
@@ -189,16 +210,43 @@ func main() {
 			r.Use(appmiddleware.TenantRequired)
 			r.Use(appmiddleware.RateLimit(redisClient, 100, 10))
 
-			commsHandler.Mount(r)
-			academicHandler.Mount(r)
-			learnerHandler.Mount(r)
-			transportHandler.Mount(r)
-			financeHandler.Mount(r)
-			reportsHandler.Mount(r)
-			hrHandler.Mount(r)
-			procurementHandler.Mount(r)
-			intelligenceHandler.Mount(r)
-			securityHandler.Mount(r)
+			// Role groups — mirrors the staff_role enum in
+			// 002_staff_auth.sql and the frontend Sidebar ROLE_NAV map.
+			allStaff := []string{"super_admin", "principal", "teacher", "bursar", "transport_manager", "hr"}
+			financeRoles := []string{"super_admin", "principal", "bursar"}
+			managementRoles := []string{"super_admin", "principal"}
+
+			// Finance, procurement & financial intelligence — bursar/principal
+			r.Group(func(r chi.Router) {
+				r.Use(appmiddleware.RequireRole(financeRoles...))
+				financeHandler.Mount(r)
+				procurementHandler.Mount(r)
+				intelligenceHandler.Mount(r)
+			})
+
+			// HR & security/compliance — principal/super_admin only
+			r.Group(func(r chi.Router) {
+				r.Use(appmiddleware.RequireRole(managementRoles...))
+				hrHandler.Mount(r)
+				securityHandler.Mount(r)
+			})
+
+			// Academic & teaching operations — all staff roles
+			r.Group(func(r chi.Router) {
+				r.Use(appmiddleware.RequireRole(allStaff...))
+				commsHandler.Mount(r)
+				academicHandler.Mount(r)
+				learnerHandler.Mount(r)
+				transportHandler.Mount(r)
+				reportsHandler.Mount(r)
+				teacherHandler.Mount(r)
+			})
+
+			// Parent portal — guardians only
+			r.Group(func(r chi.Router) {
+				r.Use(appmiddleware.RequireRole("guardian"))
+				parentHandler.Mount(r)
+			})
 		})
 	})
 

@@ -1,5 +1,7 @@
 'use client';
 
+import { useAuth } from '@/lib/auth';
+
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import {
@@ -11,7 +13,7 @@ import {
   SupplierPayment,
 } from '@/lib/api';
 
-const token = ''; // TODO: Get from auth context
+const { token } = useAuth();
 
 export default function ProcurementPage() {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);

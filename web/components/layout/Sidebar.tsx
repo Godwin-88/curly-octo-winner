@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useAuth } from '@/lib/auth';
 import {
   LayoutDashboard,
   MessageSquare,
@@ -40,6 +41,7 @@ import {
   UserCheck,
   ChevronDown,
   PanelLeftClose,
+  LogOut,
 } from 'lucide-react';
 
 interface ChildItem {
@@ -57,16 +59,17 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  {
-    label: 'Communications',
-    icon: MessageSquare,
-    children: [
-      { href: '/communications', label: 'Overview', icon: MessageSquare },
-      { href: '/communications/sms', label: 'SMS Campaigns', icon: MessageSquare },
-      { href: '/communications/whatsapp', label: 'WhatsApp', icon: MessageCircle },
-      { href: '/communications/inbox', label: 'Inbox', icon: Inbox },
-    ],
-  },
+    {
+      label: 'Communications',
+      icon: MessageSquare,
+      children: [
+        { href: '/communications', label: 'Overview', icon: MessageSquare },
+        { href: '/communications/sms', label: 'SMS Campaigns', icon: MessageSquare },
+        { href: '/communications/sms/templates', label: 'SMS Templates', icon: MessageSquareText },
+        { href: '/communications/whatsapp', label: 'WhatsApp', icon: MessageCircle },
+        { href: '/communications/inbox', label: 'Inbox', icon: Inbox },
+      ],
+    },
   {
     label: 'Academic',
     icon: GraduationCap,
@@ -154,8 +157,19 @@ const navItems: NavItem[] = [
   { href: '/settings', label: 'Settings', icon: Settings },
 ];
 
+// Nav restriction map — mirrors api/internal/middleware role groups in main.go.
+// super_admin sees everything; listed roles see only their modules.
+const ROLE_NAV: Record<string, string[]> = {
+  teacher: ['/dashboard', '/learners', '/academic'],
+  bursar: ['/dashboard', '/learners', '/finance', '/reports', '/analytics'],
+  hr: ['/dashboard', '/learners', '/hr'],
+  transport_manager: ['/dashboard', '/learners', '/vehicles', '/routes', '/trips'],
+  // principal: undefined -> sees all modules
+};
+
 export default function Sidebar() {
   const pathname = usePathname();
+  const { staff, logoutStaff } = useAuth();
   // Track which group is expanded (only one at a time)
   const [expanded, setExpanded] = useState<string | null>(null);
   // Collapse-all toggle hides sub-menu group labels
@@ -165,6 +179,21 @@ export default function Sidebar() {
 
   const isGroupActive = (children?: ChildItem[]) =>
     children?.some((child) => pathname === child.href) ?? false;
+
+  // Module-level role filter: a top-level item (or group) is visible if the
+  // signed-in role can access it. super_admin / principal see everything.
+  const allowedTop = ROLE_NAV[staff?.role ?? ''];
+  const canSee = (topLevelHref: string) => {
+    if (!allowedTop) return true;
+    return allowedTop.some(
+      (p) => topLevelHref === p || topLevelHref.startsWith(p + '/')
+    );
+  };
+
+  const visibleNavItems = navItems.filter((item) => {
+    if (!item.href) return true; // groups are filtered via children below
+    return canSee(item.href);
+  });
 
   return (
     <aside className="fixed left-0 top-0 h-screen w-64 bg-gray-900 text-white flex flex-col z-40">
@@ -182,8 +211,8 @@ export default function Sidebar() {
         </button>
       </div>
 
-      <nav className="flex-1 overflow-y-auto p-4 space-y-1">
-        {navItems.map((item) => {
+      <nav className="flex-1 overflow-y-auto p-4 space-y-1" aria-label="Main navigation">
+        {visibleNavItems.map((item) => {
           const Icon = item.icon;
 
           // Leaf item (no children)
@@ -234,7 +263,7 @@ export default function Sidebar() {
 
               {forceOpen && (
                 <div className="ml-4 mt-1 space-y-1 pb-2 border-l border-gray-700 pl-3">
-                  {item.children.map((child) => {
+                  {item.children.filter((c) => canSee(c.href)).map((child) => {
                     const ChildIcon = child.icon;
                     const isChildActive = pathname === child.href;
                     return (
@@ -288,13 +317,28 @@ export default function Sidebar() {
 
       <div className="p-4 border-t border-gray-800">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center text-sm font-bold">
-            JK
+          <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center text-sm font-bold flex-shrink-0">
+            {staff?.full_name
+              ? staff.full_name
+                  .split(' ')
+                  .map((p) => p[0])
+                  .slice(0, 2)
+                  .join('')
+                  .toUpperCase()
+              : '?'}
           </div>
-          <div>
-            <p className="text-sm font-medium">John Kamau</p>
-            <p className="text-xs text-gray-400">Principal</p>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-medium truncate">{staff?.full_name || 'Signed in'}</p>
+            <p className="text-xs text-gray-400 capitalize">{staff?.role || ''}</p>
           </div>
+          <button
+            onClick={() => logoutStaff('/auth/login')}
+            className="p-1.5 rounded-md text-gray-400 hover:text-white hover:bg-gray-800 transition-colors"
+            title="Sign out"
+            aria-label="Sign out"
+          >
+            <LogOut size={16} />
+          </button>
         </div>
       </div>
     </aside>

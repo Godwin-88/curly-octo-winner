@@ -1,11 +1,13 @@
 'use client';
 
+import { useAuth } from '@/lib/auth';
+
 import { useEffect, useState } from 'react';
 import { Users, Wallet, CalendarClock, ClipboardCheck } from 'lucide-react';
 import { api, StaffProfile, PayrollRun, LeaveRequest, StaffAppraisal } from '@/lib/api';
 
 export default function HRPage() {
-  const token = ''; // TODO: Get from auth context
+  const { token } = useAuth();
   const [staff, setStaff] = useState<StaffProfile[]>([]);
   const [payroll, setPayroll] = useState<PayrollRun[]>([]);
   const [leave, setLeave] = useState<LeaveRequest[]>([]);

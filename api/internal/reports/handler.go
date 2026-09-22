@@ -30,6 +30,8 @@ func (h *Handler) Mount(r chi.Router) {
 		r.Patch("/{id}", h.updateReportCard)
 		r.Delete("/{id}", h.deleteReportCard)
 		r.Post("/generate", h.generateReportCard)
+		r.Get("/{id}/pdf", h.getReportCardPDF)
+		r.Post("/{id}/pdf", h.generateReportCardPDF)
 	})
 
 	r.Route("/analytics", func(r chi.Router) {
@@ -154,6 +156,57 @@ func (h *Handler) deleteReportCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httputil.RespondNoContent(w)
+}
+
+func (h *Handler) generateReportCardPDF(w http.ResponseWriter, r *http.Request) {
+	tenantID, ok := middleware.GetTenantID(r)
+	if !ok {
+		httputil.RespondUnauthorized(w, "UNAUTHORIZED", "Tenant ID not found")
+		return
+	}
+
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		httputil.RespondBadRequest(w, "INVALID_ID", "Invalid report card ID")
+		return
+	}
+
+	staffID, _ := middleware.GetStaffID(r)
+	if staffID == uuid.Nil {
+		staffID = uuid.MustParse("00000000-0000-0000-0000-000000000000")
+	}
+
+	pdfRecord, err := h.service.GenerateReportCardPDF(r.Context(), tenantID, id, staffID)
+	if err != nil {
+		httputil.RespondBadRequest(w, "PDF_GENERATE_FAILED", err.Error())
+		return
+	}
+	httputil.RespondCreated(w, pdfRecord)
+}
+
+func (h *Handler) getReportCardPDF(w http.ResponseWriter, r *http.Request) {
+	tenantID, ok := middleware.GetTenantID(r)
+	if !ok {
+		httputil.RespondUnauthorized(w, "UNAUTHORIZED", "Tenant ID not found")
+		return
+	}
+
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		httputil.RespondBadRequest(w, "INVALID_ID", "Invalid report card ID")
+		return
+	}
+
+	pdfs, err := h.service.ListReportCardPDFs(r.Context(), tenantID, id)
+	if err != nil {
+		httputil.RespondInternalError(w, err)
+		return
+	}
+	if len(pdfs) == 0 {
+		httputil.RespondNotFound(w, "NOT_FOUND", "No PDF generated yet")
+		return
+	}
+	httputil.RespondOK(w, pdfs[0])
 }
 
 // --- Analytics handlers ---

@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/shule360/api/internal/comms/inbox"
+	"github.com/shule360/api/internal/comms/sms"
 	"github.com/shule360/api/internal/middleware"
 	"github.com/shule360/api/pkg/httputil"
 )
@@ -20,11 +21,17 @@ type Handler struct {
 	inboxService interface {
 		ListConversations(ctx context.Context, tenantID uuid.UUID, status, assignedTo string, limit, offset int) ([]inbox.Conversation, error)
 	}
+	smsService *sms.SMSService
 }
 
 // NewHandler creates a new communications handler.
 func NewHandler(service *CommsService) *Handler {
 	return &Handler{service: service}
+}
+
+// NewHandlerWithSMS creates a new communications handler with SMS support.
+func NewHandlerWithSMS(service *CommsService, smsService *sms.SMSService) *Handler {
+	return &Handler{service: service, smsService: smsService}
 }
 
 // Mount registers all comms routes under the provided router.
@@ -45,6 +52,11 @@ func (h *Handler) Mount(r chi.Router) {
 		r.Patch("/{id}/status", h.updateConversationStatus)
 		r.Get("/{id}", h.getConversation)
 	})
+
+	if h.smsService != nil {
+		smsHandler := sms.NewHandler(h.smsService)
+		smsHandler.Mount(r)
+	}
 }
 
 // createMessage handles POST /messages

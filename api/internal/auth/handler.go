@@ -14,8 +14,10 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 
 	"github.com/shule360/api/internal/config"
+	appmiddleware "github.com/shule360/api/internal/middleware"
 	"github.com/shule360/api/pkg/httputil"
 	supabaseclient "github.com/shule360/api/pkg/supabase"
+	"github.com/shule360/api/pkg/upstash"
 )
 
 // LoginRequest represents the login request body.
@@ -26,29 +28,31 @@ type LoginRequest struct {
 
 // LoginResponse represents the login response body.
 type LoginResponse struct {
-	Token string      `json:"token"`
-	Staff StaffBrief  `json:"staff"`
+	Token string     `json:"token"`
+	Staff StaffBrief `json:"staff"`
 }
 
 // StaffBrief is a minimal staff representation returned on login.
 type StaffBrief struct {
-	ID        string `json:"id"`
-	TenantID  string `json:"tenant_id"`
-	FullName  string `json:"full_name"`
-	Email     string `json:"email"`
-	Role      string `json:"role"`
-	Phone     string `json:"phone,omitempty"`
+	ID       string `json:"id"`
+	TenantID string `json:"tenant_id"`
+	FullName string `json:"full_name"`
+	Email    string `json:"email"`
+	Role     string `json:"role"`
+	Phone    string `json:"phone,omitempty"`
 }
 
 // Handler handles authentication endpoints.
 type Handler struct {
 	supabase *supabaseclient.Client
 	cfg      *config.Config
+	redis    *upstash.RedisClient
 }
 
-// NewHandler creates a new auth handler.
-func NewHandler(supabase *supabaseclient.Client, cfg *config.Config) *Handler {
-	return &Handler{supabase: supabase, cfg: cfg}
+// NewHandler creates a new auth handler. redis may be nil, in which case login
+// rate limiting fails closed (login becomes unavailable until Redis returns).
+func NewHandler(supabase *supabaseclient.Client, cfg *config.Config, redis *upstash.RedisClient) *Handler {
+	return &Handler{supabase: supabase, cfg: cfg, redis: redis}
 }
 
 // Mount registers auth routes.
@@ -67,6 +71,12 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	req.Email = strings.TrimSpace(req.Email)
 	if req.Email == "" || req.Password == "" {
 		httputil.RespondBadRequest(w, "INVALID_REQUEST", "Email and password are required")
+		return
+	}
+
+	// Fail-closed brute-force protection: 5 attempts per IP and per account
+	// per 15-minute window.
+	if !appmiddleware.CheckLoginRateLimit(r.Context(), w, h.redis, appmiddleware.ClientIP(r), req.Email, 900, 5, 5) {
 		return
 	}
 
@@ -96,12 +106,12 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	httputil.RespondOK(w, LoginResponse{
 		Token: token,
 		Staff: StaffBrief{
-			ID:        staff.ID,
-			TenantID:  staff.TenantID,
-			FullName:  staff.FullName,
-			Email:     staff.Email,
-			Role:      staff.Role,
-			Phone:     staff.Phone,
+			ID:       staff.ID,
+			TenantID: staff.TenantID,
+			FullName: staff.FullName,
+			Email:    staff.Email,
+			Role:     staff.Role,
+			Phone:    staff.Phone,
 		},
 	})
 }

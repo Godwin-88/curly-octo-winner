@@ -1,11 +1,13 @@
 'use client';
 
+import { useAuth } from '@/lib/auth';
+
 import { useEffect, useState } from 'react';
 import { FileBarChart, Plus, Trash2, CheckCircle2 } from 'lucide-react';
 import { api, DataProcessingRecord, ErasureRequest } from '@/lib/api';
 
 export default function DataProtectionPage() {
-  const token = ''; // TODO: Get from auth context
+  const { token } = useAuth();
   const [records, setRecords] = useState<DataProcessingRecord[]>([]);
   const [erasure, setErasure] = useState<ErasureRequest[]>([]);
   const [loading, setLoading] = useState(true);

@@ -1,5 +1,7 @@
 'use client';
 
+import { useAuth } from '@/lib/auth';
+
 import { useState } from 'react';
 import AudienceSegmentBuilder from '@/components/comms/AudienceSegmentBuilder';
 import { api, CreateMessageRequest, ReachEstimate } from '@/lib/api';
@@ -13,7 +15,7 @@ export default function WhatsAppBroadcastPage() {
   const [estimate, setEstimate] = useState<ReachEstimate | null>(null);
   const [sending, setSending] = useState(false);
 
-  const token = ''; // TODO: Get from auth context
+  const { token } = useAuth();
 
   const handleEstimate = async () => {
     try {

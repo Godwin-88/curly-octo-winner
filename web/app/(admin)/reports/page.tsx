@@ -1,12 +1,14 @@
 'use client';
 
+import { useAuth } from '@/lib/auth';
+
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { FileText, BarChart3, AlertTriangle, ArrowRight, Users } from 'lucide-react';
 import { api, ReportCard, AlertLearner, SchoolOverview } from '@/lib/api';
 
 export default function ReportsOverviewPage() {
-  const token = ''; // TODO: Get from auth context
+  const { token } = useAuth();
   const [cards, setCards] = useState<ReportCard[]>([]);
   const [atRisk, setAtRisk] = useState<AlertLearner[]>([]);
   const [overview, setOverview] = useState<SchoolOverview | null>(null);

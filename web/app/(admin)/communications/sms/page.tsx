@@ -1,5 +1,7 @@
 'use client';
 
+import { useAuth } from '@/lib/auth';
+
 import { useState } from 'react';
 import AudienceSegmentBuilder from '@/components/comms/AudienceSegmentBuilder';
 import MessageComposer from '@/components/comms/MessageComposer';
@@ -17,7 +19,7 @@ export default function SMSCampaignPage() {
   const [sending, setSending] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
 
-  const token = ''; // TODO: Get from auth context
+  const { token } = useAuth();
 
   const handleEstimate = async () => {
     try {

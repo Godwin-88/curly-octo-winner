@@ -1,12 +1,14 @@
 'use client';
 
+import { useAuth } from '@/lib/auth';
+
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { TrendingUp, MessageSquare, Brain, Wallet, BarChart3 } from 'lucide-react';
 import { api, FeeCollectionSummary, ChannelReach, CampaignDeliverySummary } from '@/lib/api';
 
 export default function IntelligenceDashboardPage() {
-  const token = ''; // TODO: Get from auth context
+  const { token } = useAuth();
   const [feeSummary, setFeeSummary] = useState<FeeCollectionSummary[]>([]);
   const [channelReach, setChannelReach] = useState<ChannelReach[]>([]);
   const [campaigns, setCampaigns] = useState<CampaignDeliverySummary[]>([]);

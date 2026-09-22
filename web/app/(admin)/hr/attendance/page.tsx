@@ -1,11 +1,13 @@
 'use client';
 
+import { useAuth } from '@/lib/auth';
+
 import { useEffect, useState } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
 import { api, StaffAttendance, StaffProfile } from '@/lib/api';
 
 export default function StaffAttendancePage() {
-  const token = ''; // TODO: Get from auth context
+  const { token } = useAuth();
   const [records, setRecords] = useState<StaffAttendance[]>([]);
   const [staff, setStaff] = useState<StaffProfile[]>([]);
   const [loading, setLoading] = useState(true);

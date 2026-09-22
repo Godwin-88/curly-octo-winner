@@ -333,6 +333,80 @@ func (s *Service) GenerateReportCard(ctx context.Context, tenantID, learnerID uu
 	return s.GetReportCard(ctx, tenantID, rcID)
 }
 
+type ReportCardPDF struct {
+	ID          uuid.UUID `json:"id"`
+	ReportCardID uuid.UUID `json:"report_card_id"`
+	FileName    string    `json:"file_name"`
+	FileURL     string    `json:"file_url"`
+	FileSizeBytes int64   `json:"file_size_bytes"`
+	MimeType    string    `json:"mime_type"`
+	GeneratedBy *uuid.UUID `json:"generated_by,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
+func (s *Service) GenerateReportCardPDF(ctx context.Context, tenantID, reportCardID uuid.UUID, generatedBy uuid.UUID) (*ReportCardPDF, error) {
+	card, err := s.GetReportCard(ctx, tenantID, reportCardID)
+	if err != nil {
+		return nil, fmt.Errorf("get report card: %w", err)
+	}
+
+	data := ReportCardPDFData{
+		ReportCard:  card,
+		GeneratedAt: time.Now().Format("2006-01-02 15:04"),
+	}
+	pdfBytes, err := GenerateReportCardPDF(data)
+	if err != nil {
+		return nil, fmt.Errorf("generate pdf bytes: %w", err)
+	}
+
+	fileName := GenerateReportCardFileName(card.LearnerName, card.Term, card.Year)
+	fileURL := fmt.Sprintf("https://storage.example.com/report-cards/%s", fileName)
+
+	var pdfID uuid.UUID
+	err = s.pool.QueryRow(ctx, `
+		INSERT INTO report_card_pdfs (tenant_id, report_card_id, file_name, file_url, file_size_bytes, generated_by)
+		VALUES ($1, $2, $3, $4, $5, $6)
+		RETURNING id
+	`, tenantID, reportCardID, fileName, fileURL, int64(len(pdfBytes)), generatedBy).Scan(&pdfID)
+	if err != nil {
+		return nil, fmt.Errorf("insert pdf record: %w", err)
+	}
+
+	return &ReportCardPDF{
+		ID:            pdfID,
+		ReportCardID:  reportCardID,
+		FileName:      fileName,
+		FileURL:       fileURL,
+		FileSizeBytes: int64(len(pdfBytes)),
+		MimeType:      "application/pdf",
+		GeneratedBy:   &generatedBy,
+		CreatedAt:     time.Now(),
+	}, nil
+}
+
+func (s *Service) ListReportCardPDFs(ctx context.Context, tenantID, reportCardID uuid.UUID) ([]ReportCardPDF, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT id, report_card_id, file_name, file_url, file_size_bytes, mime_type, generated_by, created_at
+		FROM report_card_pdfs
+		WHERE tenant_id = $1 AND report_card_id = $2
+		ORDER BY created_at DESC
+	`, tenantID, reportCardID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var pdfs []ReportCardPDF
+	for rows.Next() {
+		var p ReportCardPDF
+		if err := rows.Scan(&p.ID, &p.ReportCardID, &p.FileName, &p.FileURL, &p.FileSizeBytes, &p.MimeType, &p.GeneratedBy, &p.CreatedAt); err != nil {
+			return nil, err
+		}
+		pdfs = append(pdfs, p)
+	}
+	return pdfs, rows.Err()
+}
+
 func (s *Service) UpdateReportCard(ctx context.Context, tenantID, id uuid.UUID, req UpdateReportCardRequest) (*ReportCard, error) {
 	if _, err := s.GetReportCard(ctx, tenantID, id); err != nil {
 		return nil, err

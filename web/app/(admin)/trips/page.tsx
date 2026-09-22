@@ -1,5 +1,7 @@
 'use client';
 
+import { useAuth } from '@/lib/auth';
+
 import { useEffect, useState } from 'react';
 import { Plus, Play, CheckCircle, XCircle, MapPin, Navigation, UserCheck } from 'lucide-react';
 import { api, Trip, Route, Vehicle, Learner, TripCheckin } from '@/lib/api';
@@ -12,7 +14,7 @@ const STATUS_STYLES: Record<string, string> = {
 };
 
 export default function TripsPage() {
-  const token = ''; // TODO: Get from auth context
+  const { token } = useAuth();
   const [trips, setTrips] = useState<Trip[]>([]);
   const [routes, setRoutes] = useState<Route[]>([]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);

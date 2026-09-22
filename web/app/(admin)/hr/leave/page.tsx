@@ -1,11 +1,13 @@
 'use client';
 
+import { useAuth } from '@/lib/auth';
+
 import { useEffect, useState } from 'react';
 import { Plus, Check, X, Eye } from 'lucide-react';
 import { api, LeaveRequest, StaffProfile } from '@/lib/api';
 
 export default function LeavePage() {
-  const token = ''; // TODO: Get from auth context
+  const { token } = useAuth();
   const [leaves, setLeaves] = useState<LeaveRequest[]>([]);
   const [staff, setStaff] = useState<StaffProfile[]>([]);
   const [loading, setLoading] = useState(true);

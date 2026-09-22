@@ -1,11 +1,13 @@
 'use client';
 
+import { useAuth } from '@/lib/auth';
+
 import { useEffect, useState } from 'react';
 import { Wallet, TrendingUp, AlertTriangle, CreditCard } from 'lucide-react';
 import { api, FeeCollectionSummary, PaymentChannelBreakdown, FeeDefaulter, MonthlyCollectionTrend } from '@/lib/api';
 
 export default function FinancialAnalyticsPage() {
-  const token = ''; // TODO: Get from auth context
+  const { token } = useAuth();
   const [feeSummary, setFeeSummary] = useState<FeeCollectionSummary[]>([]);
   const [channels, setChannels] = useState<PaymentChannelBreakdown[]>([]);
   const [defaulters, setDefaulters] = useState<FeeDefaulter[]>([]);
