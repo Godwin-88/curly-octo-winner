@@ -12,6 +12,18 @@
 
 export const API_BASE = '/api/v1';
 
+/**
+ * asList guards a list response before it reaches component state.
+ *
+ * The API always answers list endpoints with an array (see httputil.RespondOK,
+ * which normalises nil slices), but a null here would still crash the page on
+ * `rows.map(...)` with "Cannot read properties of null" — a white screen the
+ * user cannot recover from. Cheap insurance at the boundary.
+ */
+export function asList<T>(value: T[] | null | undefined): T[] {
+  return Array.isArray(value) ? value : [];
+}
+
 export class APIError extends Error {
   code: string;
   status: number;
@@ -279,17 +291,43 @@ export interface AssessmentSummary {
   created_at: string;
 }
 
+export type AttendanceStatus = 'present' | 'absent' | 'late' | 'excused';
+
 export interface AttendanceRecord {
   id: string;
   tenant_id: string;
   learner_id: string;
   date: string;
-  status: 'present' | 'absent' | 'late' | 'excused';
+  status: AttendanceStatus;
   marked_by?: string;
   reason?: string;
   sms_notified: boolean;
   created_at: string;
   updated_at: string;
+}
+
+export interface BulkMarkResult {
+  saved: number;
+  date: string;
+}
+
+export interface AttendanceSummaryCounts {
+  present: number;
+  absent: number;
+  late: number;
+  excused: number;
+  marked: number;
+}
+
+export interface ChronicAbsentee {
+  learner_id: string;
+  learner_name: string;
+  grade: string;
+  stream: string;
+  total_days: number;
+  absent_days: number;
+  /** Percentage of days present or late, across the term. */
+  attendance_rate: number;
 }
 
 export interface AttendanceSummary {
@@ -1936,6 +1974,36 @@ export const api = {
   createValue: (data: Value, token: string) =>
     request<Value>('/curriculum/values', { method: 'POST', body: data, token }),
 
+  updateLearningArea: (id: string, data: Partial<LearningArea>, token: string) =>
+    request<LearningArea>(`/curriculum/learning-areas/${id}`, { method: 'PUT', body: data, token }),
+
+  deleteLearningArea: (id: string, token: string) =>
+    request<void>(`/curriculum/learning-areas/${id}`, { method: 'DELETE', token }),
+
+  updateStrand: (id: string, data: Partial<Strand>, token: string) =>
+    request<Strand>(`/curriculum/strands/${id}`, { method: 'PUT', body: data, token }),
+
+  deleteStrand: (id: string, token: string) =>
+    request<void>(`/curriculum/strands/${id}`, { method: 'DELETE', token }),
+
+  updateSubStrand: (id: string, data: Partial<SubStrand>, token: string) =>
+    request<SubStrand>(`/curriculum/sub-strands/${id}`, { method: 'PUT', body: data, token }),
+
+  deleteSubStrand: (id: string, token: string) =>
+    request<void>(`/curriculum/sub-strands/${id}`, { method: 'DELETE', token }),
+
+  updateCoreCompetency: (id: string, data: Partial<CoreCompetency>, token: string) =>
+    request<CoreCompetency>(`/curriculum/core-competencies/${id}`, { method: 'PUT', body: data, token }),
+
+  deleteCoreCompetency: (id: string, token: string) =>
+    request<void>(`/curriculum/core-competencies/${id}`, { method: 'DELETE', token }),
+
+  updateValue: (id: string, data: Partial<Value>, token: string) =>
+    request<Value>(`/curriculum/values/${id}`, { method: 'PUT', body: data, token }),
+
+  deleteValue: (id: string, token: string) =>
+    request<void>(`/curriculum/values/${id}`, { method: 'DELETE', token }),
+
   // Assessments
   createAssessment: (data: CreateAssessmentRequest, token: string) =>
     request<Assessment>('/assessments', { method: 'POST', body: data, token }),
@@ -1961,6 +2029,30 @@ export const api = {
   deleteAssessment: (id: string, token: string) =>
     request<void>(`/assessments/${id}`, { method: 'DELETE', token }),
 
+  // Observations for a whole term, joined with learner and curriculum context.
+  listTermObservations: (params: { term?: number; year?: number }, token: string) => {
+    const qs = new URLSearchParams();
+    if (params.term) qs.set('term', String(params.term));
+    if (params.year) qs.set('year', String(params.year));
+    return request<AssessmentSummary[]>(`/assessments/term-observations?${qs.toString()}`, { token });
+  },
+
+  // Rubric level counts (1-4) for one sub-strand. Named for its scope because
+  // getCompetencyDistribution above is the per-class analytics view.
+  getSubStrandDistribution: (
+    params: { sub_strand_id: string; term?: number; year?: number },
+    token: string
+  ) => {
+    const qs = new URLSearchParams();
+    qs.set('sub_strand_id', params.sub_strand_id);
+    if (params.term) qs.set('term', String(params.term));
+    if (params.year) qs.set('year', String(params.year));
+    return request<Record<string, number>>(
+      `/assessments/competency-distribution?${qs.toString()}`,
+      { token }
+    );
+  },
+
   // Attendance
   markAttendance: (data: AttendanceRecord, token: string) =>
     request<AttendanceRecord>('/attendance', { method: 'POST', body: data, token }),
@@ -1977,13 +2069,50 @@ export const api = {
   deleteAttendance: (id: string, token: string) =>
     request<void>(`/attendance/${id}`, { method: 'DELETE', token }),
 
+  // Saves a whole register in one transaction — a half-saved register is worse
+  // than an error, so this is the endpoint the attendance page uses.
+  markAttendanceBulk: (
+    data: {
+      date: string;
+      marks: { learner_id: string; status: AttendanceStatus; reason?: string }[];
+      notify_guardians?: boolean;
+    },
+    token: string
+  ) =>
+    request<BulkMarkResult>('/attendance/bulk', { method: 'POST', body: data, token }),
+
+  getAttendanceSummary: (date: string, token: string) =>
+    request<AttendanceSummaryCounts>(`/attendance/summary?date=${date}`, { token }),
+
+  listChronicAbsenteeism: (
+    params: { threshold?: number; term?: number; year?: number },
+    token: string
+  ) => {
+    const qs = new URLSearchParams();
+    if (params.threshold) qs.set('threshold', String(params.threshold));
+    if (params.term) qs.set('term', String(params.term));
+    if (params.year) qs.set('year', String(params.year));
+    return request<ChronicAbsentee[]>(`/attendance/chronic?${qs.toString()}`, { token });
+  },
+
   // Learners
-  listLearners: (params: { grade?: string; stream?: string; search?: string; include_inactive?: boolean }, token: string) => {
+  listLearners: (params: {
+    grade?: string;
+    stream?: string;
+    search?: string;
+    include_inactive?: boolean;
+    limit?: number;
+    offset?: number;
+  }, token: string) => {
     const qs = new URLSearchParams();
     if (params.grade) qs.set('grade', params.grade);
     if (params.stream) qs.set('stream', params.stream);
     if (params.search) qs.set('search', params.search);
     if (params.include_inactive) qs.set('include_inactive', 'true');
+    // 0/0 means "no pagination" server-side, which is what a register wants:
+    // a class must never be silently truncated to the default page size.
+    if (params.limit) qs.set('limit', String(params.limit));
+    if (params.offset) qs.set('offset', String(params.offset));
     return request<Learner[]>(`/learners?${qs.toString()}`, { token });
   },
 

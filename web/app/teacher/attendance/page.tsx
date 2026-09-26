@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { CalendarCheck } from 'lucide-react';
-import { API_BASE } from '@/lib/api';
+import { API_BASE, asList } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 
 interface AttendanceItem {
@@ -35,7 +35,7 @@ export default function TeacherAttendancePage() {
       headers: { Authorization: `Bearer ${token}` },
     })
       .then((res) => (res.ok ? res.json() : Promise.reject(new Error('Failed to load attendance'))))
-      .then(setItems)
+      .then((rows) => setItems(asList(rows)))
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
   }, [token, grade, stream, date, router]);

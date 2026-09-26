@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { API_BASE } from '@/lib/api';
+import { API_BASE, asList } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 
 interface TripBrief {
@@ -27,7 +27,7 @@ export default function ParentTransportPage() {
       headers: { Authorization: `Bearer ${token}` },
     })
       .then((res) => (res.ok ? res.json() : Promise.reject(new Error('Failed to load transport'))))
-      .then(setTrips)
+      .then((rows) => setTrips(asList(rows)))
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
   }, [token]);

@@ -5,7 +5,7 @@
 // guardians never need to know their tenant UUID.
 
 import { useEffect, useState } from 'react';
-import { API_BASE } from '@/lib/api';
+import { API_BASE, asList } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 
 interface School {
@@ -34,7 +34,7 @@ export default function ParentLoginPage() {
   useEffect(() => {
     fetch(`${API_BASE}/auth/guardian/schools`)
       .then((res) => (res.ok ? res.json() : Promise.reject(new Error('Failed to load schools'))))
-      .then(setSchools)
+      .then((rows) => setSchools(asList(rows)))
       .catch(() => {
         // Non-fatal: guardian can still fall back to a stored tenant_id.
       })

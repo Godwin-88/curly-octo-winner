@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { API_BASE } from '@/lib/api';
+import { API_BASE, asList } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 
 interface ReportCardBrief {
@@ -32,7 +32,7 @@ export default function ParentResultsPage() {
       headers: { Authorization: `Bearer ${token}` },
     })
       .then((res) => (res.ok ? res.json() : Promise.reject(new Error('Failed to load results'))))
-      .then(setCards)
+      .then((rows) => setCards(asList(rows)))
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
   }, [token]);

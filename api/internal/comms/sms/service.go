@@ -162,15 +162,28 @@ func (s *SMSService) SendCampaign(ctx context.Context, tenantID uuid.UUID, req S
 	return s.getCampaign(ctx, tenantID, campaignID)
 }
 
+// campaignSelect maps the `messages` table onto the Campaign shape the API
+// returns.
+//
+// It exists because the original inline queries referenced two columns that
+// have never existed on `messages`: `name` (a campaign is a message, it has no
+// separate title) and `created_by` (the column is `sent_by`). Every call
+// answered 500 "column does not exist". Keep the JSON contract stable instead:
+// `name` is always empty and `sent_by` is exposed as `created_by`.
+const campaignSelect = `
+	SELECT id, tenant_id, '' AS name, audience_type, audience_filter, content,
+	       template_id, status, recipient_count, delivered_count, failed_count,
+	       scheduled_at, sent_at, sent_by AS created_by, created_at, updated_at
+	FROM messages
+`
+
 func (s *SMSService) GetCampaign(ctx context.Context, tenantID, campaignID uuid.UUID) (*Campaign, error) {
 	return s.getCampaign(ctx, tenantID, campaignID)
 }
 
 func (s *SMSService) getCampaign(ctx context.Context, tenantID, campaignID uuid.UUID) (*Campaign, error) {
 	var c Campaign
-	err := s.pool.QueryRow(ctx, `
-		SELECT id, tenant_id, COALESCE(name, ''), audience_type, audience_filter, content, template_id, status, recipient_count, delivered_count, failed_count, scheduled_at, sent_at, created_by, created_at, updated_at
-		FROM messages
+	err := s.pool.QueryRow(ctx, campaignSelect+`
 		WHERE tenant_id = $1 AND id = $2
 	`, tenantID, campaignID).Scan(
 		&c.ID, &c.TenantID, &c.Name, &c.AudienceType, &c.AudienceFilter,
@@ -191,9 +204,7 @@ func (s *SMSService) ListCampaigns(ctx context.Context, tenantID uuid.UUID, limi
 	if offset < 0 {
 		offset = 0
 	}
-	rows, err := s.pool.Query(ctx, `
-		SELECT id, tenant_id, COALESCE(name, ''), audience_type, audience_filter, content, template_id, status, recipient_count, delivered_count, failed_count, scheduled_at, sent_at, created_by, created_at, updated_at
-		FROM messages
+	rows, err := s.pool.Query(ctx, campaignSelect+`
 		WHERE tenant_id = $1 AND channel = 'sms'
 		ORDER BY created_at DESC
 		LIMIT $2 OFFSET $3

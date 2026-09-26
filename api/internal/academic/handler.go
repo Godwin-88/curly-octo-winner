@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -45,16 +46,26 @@ func (h *Handler) Mount(r chi.Router) {
 		r.Get("/learning-areas", h.listLearningAreas)
 		r.Post("/learning-areas", h.createLearningArea)
 		r.Get("/learning-areas/{id}", h.getLearningArea)
+		r.Put("/learning-areas/{id}", h.updateLearningArea)
+		r.Delete("/learning-areas/{id}", h.deleteLearningArea)
 		r.Get("/learning-areas/{id}/strands", h.listStrands)
 		r.Post("/strands", h.createStrand)
+		r.Put("/strands/{id}", h.updateStrand)
+		r.Delete("/strands/{id}", h.deleteStrand)
 		r.Get("/strands/{id}/sub-strands", h.listSubStrands)
 		r.Post("/sub-strands", h.createSubStrand)
+		r.Put("/sub-strands/{id}", h.updateSubStrand)
+		r.Delete("/sub-strands/{id}", h.deleteSubStrand)
 		r.Get("/sub-strands/{id}/learning-outcomes", h.listLearningOutcomes)
 		r.Post("/learning-outcomes", h.createLearningOutcome)
 		r.Get("/core-competencies", h.listCoreCompetencies)
 		r.Post("/core-competencies", h.createCoreCompetency)
+		r.Put("/core-competencies/{id}", h.updateCoreCompetency)
+		r.Delete("/core-competencies/{id}", h.deleteCoreCompetency)
 		r.Get("/values", h.listValues)
 		r.Post("/values", h.createValue)
+		r.Put("/values/{id}", h.updateValue)
+		r.Delete("/values/{id}", h.deleteValue)
 	})
 
 	r.Route("/assessments", func(r chi.Router) {
@@ -62,12 +73,19 @@ func (h *Handler) Mount(r chi.Router) {
 		r.Get("/{id}", h.getAssessment)
 		r.Get("/learner/{learnerId}", h.listAssessmentsByLearner)
 		r.Get("/term-summary", h.listTermSummaries)
+		// Static segments are declared before the {id} wildcard for readability;
+		// chi matches them first regardless of order.
+		r.Get("/term-observations", h.listAssessmentsByTerm)
+		r.Get("/competency-distribution", h.competencyDistribution)
 		r.Delete("/{id}", h.deleteAssessment)
 	})
 
 	r.Route("/attendance", func(r chi.Router) {
 		r.Post("/", h.markAttendance)
+		r.Post("/bulk", h.markAttendanceBulk)
 		r.Get("/date", h.listAttendanceByDate)
+		r.Get("/summary", h.attendanceSummary)
+		r.Get("/chronic", h.listChronicAbsenteeism)
 		r.Get("/learner/{learnerId}", h.listAttendanceByLearner)
 		r.Get("/{id}", h.getAttendance)
 		r.Delete("/{id}", h.deleteAttendance)
@@ -99,14 +117,16 @@ func (h *Handler) createLearningArea(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var la curriculum.LearningArea
-	if err := json.NewDecoder(r.Body).Decode(&la); err != nil {
-		httputil.RespondBadRequest(w, "INVALID_REQUEST", "Invalid request body: "+err.Error())
+	if !decodeBody(w, r, &la) {
+		return
+	}
+	if !requireName(w, la.Name) {
 		return
 	}
 
 	result, err := h.curriculumSvc.CreateLearningArea(r.Context(), tenantID, &la)
 	if err != nil {
-		httputil.RespondBadRequest(w, "CREATE_FAILED", err.Error())
+		respondCurriculumErr(w, err, "learning area", la.KICDCode)
 		return
 	}
 	httputil.RespondCreated(w, result)
@@ -162,14 +182,16 @@ func (h *Handler) createStrand(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var st curriculum.Strand
-	if err := json.NewDecoder(r.Body).Decode(&st); err != nil {
-		httputil.RespondBadRequest(w, "INVALID_REQUEST", "Invalid request body: "+err.Error())
+	if !decodeBody(w, r, &st) {
+		return
+	}
+	if !requireName(w, st.Name) {
 		return
 	}
 
 	result, err := h.curriculumSvc.CreateStrand(r.Context(), tenantID, &st)
 	if err != nil {
-		httputil.RespondBadRequest(w, "CREATE_FAILED", err.Error())
+		respondCurriculumErr(w, err, "strand", st.KICDCode)
 		return
 	}
 	httputil.RespondCreated(w, result)
@@ -204,14 +226,16 @@ func (h *Handler) createSubStrand(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var ss curriculum.SubStrand
-	if err := json.NewDecoder(r.Body).Decode(&ss); err != nil {
-		httputil.RespondBadRequest(w, "INVALID_REQUEST", "Invalid request body: "+err.Error())
+	if !decodeBody(w, r, &ss) {
+		return
+	}
+	if !requireName(w, ss.Name) {
 		return
 	}
 
 	result, err := h.curriculumSvc.CreateSubStrand(r.Context(), tenantID, &ss)
 	if err != nil {
-		httputil.RespondBadRequest(w, "CREATE_FAILED", err.Error())
+		respondCurriculumErr(w, err, "sub-strand", ss.KICDCode)
 		return
 	}
 	httputil.RespondCreated(w, result)
@@ -250,10 +274,17 @@ func (h *Handler) createLearningOutcome(w http.ResponseWriter, r *http.Request) 
 		httputil.RespondBadRequest(w, "INVALID_REQUEST", "Invalid request body: "+err.Error())
 		return
 	}
+	if strings.TrimSpace(lo.Description) == "" {
+		httputil.RespondBadRequest(w, "DESCRIPTION_REQUIRED",
+			"Write the learning outcome this sub-strand covers.")
+		return
+	}
 
 	result, err := h.curriculumSvc.CreateLearningOutcome(r.Context(), tenantID, &lo)
 	if err != nil {
-		httputil.RespondBadRequest(w, "CREATE_FAILED", err.Error())
+		httputil.RespondWriteError(w, err,
+			"That learning outcome already exists on this sub-strand.",
+			"That sub-strand is not in your curriculum.")
 		return
 	}
 	httputil.RespondCreated(w, result)
@@ -282,14 +313,16 @@ func (h *Handler) createCoreCompetency(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var cc curriculum.CoreCompetency
-	if err := json.NewDecoder(r.Body).Decode(&cc); err != nil {
-		httputil.RespondBadRequest(w, "INVALID_REQUEST", "Invalid request body: "+err.Error())
+	if !decodeBody(w, r, &cc) {
+		return
+	}
+	if !requireName(w, cc.Name) {
 		return
 	}
 
 	result, err := h.curriculumSvc.CreateCoreCompetency(r.Context(), tenantID, &cc)
 	if err != nil {
-		httputil.RespondBadRequest(w, "CREATE_FAILED", err.Error())
+		respondCurriculumErr(w, err, "core", cc.KICDCode)
 		return
 	}
 	httputil.RespondCreated(w, result)
@@ -318,14 +351,16 @@ func (h *Handler) createValue(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var v curriculum.Value
-	if err := json.NewDecoder(r.Body).Decode(&v); err != nil {
-		httputil.RespondBadRequest(w, "INVALID_REQUEST", "Invalid request body: "+err.Error())
+	if !decodeBody(w, r, &v) {
+		return
+	}
+	if !requireName(w, v.Name) {
 		return
 	}
 
 	result, err := h.curriculumSvc.CreateValue(r.Context(), tenantID, &v)
 	if err != nil {
-		httputil.RespondBadRequest(w, "CREATE_FAILED", err.Error())
+		respondCurriculumErr(w, err, "value", v.KICDCode)
 		return
 	}
 	httputil.RespondCreated(w, result)
@@ -346,9 +381,33 @@ func (h *Handler) createAssessment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// An observation is only meaningful against a real learner, a real
+	// sub-strand and one of the four rubric levels. Catching it here returns a
+	// sentence a teacher can act on; the database would answer a constraint
+	// name instead.
+	if req.LearnerID == uuid.Nil {
+		httputil.RespondBadRequest(w, "LEARNER_REQUIRED", "Choose the learner you are observing.")
+		return
+	}
+	if req.SubStrandID == uuid.Nil {
+		httputil.RespondBadRequest(w, "SUB_STRAND_REQUIRED", "Choose the sub-strand being assessed.")
+		return
+	}
+	if req.RubricLevel < 1 || req.RubricLevel > 4 {
+		httputil.RespondBadRequest(w, "INVALID_RUBRIC_LEVEL",
+			"Pick a rubric level between 1 (Below Expectation) and 4 (Exceeding).")
+		return
+	}
+	if req.Term < 1 || req.Term > 3 {
+		httputil.RespondBadRequest(w, "INVALID_TERM", "Term must be 1, 2 or 3.")
+		return
+	}
+
 	result, err := h.assessmentSvc.Create(r.Context(), tenantID, req)
 	if err != nil {
-		httputil.RespondBadRequest(w, "CREATE_FAILED", err.Error())
+		httputil.RespondWriteError(w, err,
+			"That observation already exists for this learner and sub-strand.",
+			"That learner or sub-strand is not in your school.")
 		return
 	}
 	httputil.RespondCreated(w, result)

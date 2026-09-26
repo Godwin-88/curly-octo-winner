@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { API_BASE } from '@/lib/api';
+import { API_BASE, asList } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 
 interface ClassSummary {
@@ -23,7 +23,7 @@ export default function TeacherDashboardPage() {
       headers: { Authorization: `Bearer ${token}` },
     })
       .then((res) => (res.ok ? res.json() : Promise.reject(new Error('Failed to load classes'))))
-      .then(setClasses)
+      .then((rows) => setClasses(asList(rows)))
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
   }, [token]);

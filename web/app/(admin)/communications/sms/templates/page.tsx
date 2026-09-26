@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { api, SMSTemplate } from '@/lib/api';
+import { api, asList, SMSTemplate } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 
 export default function SMSTemplatesPage() {
@@ -16,7 +16,7 @@ export default function SMSTemplatesPage() {
   useEffect(() => {
     if (!staff) return;
     api.listSMSTemplates(token)
-      .then(setTemplates)
+      .then((rows) => setTemplates(asList(rows)))
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [token]);
@@ -27,7 +27,7 @@ export default function SMSTemplatesPage() {
     setName('');
     setContent('');
     setShowForm(false);
-    api.listSMSTemplates(token).then(setTemplates);
+    api.listSMSTemplates(token).then((rows) => setTemplates(asList(rows)));
   };
 
   if (loading) {

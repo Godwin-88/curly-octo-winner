@@ -53,6 +53,7 @@ type AssessmentSummary struct {
 	RubricLevel   int       `json:"rubric_level"`
 	RubricLabel   string    `json:"rubric_label"`
 	Note          string    `json:"note"`
+	EvidenceURLs  []string  `json:"evidence_urls"`
 	Term          int       `json:"term"`
 	Year          int       `json:"year"`
 	TeacherID     uuid.UUID `json:"teacher_id"`
@@ -161,6 +162,56 @@ func (s *Service) ListByTermYear(ctx context.Context, tenantID uuid.UUID, term, 
 		assessments = append(assessments, a)
 	}
 	return assessments, rows.Err()
+}
+
+// ListSummariesByTermYear returns every assessment recorded in a term across
+// the tenant, joined with the learner and curriculum context.
+//
+// ListByTermYear returns bare rows with no learner name, which is useless for
+// a teacher's "what did I record this term" view — this is the variant the
+// observations list uses.
+func (s *Service) ListSummariesByTermYear(ctx context.Context, tenantID uuid.UUID, term, year int) ([]AssessmentSummary, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT
+			a.id, a.learner_id, l.full_name AS learner_name, l.grade, l.stream,
+			a.sub_strand_id, ss.name AS sub_strand_name, ss.kicd_code AS sub_strand_code,
+			st.name AS strand_name, la.name AS learning_area,
+			a.rubric_level,
+			CASE a.rubric_level
+				WHEN 1 THEN 'Below Expectation'
+				WHEN 2 THEN 'Approaching'
+				WHEN 3 THEN 'Meeting'
+				WHEN 4 THEN 'Exceeding'
+				ELSE 'Unrated'
+			END AS rubric_label,
+			a.note, a.evidence_urls, a.teacher_id, a.term, a.year, a.created_at
+		FROM assessments a
+		JOIN learners l ON l.id = a.learner_id AND l.tenant_id = a.tenant_id
+		JOIN sub_strands ss ON ss.id = a.sub_strand_id AND ss.tenant_id = a.tenant_id
+		JOIN strands st ON st.id = ss.strand_id AND st.tenant_id = ss.tenant_id
+		JOIN learning_areas la ON la.id = st.learning_area_id AND la.tenant_id = st.tenant_id
+		WHERE a.tenant_id = $1 AND a.term = $2 AND a.year = $3
+		ORDER BY a.created_at DESC
+	`, tenantID, term, year)
+	if err != nil {
+		return nil, fmt.Errorf("query assessment summaries: %w", err)
+	}
+	defer rows.Close()
+
+	var out []AssessmentSummary
+	for rows.Next() {
+		var s AssessmentSummary
+		if err := rows.Scan(
+			&s.ID, &s.LearnerID, &s.LearnerName, &s.Grade, &s.Stream,
+			&s.SubStrandID, &s.SubStrandName, &s.SubStrandCode,
+			&s.StrandName, &s.LearningArea, &s.RubricLevel, &s.RubricLabel,
+			&s.Note, &s.EvidenceURLs, &s.TeacherID, &s.Term, &s.Year, &s.CreatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan assessment summary: %w", err)
+		}
+		out = append(out, s)
+	}
+	return out, rows.Err()
 }
 
 // ListSummariesByLearner returns assessment summaries joined with learner and strand info.
