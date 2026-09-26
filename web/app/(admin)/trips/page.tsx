@@ -246,9 +246,9 @@ export default function TripsPage() {
       {/* Trips list */}
       <div className="space-y-4">
         {loading ? (
-          <div className="card p-8 text-center text-gray-400">Loading trips...</div>
+          <div className="card p-8 text-center text-gray-600">Loading trips...</div>
         ) : trips.length === 0 ? (
-          <div className="card p-8 text-center text-gray-400">
+          <div className="card p-8 text-center text-gray-600">
             <Navigation className="w-12 h-12 mx-auto mb-3 opacity-50" />
             <p>No trips found</p>
             <p className="text-xs mt-2">Schedule a trip to get started</p>
@@ -312,7 +312,7 @@ export default function TripsPage() {
                           <p className="text-xs text-gray-500 mt-1">Last reported: {trip.last_reported ? new Date(trip.last_reported).toLocaleTimeString() : 'N/A'}</p>
                         </div>
                       ) : (
-                        <p className="text-sm text-gray-400">No position data yet. Start the trip and report GPS pings.</p>
+                        <p className="text-sm text-gray-600">No position data yet. Start the trip and report GPS pings.</p>
                       )}
                     </div>
                     <div>

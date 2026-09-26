@@ -5,6 +5,7 @@
 // <html>/<body>.
 
 import { useEffect } from 'react';
+import * as Sentry from '@sentry/nextjs';
 
 export default function GlobalError({
   error,
@@ -15,6 +16,8 @@ export default function GlobalError({
 }) {
   useEffect(() => {
     console.error('[global error boundary]', error);
+    // Sentry init is DSN-gated; this is a no-op until configured.
+    Sentry.captureException(error);
   }, [error]);
 
   return (

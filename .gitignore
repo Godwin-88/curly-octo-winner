@@ -45,3 +45,6 @@ Thumbs.db
 # Credentials
 credentials.json
 *.secret
+# Playwright
+playwright-report/
+test-results/

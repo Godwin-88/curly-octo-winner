@@ -201,7 +201,7 @@ export default function AIAssistantPage() {
 
             <div className="space-y-2 max-h-96 overflow-y-auto">
               {faqs.length === 0 ? (
-                <p className="text-gray-400 text-sm">No FAQ entries yet.</p>
+                <p className="text-gray-600 text-sm">No FAQ entries yet.</p>
               ) : (
                 faqs.map((f) => (
                   <div key={f.id} className="border rounded-md p-3">
@@ -214,7 +214,7 @@ export default function AIAssistantPage() {
                             {f.category}
                           </span>
                           {f.keywords.length > 0 && (
-                            <span className="text-xs text-gray-400">{f.keywords.join(', ')}</span>
+                            <span className="text-xs text-gray-600">{f.keywords.join(', ')}</span>
                           )}
                         </div>
                       </div>
@@ -267,7 +267,7 @@ export default function AIAssistantPage() {
 
             <div className="space-y-2 max-h-96 overflow-y-auto">
               {templates.length === 0 ? (
-                <p className="text-gray-400 text-sm">No templates stored yet.</p>
+                <p className="text-gray-600 text-sm">No templates stored yet.</p>
               ) : (
                 templates.map((t) => (
                   <div key={t.id} className="border rounded-md p-3">
@@ -277,7 +277,7 @@ export default function AIAssistantPage() {
                         <div className="flex items-center gap-2 mt-2">
                           <span className="px-2 py-0.5 rounded-full text-xs bg-gray-50 text-gray-700">{t.tone}</span>
                           <span className="px-2 py-0.5 rounded-full text-xs bg-gray-50 text-gray-700">{t.language}</span>
-                          {t.purpose && <span className="text-xs text-gray-400">{t.purpose}</span>}
+                          {t.purpose && <span className="text-xs text-gray-600">{t.purpose}</span>}
                         </div>
                       </div>
                       <button onClick={() => deleteTemplate(t.id)} className="text-red-500 hover:text-red-700">
@@ -310,7 +310,7 @@ export default function AIAssistantPage() {
             </div>
             <div className="space-y-2">
               {suggestions.length === 0 ? (
-                <p className="text-gray-400 text-sm">No suggestions yet.</p>
+                <p className="text-gray-600 text-sm">No suggestions yet.</p>
               ) : (
                 suggestions.map((s, i) => (
                   <div key={i} className="border rounded-md p-3">

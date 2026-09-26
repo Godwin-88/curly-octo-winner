@@ -40,7 +40,7 @@ export default function AssessmentsPage() {
         <div className="lg:col-span-2">
           <div className="card p-6">
             <h3 className="font-semibold mb-4">Learner Observations</h3>
-            <div className="border rounded-lg p-8 text-center text-gray-400">
+            <div className="border rounded-lg p-8 text-center text-gray-600">
               <ClipboardList className="w-12 h-12 mx-auto mb-3 opacity-50" />
               <p>Assessment recording interface</p>
               <p className="text-xs mt-2">Select learner → strand/sub-strand → rubric level → add note</p>
@@ -70,7 +70,7 @@ export default function AssessmentsPage() {
 
           <div className="card p-6 mt-6">
             <h3 className="font-semibold mb-4">Strand Coverage</h3>
-            <div className="border rounded-lg p-8 text-center text-gray-400">
+            <div className="border rounded-lg p-8 text-center text-gray-600">
               <p className="text-sm">Heatmap of strand coverage per class</p>
             </div>
           </div>

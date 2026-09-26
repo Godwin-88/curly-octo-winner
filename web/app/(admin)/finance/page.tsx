@@ -87,7 +87,7 @@ export default function FinanceOverviewPage() {
         >
           <div className="flex items-center justify-between mb-3">
             <h3 className="font-semibold">Fee Structures</h3>
-            <ArrowRight size={18} className="text-gray-400" />
+            <ArrowRight size={18} className="text-gray-600" />
           </div>
           <p className="text-sm text-gray-500">Per-grade fee schedules with tuition, transport, and activity items.</p>
         </Link>
@@ -98,7 +98,7 @@ export default function FinanceOverviewPage() {
         >
           <div className="flex items-center justify-between mb-3">
             <h3 className="font-semibold">Invoices</h3>
-            <ArrowRight size={18} className="text-gray-400" />
+            <ArrowRight size={18} className="text-gray-600" />
           </div>
           <p className="text-sm text-gray-500">Issue learner bills, apply discounts, and track fee balances.</p>
         </Link>
@@ -109,7 +109,7 @@ export default function FinanceOverviewPage() {
         >
           <div className="flex items-center justify-between mb-3">
             <h3 className="font-semibold">Payments</h3>
-            <ArrowRight size={18} className="text-gray-400" />
+            <ArrowRight size={18} className="text-gray-600" />
           </div>
           <p className="text-sm text-gray-500">M-Pesa (Daraja), bank, cash, and cheque collections with reversal.</p>
         </Link>

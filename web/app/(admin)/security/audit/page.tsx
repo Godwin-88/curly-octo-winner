@@ -78,7 +78,7 @@ export default function AuditLogPage() {
           {logs.length === 0 ? (
             <div className="p-10 text-center">
               <ClipboardList size={32} className="mx-auto text-gray-300 mb-2" />
-              <p className="text-gray-400 text-sm">No audit events found.</p>
+              <p className="text-gray-600 text-sm">No audit events found.</p>
             </div>
           ) : (
             <table className="w-full text-sm">
@@ -103,7 +103,7 @@ export default function AuditLogPage() {
                     </td>
                     <td className="px-3 py-2">
                       <span className="font-mono text-xs">{l.entity_type}</span>
-                      {l.entity_id && <span className="text-gray-400 text-xs ml-1">({l.entity_id.slice(0, 8)})</span>}
+                      {l.entity_id && <span className="text-gray-600 text-xs ml-1">({l.entity_id.slice(0, 8)})</span>}
                     </td>
                     <td className="px-3 py-2 font-mono text-xs">{l.ip_address || '-'}</td>
                   </tr>

@@ -79,7 +79,7 @@ export default function ParentLoginPage() {
           <div>
             <label htmlFor="school" className="block text-sm font-medium text-gray-700">School</label>
             {schoolsLoading ? (
-              <p className="mt-1 text-sm text-gray-400">Loading schools…</p>
+              <p className="mt-1 text-sm text-gray-600">Loading schools…</p>
             ) : (
               <select
                 id="school"

@@ -25,15 +25,20 @@ export default function TeacherLayout({
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <nav className="bg-indigo-600 text-white p-4">
+      <a href="#main-content" className="skip-link">
+        Skip to content
+      </a>
+      <nav className="bg-indigo-600 text-white p-4" aria-label="Teacher navigation">
         <div className="max-w-4xl mx-auto flex justify-between items-center gap-4">
           <h1 className="text-xl font-bold">Shule360 Teacher</h1>
           {token ? (
             <div className="flex items-center gap-4">
-              <div className="hidden sm:flex space-x-4">
-                <Link href="/teacher" className="hover:underline">Dashboard</Link>
-                <Link href="/teacher/attendance" className="hover:underline">Attendance</Link>
-                <Link href="/teacher/assessments" className="hover:underline">Assessments</Link>
+              {/* Horizontally scrollable nav strip on mobile — every link
+                  stays reachable instead of being hidden below sm. */}
+              <div className="flex gap-4 overflow-x-auto text-sm -mx-1 px-1">
+                <Link href="/teacher" className="hover:underline whitespace-nowrap">Dashboard</Link>
+                <Link href="/teacher/attendance" className="hover:underline whitespace-nowrap">Attendance</Link>
+                <Link href="/teacher/assessments" className="hover:underline whitespace-nowrap">Assessments</Link>
               </div>
               <div className="flex items-center gap-3">
                 {staff && (
@@ -54,7 +59,7 @@ export default function TeacherLayout({
           )}
         </div>
       </nav>
-      <main className="max-w-4xl mx-auto p-6">
+      <main id="main-content" tabIndex={-1} className="max-w-4xl mx-auto p-6 focus:outline-none">
         {children}
       </main>
     </div>

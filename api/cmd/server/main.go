@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -9,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/getsentry/sentry-go"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
@@ -59,6 +62,29 @@ func main() {
 		slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
 	} else {
 		slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, nil)))
+	}
+
+	// Sentry error tracking (no-op unless SENTRY_DSN is configured).
+	sentryDsn := os.Getenv("SENTRY_DSN")
+	if sentryDsn != "" {
+		if err := sentry.Init(sentry.ClientOptions{
+			Dsn:              sentryDsn,
+			Environment:      cfg.AppEnv,
+			Release:          "shule360-api@" + version,
+			AttachStacktrace: true,
+		}); err != nil {
+			slog.Warn("failed to initialize Sentry; continuing without error tracking", "error", err)
+		} else {
+			defer sentry.Flush(2 * time.Second)
+			appmiddleware.EnableSentryCapture(func(message string, r *http.Request) {
+				hub := sentry.GetHubFromContext(r.Context())
+				if hub == nil {
+					hub = sentry.CurrentHub()
+				}
+				hub.CaptureException(errors.New(message))
+			})
+			slog.Info("sentry error tracking enabled")
+		}
 	}
 
 	ctx := context.Background()
@@ -172,6 +198,7 @@ func main() {
 	// Global middleware
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
+	r.Use(appmiddleware.Metrics)
 	r.Use(RecoverMiddleware)
 	r.Use(middleware.Logger)
 	r.Use(cors.Handler(cors.Options{
@@ -194,8 +221,11 @@ func main() {
 
 	// Health check
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
-		httputil.RespondOK(w, map[string]string{"status": "ok"})
+		httputil.RespondOK(w, map[string]string{"status": "ok", "version": version})
 	})
+
+	// Prometheus metrics (counters + duration histograms, route-pattern labels)
+	r.Get("/metrics", appmiddleware.MetricsHandler)
 
 	// API routes
 	r.Route("/api/v1", func(r chi.Router) {
@@ -220,7 +250,7 @@ func main() {
 
 		// Authenticated routes
 		r.Group(func(r chi.Router) {
-			r.Use(appmiddleware.Auth(cfg.JWTSecret))
+			r.Use(appmiddleware.Auth(cfg.JWTSecret, cfg.IsProduction()))
 			r.Use(appmiddleware.TenantRequired)
 			r.Use(appmiddleware.RateLimit(redisClient, 100, 10))
 
@@ -302,11 +332,18 @@ func main() {
 }
 
 // RecoverMiddleware recovers from panics and returns a 500 error.
+// version is overridden at build time via -ldflags "-X main.version=...".
+var version = "dev"
+
 func RecoverMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
 			if rec := recover(); rec != nil {
 				slog.Error("panic recovered", "error", rec, "path", r.URL.Path)
+				if sentryDsn := os.Getenv("SENTRY_DSN"); sentryDsn != "" {
+					sentry.CurrentHub().PushScope()
+					sentry.CaptureException(fmt.Errorf("panic: %v", rec))
+				}
 				httputil.RespondError(w, http.StatusInternalServerError, "PANIC", "Internal server error")
 			}
 		}()

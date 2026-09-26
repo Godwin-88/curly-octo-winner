@@ -159,7 +159,7 @@ export default function DataProtectionPage() {
 
             <div className="p-6 pt-0">
               {records.length === 0 ? (
-                <p className="text-gray-400 text-sm">No processing activities registered.</p>
+                <p className="text-gray-600 text-sm">No processing activities registered.</p>
               ) : (
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50 text-left text-gray-500">
@@ -177,7 +177,7 @@ export default function DataProtectionPage() {
                       <tr key={r.id} className="border-t">
                         <td className="px-3 py-2">
                           <p className="font-medium">{r.activity}</p>
-                          <p className="text-xs text-gray-400">{r.purpose}</p>
+                          <p className="text-xs text-gray-600">{r.purpose}</p>
                         </td>
                         <td className="px-3 py-2">{r.legal_basis}</td>
                         <td className="px-3 py-2">{r.data_subjects}</td>
@@ -232,7 +232,7 @@ export default function DataProtectionPage() {
 
             <div className="p-6 pt-0">
               {erasure.length === 0 ? (
-                <p className="text-gray-400 text-sm">No data subject requests.</p>
+                <p className="text-gray-600 text-sm">No data subject requests.</p>
               ) : (
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50 text-left text-gray-500">

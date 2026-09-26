@@ -188,9 +188,9 @@ export default function RoutesPage() {
       {/* Route cards */}
       <div className="space-y-4">
         {loading ? (
-          <div className="card p-8 text-center text-gray-400">Loading routes...</div>
+          <div className="card p-8 text-center text-gray-600">Loading routes...</div>
         ) : routes.length === 0 ? (
-          <div className="card p-8 text-center text-gray-400">
+          <div className="card p-8 text-center text-gray-600">
             <MapPin className="w-12 h-12 mx-auto mb-3 opacity-50" />
             <p>No routes found</p>
             <p className="text-xs mt-2">Create a route to get started</p>

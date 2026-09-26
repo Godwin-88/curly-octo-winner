@@ -8,10 +8,13 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
-    "lint:fix": "eslint . --fix"
+    "lint:fix": "eslint . --fix",
+    "e2e": "playwright test"
   },
   "dependencies": {
+    "@sentry/nextjs": "^10.75.3",
     "@supabase/supabase-js": "^2.39.0",
+    "@tanstack/react-query": "^5.104.0",
     "clsx": "^2.1.0",
     "lucide-react": "^0.454.0",
     "next": "^16.0.0",
@@ -21,6 +24,8 @@
     "tailwind-merge": "^2.2.0"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
+    "@playwright/test": "^1.63.0",
     "@types/node": "^20.10.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",

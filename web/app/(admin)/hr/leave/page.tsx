@@ -163,7 +163,7 @@ export default function LeavePage() {
             </thead>
             <tbody>
               {leaves.length === 0 ? (
-                <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-400">No leave requests found.</td></tr>
+                <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-600">No leave requests found.</td></tr>
               ) : (
                 leaves.map((l) => (
                   <tr key={l.id} className="border-t">
@@ -201,7 +201,7 @@ export default function LeavePage() {
                 <h2 className="text-xl font-bold">Leave Request</h2>
                 <p className="text-sm text-gray-500">{selected.staff_name} · {selected.leave_type}</p>
               </div>
-              <button onClick={() => setSelected(null)} className="text-gray-400 hover:text-gray-600 text-xl">×</button>
+              <button onClick={() => setSelected(null)} className="text-gray-600 hover:text-gray-900 text-xl">×</button>
             </div>
             <div className="p-6 grid grid-cols-2 gap-4">
               <div className="bg-gray-50 rounded-lg p-3">

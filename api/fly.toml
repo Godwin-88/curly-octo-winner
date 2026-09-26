@@ -47,5 +47,6 @@ primary_region = "jnb"
 #   META_WA_PHONE_NUMBER_ID = "..."
 #   META_WA_WEBHOOK_VERIFY_TOKEN = "..."
 #   JWT_SECRET = "..."
+#   SENTRY_DSN = "https://...@o....ingest.sentry.io/..."  # optional error tracking
 #   MPESA_ALLOWED_IPS = "196.201.214.0/24,..."  # Safaricom Daraja egress IPs
 #   CORS_ALLOWED_ORIGINS = "https://app.yourschool.ac.ke,..."

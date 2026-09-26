@@ -35,7 +35,7 @@ export default function AttendancePage() {
         <div className="lg:col-span-2">
           <div className="card p-6">
             <h3 className="font-semibold mb-4">Daily Roll Call</h3>
-            <div className="border rounded-lg p-8 text-center text-gray-400">
+            <div className="border rounded-lg p-8 text-center text-gray-600">
               <CalendarCheck className="w-12 h-12 mx-auto mb-3 opacity-50" />
               <p>Attendance marking interface</p>
               <p className="text-xs mt-2">Select date → mark present/absent/late/excused per learner</p>
@@ -77,7 +77,7 @@ export default function AttendancePage() {
               <AlertTriangle className="w-4 h-4 inline mr-1 text-yellow-500" />
               Chronic Absenteeism
             </h3>
-            <div className="border rounded-lg p-6 text-center text-gray-400">
+            <div className="border rounded-lg p-6 text-center text-gray-600">
               <p className="text-sm">Learners below 75% attendance threshold</p>
             </div>
           </div>

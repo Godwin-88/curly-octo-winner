@@ -89,7 +89,7 @@ export default function ProcurementPage() {
         <div className="bg-white p-4 rounded-lg shadow border border-gray-200">
           <h2 className="font-semibold mb-3">Recent Requisitions</h2>
           {requisitions.length === 0 ? (
-            <p className="text-gray-400 text-sm">No requisitions yet</p>
+            <p className="text-gray-600 text-sm">No requisitions yet</p>
           ) : (
             <ul className="divide-y divide-gray-100">
               {requisitions.slice(0, 5).map((r) => (
@@ -108,7 +108,7 @@ export default function ProcurementPage() {
         <div className="bg-white p-4 rounded-lg shadow border border-gray-200">
           <h2 className="font-semibold mb-3">Recent Purchase Orders</h2>
           {orders.length === 0 ? (
-            <p className="text-gray-400 text-sm">No purchase orders yet</p>
+            <p className="text-gray-600 text-sm">No purchase orders yet</p>
           ) : (
             <ul className="divide-y divide-gray-100">
               {orders.slice(0, 5).map((o) => (
@@ -125,7 +125,7 @@ export default function ProcurementPage() {
         </div>
       </div>
 
-      {loading && <p className="text-center text-gray-400">Loading...</p>}
+      {loading && <p className="text-center text-gray-600">Loading...</p>}
     </div>
   );
 }

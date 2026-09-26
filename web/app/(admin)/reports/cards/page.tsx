@@ -148,7 +148,7 @@ export default function ReportCardsPage() {
             <tbody>
               {cards.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-8 text-center text-gray-400">
+                  <td colSpan={7} className="px-4 py-8 text-center text-gray-600">
                     No report cards generated yet. Select a learner and click Generate.
                   </td>
                 </tr>
@@ -194,7 +194,7 @@ export default function ReportCardsPage() {
                   {selected.learner_name} — {selected.grade} {selected.stream} · Term {selected.term} {selected.year}
                 </p>
               </div>
-              <button onClick={() => setSelected(null)} className="text-gray-400 hover:text-gray-600 text-xl">×</button>
+              <button onClick={() => setSelected(null)} className="text-gray-600 hover:text-gray-900 text-xl">×</button>
             </div>
 
             <div className="p-6 space-y-6">
@@ -277,7 +277,7 @@ export default function ReportCardsPage() {
                     </tbody>
                   </table>
                 ) : (
-                  <p className="text-gray-400 text-sm">No assessment items yet.</p>
+                  <p className="text-gray-600 text-sm">No assessment items yet.</p>
                 )}
               </div>
 

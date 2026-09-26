@@ -20,6 +20,10 @@ const (
 // sessionCookieTTL matches the 24h expiry stamped into the JWT itself.
 const sessionCookieTTL = 24 * time.Hour
 
+// SessionTTL exposes the session lifetime for other packages (e.g. the
+// rolling-renewal logic in the auth middleware).
+const SessionTTL = sessionCookieTTL
+
 // SetSessionCookie writes an HttpOnly, SameSite=Lax session cookie.
 // secure should be true in production (HTTPS-only); it is disabled for
 // development so the cookie also works over plain-http localhost.

@@ -85,7 +85,7 @@ export default function ReportsOverviewPage() {
         >
           <div className="flex items-center justify-between mb-3">
             <h3 className="font-semibold">Report Cards</h3>
-            <ArrowRight size={18} className="text-gray-400" />
+            <ArrowRight size={18} className="text-gray-600" />
           </div>
           <p className="text-sm text-gray-500">
             Generate CBC-compliant report cards with per-strand ratings, core competency remarks, and attendance.
@@ -98,7 +98,7 @@ export default function ReportsOverviewPage() {
         >
           <div className="flex items-center justify-between mb-3">
             <h3 className="font-semibold">Analytics Dashboard</h3>
-            <ArrowRight size={18} className="text-gray-400" />
+            <ArrowRight size={18} className="text-gray-600" />
           </div>
           <p className="text-sm text-gray-500">
             Strand coverage heatmap, competency distribution, teacher velocity, and at-risk learner radar.

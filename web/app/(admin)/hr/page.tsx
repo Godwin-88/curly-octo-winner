@@ -109,7 +109,7 @@ export default function HRPage() {
                     </tr>
                   ))}
                   {leave.length === 0 && (
-                    <tr><td colSpan={4} className="px-4 py-6 text-center text-gray-400">No leave requests yet.</td></tr>
+                    <tr><td colSpan={4} className="px-4 py-6 text-center text-gray-600">No leave requests yet.</td></tr>
                   )}
                 </tbody>
               </table>
@@ -141,7 +141,7 @@ export default function HRPage() {
                     </tr>
                   ))}
                   {payroll.length === 0 && (
-                    <tr><td colSpan={4} className="px-4 py-6 text-center text-gray-400">No payroll runs yet.</td></tr>
+                    <tr><td colSpan={4} className="px-4 py-6 text-center text-gray-600">No payroll runs yet.</td></tr>
                   )}
                 </tbody>
               </table>

@@ -154,13 +154,13 @@ export default function PaymentsPage() {
               </tr>
             ))}
             {payments.length === 0 && !loading && (
-              <tr><td colSpan={8} className="px-4 py-8 text-center text-gray-400">No supplier payments found</td></tr>
+              <tr><td colSpan={8} className="px-4 py-8 text-center text-gray-600">No supplier payments found</td></tr>
             )}
           </tbody>
         </table>
       </div>
 
-      {loading && <p className="text-center text-gray-400">Loading...</p>}
+      {loading && <p className="text-center text-gray-600">Loading...</p>}
     </div>
   );
 }

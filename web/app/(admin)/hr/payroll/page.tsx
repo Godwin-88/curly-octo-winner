@@ -166,7 +166,7 @@ export default function PayrollPage() {
             </thead>
             <tbody>
               {runs.length === 0 ? (
-                <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-400">No payroll runs found.</td></tr>
+                <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-600">No payroll runs found.</td></tr>
               ) : (
                 runs.map((r) => (
                   <tr key={r.id} className="border-t">
@@ -200,7 +200,7 @@ export default function PayrollPage() {
                 <h2 className="text-xl font-bold">Payroll Run</h2>
                 <p className="text-sm text-gray-500">{selected.staff_name} · {new Date(selected.year, selected.month - 1).toLocaleString('default', { month: 'long' })} {selected.year}</p>
               </div>
-              <button onClick={() => setSelected(null)} className="text-gray-400 hover:text-gray-600 text-xl">×</button>
+              <button onClick={() => setSelected(null)} className="text-gray-600 hover:text-gray-900 text-xl">×</button>
             </div>
             <div className="p-6 grid grid-cols-2 md:grid-cols-4 gap-4">
               <div className="bg-gray-50 rounded-lg p-3">

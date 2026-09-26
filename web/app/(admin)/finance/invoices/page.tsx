@@ -12,7 +12,7 @@ const STATUS_STYLES: Record<string, string> = {
   partially_paid: 'bg-yellow-100 text-yellow-700',
   paid: 'bg-green-100 text-green-700',
   overdue: 'bg-orange-100 text-orange-700',
-  void: 'bg-gray-100 text-gray-400',
+  void: 'bg-gray-100 text-gray-600',
 };
 
 const DISCOUNT_TYPES = ['scholarship', 'sibling', 'waiver', 'other'];
@@ -372,13 +372,13 @@ export default function InvoicesPage() {
             {/* Discounts */}
             <div className="mb-4">
               <h3 className="font-semibold mb-2">Discounts</h3>
-              {discounts.length === 0 && <p className="text-sm text-gray-400">No discounts</p>}
+              {discounts.length === 0 && <p className="text-sm text-gray-600">No discounts</p>}
               <div className="space-y-1 mb-2">
                 {discounts.map((d) => (
                   <div key={d.id} className="flex justify-between items-center text-sm">
                     <span>
                       {d.discount_type} - KES {(d.amount_cents / 100).toLocaleString()}
-                      {d.reason && <span className="text-gray-400"> ({d.reason})</span>}
+                      {d.reason && <span className="text-gray-600"> ({d.reason})</span>}
                     </span>
                     <button onClick={() => handleDeleteDiscount(d.id)} className="text-red-500 hover:text-red-700">
                       <Trash2 size={14} />
@@ -418,13 +418,13 @@ export default function InvoicesPage() {
             {/* Payments */}
             <div className="mb-4">
               <h3 className="font-semibold mb-2">Payments</h3>
-              {payments.length === 0 && <p className="text-sm text-gray-400">No payments</p>}
+              {payments.length === 0 && <p className="text-sm text-gray-600">No payments</p>}
               <div className="space-y-1 mb-2">
                 {payments.map((p) => (
                   <div key={p.id} className="flex justify-between items-center text-sm">
                     <span>
                       {p.channel} - KES {(p.amount_cents / 100).toLocaleString()}
-                      {p.mpesa_receipt && <span className="text-gray-400"> ({p.mpesa_receipt})</span>}
+                      {p.mpesa_receipt && <span className="text-gray-600"> ({p.mpesa_receipt})</span>}
                       <span className={`ml-2 px-2 py-0.5 rounded-full text-xs ${p.status === 'completed' ? 'bg-green-100 text-green-700' : p.status === 'pending' ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>
                         {p.status}
                       </span>

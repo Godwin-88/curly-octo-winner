@@ -155,7 +155,7 @@ export default function StaffAttendancePage() {
             </thead>
             <tbody>
               {records.length === 0 ? (
-                <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-400">No attendance records found.</td></tr>
+                <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-600">No attendance records found.</td></tr>
               ) : (
                 records.map((r) => (
                   <tr key={r.id} className="border-t">

@@ -140,7 +140,7 @@ export default function AnalyticsDashboardPage() {
           <div className="mt-8 bg-white rounded-lg shadow border p-6">
             <h2 className="text-lg font-semibold mb-4">Competency Distribution</h2>
             {totalDist === 0 ? (
-              <p className="text-gray-400 text-sm">No assessment data for this filter.</p>
+              <p className="text-gray-600 text-sm">No assessment data for this filter.</p>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                 {distByLevel.map((d) => (
@@ -162,7 +162,7 @@ export default function AnalyticsDashboardPage() {
             </div>
             <div className="p-6">
               {coverage.length === 0 ? (
-                <p className="text-gray-400 text-sm">No strand coverage data for this filter.</p>
+                <p className="text-gray-600 text-sm">No strand coverage data for this filter.</p>
               ) : (
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50 text-left text-gray-500">
@@ -202,7 +202,7 @@ export default function AnalyticsDashboardPage() {
             </div>
             <div className="p-6">
               {velocity.length === 0 ? (
-                <p className="text-gray-400 text-sm">No teacher velocity data for this filter.</p>
+                <p className="text-gray-600 text-sm">No teacher velocity data for this filter.</p>
               ) : (
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50 text-left text-gray-500">
@@ -234,7 +234,7 @@ export default function AnalyticsDashboardPage() {
             </div>
             <div className="p-6">
               {portfolio.length === 0 ? (
-                <p className="text-gray-400 text-sm">No learner portfolio data for this filter.</p>
+                <p className="text-gray-600 text-sm">No learner portfolio data for this filter.</p>
               ) : (
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50 text-left text-gray-500">

@@ -110,7 +110,7 @@ export default function ConversationThreadPage() {
                 }`}
               >
                 <p className="text-sm">{text}</p>
-                <p className={`text-xs mt-1 ${isInbound ? 'text-gray-400' : 'text-blue-100'}`}>
+                <p className={`text-xs mt-1 ${isInbound ? 'text-gray-600' : 'text-blue-100'}`}>
                   {new Date(msg.timestamp).toLocaleTimeString()}
                 </p>
               </div>

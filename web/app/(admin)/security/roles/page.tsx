@@ -100,7 +100,7 @@ export default function RolesPage() {
                 <ShieldCheck size={16} />
                 <div className="flex-1">
                   <p className="font-medium">{ROLE_LABELS[r.role] || r.role}</p>
-                  <p className={`text-xs ${selectedRole === r.role ? 'text-blue-100' : 'text-gray-400'}`}>
+                  <p className={`text-xs ${selectedRole === r.role ? 'text-blue-100' : 'text-gray-600'}`}>
                     {r.permissions.length} permissions
                   </p>
                 </div>
@@ -133,12 +133,12 @@ export default function RolesPage() {
                             granted ? 'bg-green-50 border-green-200 text-green-700' : 'bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100'
                           }`}
                         >
-                          <span className={`w-5 h-5 rounded flex items-center justify-center ${granted ? 'bg-green-600 text-white' : 'bg-gray-200 text-gray-400'}`}>
+                          <span className={`w-5 h-5 rounded flex items-center justify-center ${granted ? 'bg-green-600 text-white' : 'bg-gray-200 text-gray-600'}`}>
                             {granted && <Check size={12} />}
                           </span>
                           <span className="flex-1 text-left">
                             <span className="font-mono text-xs block">{p.code}</span>
-                            {p.description && <span className="text-xs text-gray-400">{p.description}</span>}
+                            {p.description && <span className="text-xs text-gray-600">{p.description}</span>}
                           </span>
                         </button>
                       );

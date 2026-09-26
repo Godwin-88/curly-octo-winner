@@ -25,6 +25,9 @@ export default function ParentLayout({
 
   return (
     <div className="min-h-screen bg-gray-50">
+      <a href="#main-content" className="skip-link">
+        Skip to content
+      </a>
       <nav className="bg-blue-600 text-white p-4">
         <div className="max-w-4xl mx-auto flex justify-between items-center gap-4">
           <h1 className="text-xl font-bold">Shule360 Parent Portal</h1>
@@ -55,7 +58,7 @@ export default function ParentLayout({
           )}
         </div>
       </nav>
-      <main className="max-w-4xl mx-auto p-6">
+      <main id="main-content" tabIndex={-1} className="max-w-4xl mx-auto p-6 focus:outline-none">
         {children}
       </main>
     </div>

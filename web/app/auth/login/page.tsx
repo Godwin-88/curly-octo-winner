@@ -59,24 +59,28 @@ function LoginForm() {
           )}
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="label">Email</label>
+              <label htmlFor="email" className="label">Email</label>
               <input
+                id="email"
                 type="email"
                 className="input"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="you@school.ac.ke"
+                autoComplete="email"
                 required
               />
             </div>
             <div>
-              <label className="label">Password</label>
+              <label htmlFor="password" className="label">Password</label>
               <input
+                id="password"
                 type="password"
                 className="input"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••"
+                autoComplete="current-password"
                 required
               />
             </div>

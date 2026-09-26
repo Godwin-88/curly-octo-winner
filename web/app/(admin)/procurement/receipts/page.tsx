@@ -141,7 +141,7 @@ export default function ReceiptsPage() {
               </tr>
             ))}
             {receipts.length === 0 && !loading && (
-              <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-400">No goods receipts found</td></tr>
+              <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-600">No goods receipts found</td></tr>
             )}
           </tbody>
         </table>
@@ -183,7 +183,7 @@ export default function ReceiptsPage() {
         </div>
       )}
 
-      {loading && <p className="text-center text-gray-400">Loading...</p>}
+      {loading && <p className="text-center text-gray-600">Loading...</p>}
     </div>
   );
 }

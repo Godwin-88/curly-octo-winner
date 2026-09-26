@@ -119,7 +119,7 @@ export default function LearnerDetailPage({ params }: { params: Promise<{ id: st
     });
   };
 
-  if (loading) return <div className="p-8 text-center text-gray-400">Loading learner...</div>;
+  if (loading) return <div className="p-8 text-center text-gray-600">Loading learner...</div>;
   if (error && !learner) return <div className="bg-red-50 text-red-700 p-3 rounded-md text-sm">{error}</div>;
   if (!learner) return <div className="p-8 text-center">Learner not found</div>;
 
@@ -215,7 +215,7 @@ export default function LearnerDetailPage({ params }: { params: Promise<{ id: st
             <div className="card p-6">
               <h3 className="font-semibold mb-4">Guardians</h3>
               {guardians.length === 0 ? (
-                <p className="text-sm text-gray-400">No guardians linked</p>
+                <p className="text-sm text-gray-600">No guardians linked</p>
               ) : (
                 <div className="space-y-3">
                   {guardians.map((g) => (
@@ -314,7 +314,7 @@ export default function LearnerDetailPage({ params }: { params: Promise<{ id: st
           )}
 
           {documents.length === 0 ? (
-            <p className="text-sm text-gray-400">No documents uploaded</p>
+            <p className="text-sm text-gray-600">No documents uploaded</p>
           ) : (
             <div className="space-y-2">
               {documents.map((doc) => (
@@ -347,7 +347,7 @@ export default function LearnerDetailPage({ params }: { params: Promise<{ id: st
         <div className="card p-6">
           <h3 className="font-semibold mb-4">Progression History</h3>
           {progressions.length === 0 ? (
-            <p className="text-sm text-gray-400">No progression events recorded</p>
+            <p className="text-sm text-gray-600">No progression events recorded</p>
           ) : (
             <div className="space-y-2">
               {progressions.map((p) => (
@@ -388,7 +388,7 @@ export default function LearnerDetailPage({ params }: { params: Promise<{ id: st
             <Link href="/academic/attendance" className="btn-secondary text-sm">Daily Roll Call</Link>
           </div>
           {attendance.length === 0 ? (
-            <p className="text-sm text-gray-400">No attendance records</p>
+            <p className="text-sm text-gray-600">No attendance records</p>
           ) : (
             <table className="w-full text-sm">
               <thead>

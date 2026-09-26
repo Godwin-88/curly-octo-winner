@@ -109,7 +109,7 @@ export default function FinancialAnalyticsPage() {
           <div className="mt-8 bg-white rounded-lg shadow border p-6">
             <h2 className="text-lg font-semibold mb-4">Monthly Collection Trend</h2>
             {trend.length === 0 ? (
-              <p className="text-gray-400 text-sm">No collection data available.</p>
+              <p className="text-gray-600 text-sm">No collection data available.</p>
             ) : (
               <div className="flex items-end gap-2 h-40">
                 {trend.map((t) => (
@@ -134,7 +134,7 @@ export default function FinancialAnalyticsPage() {
             </div>
             <div className="p-6">
               {channels.length === 0 ? (
-                <p className="text-gray-400 text-sm">No payment channel data for this filter.</p>
+                <p className="text-gray-600 text-sm">No payment channel data for this filter.</p>
               ) : (
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50 text-left text-gray-500">
@@ -166,7 +166,7 @@ export default function FinancialAnalyticsPage() {
             </div>
             <div className="p-6">
               {defaulters.length === 0 ? (
-                <p className="text-gray-400 text-sm">No defaulters for this filter.</p>
+                <p className="text-gray-600 text-sm">No defaulters for this filter.</p>
               ) : (
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50 text-left text-gray-500">

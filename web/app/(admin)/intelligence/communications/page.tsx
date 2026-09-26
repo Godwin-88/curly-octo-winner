@@ -89,7 +89,7 @@ export default function CommunicationAnalyticsPage() {
             </div>
             <div className="p-6">
               {reach.length === 0 ? (
-                <p className="text-gray-400 text-sm">No channel reach data available.</p>
+                <p className="text-gray-600 text-sm">No channel reach data available.</p>
               ) : (
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50 text-left text-gray-500">
@@ -125,7 +125,7 @@ export default function CommunicationAnalyticsPage() {
             </div>
             <div className="p-6">
               {campaigns.length === 0 ? (
-                <p className="text-gray-400 text-sm">No campaign data available.</p>
+                <p className="text-gray-600 text-sm">No campaign data available.</p>
               ) : (
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50 text-left text-gray-500">
@@ -169,7 +169,7 @@ export default function CommunicationAnalyticsPage() {
             </div>
             <div className="p-6">
               {failed.length === 0 ? (
-                <p className="text-gray-400 text-sm">No failed deliveries recorded.</p>
+                <p className="text-gray-600 text-sm">No failed deliveries recorded.</p>
               ) : (
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50 text-left text-gray-500">

@@ -90,7 +90,7 @@ export default function NewLearnerPage() {
                 placeholder="TEST12345678"
                 className="w-full px-3 py-2 border rounded-md text-sm"
               />
-              <p className="text-xs text-gray-400 mt-1">Format: TEST + 8 digits (sandbox) or 16-char NEMIS UPI</p>
+              <p className="text-xs text-gray-600 mt-1">Format: TEST + 8 digits (sandbox) or 16-char NEMIS UPI</p>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Birth Certificate No.</label>

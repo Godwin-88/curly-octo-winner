@@ -48,6 +48,8 @@ func (h *Handler) Mount(r chi.Router) {
 	})
 }
 
+const maxLearnersPerPage = 500
+
 // list handles GET /learners
 func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 	tenantID, ok := middleware.GetTenantID(r)
@@ -61,11 +63,25 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 	search := r.URL.Query().Get("search")
 	includeInactive := boolQuery(r.URL.Query().Get("include_inactive"))
 
-	learners, err := h.service.List(r.Context(), tenantID, grade, stream, search, includeInactive)
+	// Optional server-side pagination: ?limit=&offset= (limit 0 = all rows).
+	// The total matching count is returned in the X-Total-Count header so the
+	// response body stays a plain array (backward compatible).
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+	if limit > maxLearnersPerPage {
+		limit = maxLearnersPerPage
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	learners, total, err := h.service.List(r.Context(), tenantID, grade, stream, search, includeInactive, limit, offset)
 	if err != nil {
 		httputil.RespondInternalError(w, err)
 		return
 	}
+	w.Header().Set("X-Total-Count", strconv.FormatInt(total, 10))
+	w.Header().Set("Access-Control-Expose-Headers", "X-Total-Count")
 	httputil.RespondOK(w, learners)
 }
 

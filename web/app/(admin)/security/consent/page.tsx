@@ -104,7 +104,7 @@ export default function ConsentPage() {
           {consents.length === 0 ? (
             <div className="p-10 text-center">
               <UserCheck size={32} className="mx-auto text-gray-300 mb-2" />
-              <p className="text-gray-400 text-sm">No consent records found.</p>
+              <p className="text-gray-600 text-sm">No consent records found.</p>
             </div>
           ) : (
             <table className="w-full text-sm">

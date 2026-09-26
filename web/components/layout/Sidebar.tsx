@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
@@ -167,7 +167,13 @@ const ROLE_NAV: Record<string, string[]> = {
   // principal: undefined -> sees all modules
 };
 
-export default function Sidebar() {
+export default function Sidebar({
+  mobileOpen = false,
+  onClose,
+}: {
+  mobileOpen?: boolean;
+  onClose?: () => void;
+} = {}) {
   const pathname = usePathname();
   const { staff, logoutStaff } = useAuth();
   // Track which group is expanded (only one at a time)
@@ -176,6 +182,23 @@ export default function Sidebar() {
   const [collapsed, setCollapsed] = useState(false);
   // Hover flyout for collapsed groups
   const [hovered, setHovered] = useState<string | null>(null);
+
+  // Mobile drawer UX: close on navigation and on Escape. The drawer is
+  // hidden off-canvas below md and slides in over a backdrop rendered by
+  // the layout.
+  useEffect(() => {
+    onClose?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname]);
+
+  useEffect(() => {
+    if (!mobileOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose?.();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [mobileOpen, onClose]);
 
   const isGroupActive = (children?: ChildItem[]) =>
     children?.some((child) => pathname === child.href) ?? false;
@@ -196,7 +219,13 @@ export default function Sidebar() {
   });
 
   return (
-    <aside className="fixed left-0 top-0 h-screen w-64 bg-gray-900 text-white flex flex-col z-40">
+    <aside
+      id="sidebar"
+      aria-label="Main sidebar"
+      className={`fixed left-0 top-0 h-screen w-64 bg-gray-900 text-white flex flex-col z-40 transform transition-transform duration-200 ease-out -translate-x-full md:translate-x-0 ${
+        mobileOpen ? 'translate-x-0' : ''
+      }`}
+    >
       <div className="p-6 border-b border-gray-800 flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold">Shule360</h1>
@@ -206,8 +235,9 @@ export default function Sidebar() {
           onClick={() => setCollapsed((c) => !c)}
           className="p-1.5 rounded-md text-gray-400 hover:text-white hover:bg-gray-800 transition-colors"
           title={collapsed ? 'Expand menus' : 'Collapse menus'}
+          aria-label={collapsed ? 'Expand menus' : 'Collapse menus'}
         >
-          <PanelLeftClose size={16} />
+          <PanelLeftClose size={16} aria-hidden="true" />
         </button>
       </div>
 

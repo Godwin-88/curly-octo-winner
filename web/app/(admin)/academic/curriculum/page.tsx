@@ -33,7 +33,7 @@ export default function CurriculumPage() {
 
       <div className="card p-6">
         <div className="flex items-center gap-3 mb-4">
-          <BookOpen className="w-5 h-5 text-gray-400" />
+          <BookOpen className="w-5 h-5 text-gray-600" />
           <p className="text-gray-500">
             {activeTab === 'learning-areas' && 'Manage KICD learning areas (Mathematics, English, Kiswahili, etc.)'}
             {activeTab === 'strands' && 'Manage strands within each learning area'}
@@ -43,7 +43,7 @@ export default function CurriculumPage() {
           </p>
         </div>
 
-        <div className="border rounded-lg p-8 text-center text-gray-400">
+        <div className="border rounded-lg p-8 text-center text-gray-600">
           <BookOpen className="w-12 h-12 mx-auto mb-3 opacity-50" />
           <p>Curriculum management interface — {activeTab} tab</p>
           <p className="text-xs mt-2">Full CRUD with KICD code mapping will be implemented here</p>

@@ -111,7 +111,7 @@ export default function IntelligenceDashboardPage() {
             </div>
             <div className="p-6">
               {campaigns.length === 0 ? (
-                <p className="text-gray-400 text-sm">No campaign data available.</p>
+                <p className="text-gray-600 text-sm">No campaign data available.</p>
               ) : (
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50 text-left text-gray-500">

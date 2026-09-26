@@ -156,7 +156,7 @@ export default function StaffPage() {
             </thead>
             <tbody>
               {staff.length === 0 ? (
-                <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-400">No staff found.</td></tr>
+                <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-600">No staff found.</td></tr>
               ) : (
                 staff.map((s) => (
                   <tr key={s.id} className="border-t">
@@ -192,7 +192,7 @@ export default function StaffPage() {
                 <h2 className="text-xl font-bold">{selected.full_name}</h2>
                 <p className="text-sm text-gray-500">{selected.job_title || selected.role} · {selected.email}</p>
               </div>
-              <button onClick={() => setSelected(null)} className="text-gray-400 hover:text-gray-600 text-xl">×</button>
+              <button onClick={() => setSelected(null)} className="text-gray-600 hover:text-gray-900 text-xl">×</button>
             </div>
             <div className="p-6 grid grid-cols-2 md:grid-cols-3 gap-4">
               <div className="bg-gray-50 rounded-lg p-3">

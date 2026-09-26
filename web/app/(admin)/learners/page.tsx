@@ -1,200 +1,201 @@
 'use client';
 
-import { useAuth } from '@/lib/auth';
+// Learners directory — reference implementation for the Phase 3 data layer:
+// React Query for fetching/caching, server-side pagination (X-Total-Count),
+// debounced search, and the shared DataTable + StatCard components.
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Plus, Search, Users, GraduationCap } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus, Search, Users, GraduationCap, HeartHandshake } from 'lucide-react';
 import { api, Learner } from '@/lib/api';
+import { useAuth } from '@/lib/auth';
+import { useApiQuery } from '@/lib/query';
+import { DataTable, type Column } from '@/components/ui/DataTable';
+import { StatCard } from '@/components/ui/StatCard';
 
 const GRADES = ['PP1', 'PP2', 'Grade 1', 'Grade 2', 'Grade 3', 'Grade 4', 'Grade 5', 'Grade 6', 'Grade 7', 'Grade 8', 'Grade 9'];
+const PAGE_SIZE = 25;
 
 export default function LearnersPage() {
   const { token } = useAuth();
-  const [learners, setLearners] = useState<Learner[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
   const [grade, setGrade] = useState('');
   const [stream, setStream] = useState('');
   const [includeInactive, setIncludeInactive] = useState(false);
+  const [page, setPage] = useState(0);
 
-  const load = async () => {
-    if (!token) return;
-    setLoading(true);
-    setError('');
-    try {
-      const data = await api.listLearners({ grade, stream, search: search || undefined, include_inactive: includeInactive }, token);
-      setLearners(data);
-    } catch (e: any) {
-      setError(e.message || 'Failed to load learners');
-    } finally {
-      setLoading(false);
-    }
-  };
-
+  // Debounced search: fires 300ms after typing stops.
   useEffect(() => {
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, grade, stream, includeInactive]);
+    const t = setTimeout(() => setSearch(searchInput.trim()), 300);
+    return () => clearTimeout(t);
+  }, [searchInput]);
 
-  const stats = {
-    total: learners.length,
-    active: learners.filter((l) => l.is_active).length,
-    specialNeeds: learners.filter((l) => l.special_needs).length,
-  };
+  // Filters changed -> jump back to the first page.
+  useEffect(() => {
+    setPage(0);
+  }, [search, grade, stream, includeInactive]);
+
+  const learnersQuery = useApiQuery(
+    ['learners', { grade, stream, search, includeInactive, page }],
+    () =>
+      api.listLearnersPage(
+        {
+          grade: grade || undefined,
+          stream: stream || undefined,
+          search: search || undefined,
+          include_inactive: includeInactive,
+          limit: PAGE_SIZE,
+          offset: page * PAGE_SIZE,
+        },
+        token
+      ),
+    { enabled: !!token }
+  );
+
+  const learners = learnersQuery.data?.items ?? [];
+  const total = learnersQuery.data?.total ?? 0;
+  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const specialNeeds = learners.filter((l) => l.special_needs).length;
+
+  const columns: Column<Learner>[] = [
+    {
+      key: 'full_name',
+      header: 'Name',
+      render: (l) => (
+        <Link href={`/learners/${l.id}`} className="font-medium text-blue-700 hover:underline">
+          {l.full_name}
+          {l.special_needs && (
+            <span className="ml-2 text-xs bg-yellow-100 text-yellow-800 px-2 py-0.5 rounded-full">SN</span>
+          )}
+        </Link>
+      ),
+    },
+    { key: 'upi', header: 'UPI', className: 'text-gray-600' },
+    { key: 'grade', header: 'Grade' },
+    { key: 'stream', header: 'Stream', render: (l) => l.stream || '—', hideBelow: 'sm' },
+    {
+      key: 'is_active',
+      header: 'Status',
+      render: (l) => (
+        <span
+          className={`px-2 py-0.5 rounded-full text-xs ${
+            l.is_active ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-700'
+          }`}
+        >
+          {l.is_active ? 'Active' : 'Inactive'}
+        </span>
+      ),
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      render: (l) => (
+        <Link href={`/learners/${l.id}`} className="text-blue-700 hover:underline text-xs">
+          View<span className="sr-only"> {l.full_name}</span>
+        </Link>
+      ),
+    },
+  ];
 
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold">Learners</h1>
-          <p className="text-sm text-gray-500">Manage learner records, enrollment & progression</p>
+          <p className="text-sm text-gray-600">Manage learner records, enrollment &amp; progression</p>
         </div>
         <Link href="/learners/new" className="btn-primary flex items-center gap-2">
-          <Plus size={16} /> Register Learner
+          <Plus size={16} aria-hidden="true" /> Register Learner
         </Link>
       </div>
 
-      {/* Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-        <div className="card p-4">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg bg-blue-100 text-blue-600 flex items-center justify-center">
-              <Users size={20} />
-            </div>
-            <div>
-              <p className="text-sm text-gray-500">Total Learners</p>
-              <p className="text-xl font-bold">{stats.total}</p>
-            </div>
-          </div>
-        </div>
-        <div className="card p-4">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg bg-green-100 text-green-600 flex items-center justify-center">
-              <GraduationCap size={20} />
-            </div>
-            <div>
-              <p className="text-sm text-gray-500">Active</p>
-              <p className="text-xl font-bold">{stats.active}</p>
-            </div>
-          </div>
-        </div>
-        <div className="card p-4">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg bg-yellow-100 text-yellow-600 flex items-center justify-center">
-              <Users size={20} />
-            </div>
-            <div>
-              <p className="text-sm text-gray-500">Special Needs</p>
-              <p className="text-xl font-bold">{stats.specialNeeds}</p>
-            </div>
-          </div>
-        </div>
+        <StatCard label="Total learners" value={total.toLocaleString()} icon={Users} tone="blue" />
+        <StatCard label="On this page" value={learners.length} icon={GraduationCap} tone="green" />
+        <StatCard label="Special needs (page)" value={specialNeeds} icon={HeartHandshake} tone="yellow" />
       </div>
 
-      {/* Filters */}
       <div className="card p-4 mb-6">
         <div className="flex flex-wrap gap-3">
           <div className="relative flex-1 min-w-[200px]">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" aria-hidden="true" />
             <input
-              type="text"
+              type="search"
+              aria-label="Search learners by name or UPI"
               placeholder="Search by name or UPI..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && load()}
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
               className="w-full pl-9 pr-3 py-2 border rounded-md text-sm"
             />
           </div>
-          <select
-            value={grade}
-            onChange={(e) => setGrade(e.target.value)}
-            className="px-3 py-2 border rounded-md text-sm"
-          >
+          <select aria-label="Filter by grade" value={grade} onChange={(e) => setGrade(e.target.value)} className="px-3 py-2 border rounded-md text-sm">
             <option value="">All Grades</option>
             {GRADES.map((g) => (
               <option key={g} value={g}>{g}</option>
             ))}
           </select>
-          <select
-            value={stream}
-            onChange={(e) => setStream(e.target.value)}
-            className="px-3 py-2 border rounded-md text-sm"
-          >
+          <select aria-label="Filter by stream" value={stream} onChange={(e) => setStream(e.target.value)} className="px-3 py-2 border rounded-md text-sm">
             <option value="">All Streams</option>
             {['A', 'B', 'C', 'D', 'E'].map((s) => (
               <option key={s} value={s}>Stream {s}</option>
             ))}
           </select>
-          <label className="flex items-center gap-2 text-sm text-gray-600">
-            <input
-              type="checkbox"
-              checked={includeInactive}
-              onChange={(e) => setIncludeInactive(e.target.checked)}
-            />
+          <label className="flex items-center gap-2 text-sm text-gray-700">
+            <input type="checkbox" checked={includeInactive} onChange={(e) => setIncludeInactive(e.target.checked)} />
             Include inactive
           </label>
-          <button onClick={load} className="btn-secondary text-sm">Apply</button>
+          <button
+            type="button"
+            onClick={() => {
+              setSearchInput('');
+              setGrade('');
+              setStream('');
+              setIncludeInactive(false);
+            }}
+            className="btn-secondary text-sm"
+          >
+            Clear
+          </button>
         </div>
       </div>
 
-      {error && <div className="bg-red-50 text-red-700 p-3 rounded-md mb-4 text-sm">{error}</div>}
+      <DataTable
+        columns={columns}
+        rows={learners}
+        keyOf={(l) => l.id}
+        caption="Learners directory"
+        loading={learnersQuery.isLoading}
+        error={learnersQuery.isError ? (learnersQuery.error as Error).message : null}
+        onRetry={() => void learnersQuery.refetch()}
+        emptyTitle="No learners found"
+        emptyMessage="Adjust the filters or register a new learner."
+        pageSize={PAGE_SIZE}
+      />
 
-      {/* Table */}
-      <div className="card overflow-hidden">
-        {loading ? (
-          <div className="p-8 text-center text-gray-400">Loading learners...</div>
-        ) : learners.length === 0 ? (
-          <div className="p-8 text-center text-gray-400">
-            <Users className="w-12 h-12 mx-auto mb-3 opacity-50" />
-            <p>No learners found</p>
-            <p className="text-xs mt-2">Adjust filters or register a new learner</p>
-          </div>
-        ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-gray-50 text-left text-gray-500">
-                <th className="px-4 py-3 font-medium">Name</th>
-                <th className="px-4 py-3 font-medium">UPI</th>
-                <th className="px-4 py-3 font-medium">Grade</th>
-                <th className="px-4 py-3 font-medium">Stream</th>
-                <th className="px-4 py-3 font-medium">Status</th>
-                <th className="px-4 py-3 font-medium">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {learners.map((l) => (
-                <tr key={l.id} className="border-t hover:bg-gray-50">
-                  <td className="px-4 py-3">
-                    <Link href={`/learners/${l.id}`} className="font-medium text-blue-600 hover:underline">
-                      {l.full_name}
-                    </Link>
-                    {l.special_needs && (
-                      <span className="ml-2 text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full">SN</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-gray-600">{l.upi}</td>
-                  <td className="px-4 py-3">{l.grade}</td>
-                  <td className="px-4 py-3">{l.stream || '—'}</td>
-                  <td className="px-4 py-3">
-                    <span className={`px-2 py-0.5 rounded-full text-xs ${
-                      l.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
-                    }`}>
-                      {l.is_active ? 'Active' : 'Inactive'}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3">
-                    <Link href={`/learners/${l.id}`} className="text-blue-600 hover:underline text-xs">
-                      View
-                    </Link>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
+      {total > PAGE_SIZE && (
+        <nav aria-label="Learner pages" className="flex items-center justify-between mt-4">
+          <button
+            type="button"
+            className="btn-secondary text-sm disabled:opacity-40"
+            onClick={() => setPage((p) => Math.max(0, p - 1))}
+            disabled={page === 0 || learnersQuery.isFetching}
+          >
+            <ChevronLeft size={14} aria-hidden="true" /> Previous
+          </button>
+          <p className="text-sm text-gray-600" aria-live="polite">
+            Page {page + 1} of {pageCount} · {total.toLocaleString()} learners
+          </p>
+          <button
+            type="button"
+            className="btn-secondary text-sm disabled:opacity-40"
+            onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
+            disabled={page >= pageCount - 1 || learnersQuery.isFetching}
+          >
+            Next <ChevronRight size={14} aria-hidden="true" />
+          </button>
+        </nav>
+      )}
     </div>
   );
 }

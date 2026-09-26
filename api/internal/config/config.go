@@ -129,6 +129,13 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("APP_ENV must be 'development' or 'production', got %q", cfg.AppEnv)
 	}
 
+	// Production safety: never boot with live M-Pesa credentials and an
+	// unauthenticated, allowlist-free callback endpoint. Sandbox/dev stays
+	// frictionless.
+	if cfg.IsProduction() && cfg.MpesaConsumerKey != "" && cfg.MpesaPasskey != "" && len(cfg.MpesaAllowedIPs) == 0 {
+		return nil, fmt.Errorf("MPESA_ALLOWED_IPS must be set in production when M-Pesa is configured (MPESA_CONSUMER_KEY/MPESA_PASSKEY present)")
+	}
+
 	return cfg, nil
 }
 

@@ -103,10 +103,11 @@ func scanLearner(row pgx.Row) (*Learner, error) {
 }
 
 // List returns learners with optional grade/stream/search filters.
-func (s *Service) List(ctx context.Context, tenantID uuid.UUID, grade, stream, search string, includeInactive bool) ([]Learner, error) {
-	query := `
-		SELECT ` + learnerColumns + `
-		FROM learners
+// limit/offset enable server-side pagination (0/0 = unpaginated, used by
+// rosters and exports). The returned total counts rows matching the filters,
+// ignoring limit/offset, so clients can render page counts.
+func (s *Service) List(ctx context.Context, tenantID uuid.UUID, grade, stream, search string, includeInactive bool, limit, offset int) ([]Learner, int64, error) {
+	where := `
 		WHERE tenant_id = $1
 	`
 	args := []any{tenantID}
@@ -115,27 +116,43 @@ func (s *Service) List(ctx context.Context, tenantID uuid.UUID, grade, stream, s
 	if grade != "" {
 		argN++
 		args = append(args, grade)
-		query += fmt.Sprintf(" AND grade = $%d", argN)
+		where += fmt.Sprintf(" AND grade = $%d", argN)
 	}
 	if stream != "" {
 		argN++
 		args = append(args, stream)
-		query += fmt.Sprintf(" AND stream = $%d", argN)
+		where += fmt.Sprintf(" AND stream = $%d", argN)
 	}
 	if !includeInactive {
-		query += " AND is_active = true"
+		where += " AND is_active = true"
 	}
 	if search != "" {
 		argN++
 		args = append(args, "%"+strings.ToLower(search)+"%")
-		query += fmt.Sprintf(" AND (LOWER(full_name) LIKE $%d OR LOWER(upi) LIKE $%d)", argN, argN)
+		where += fmt.Sprintf(" AND (LOWER(full_name) LIKE $%d OR LOWER(upi) LIKE $%d)", argN, argN)
 	}
 
-	query += " ORDER BY full_name"
+	// Total matching rows (ignoring pagination) for page counts.
+	var total int64
+	if err := s.pool.QueryRow(ctx, "SELECT COUNT(*) FROM learners "+where, args...).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("count learners: %w", err)
+	}
+
+	query := "SELECT " + learnerColumns + " FROM learners " + where + " ORDER BY full_name"
+	if limit > 0 {
+		argN++
+		args = append(args, limit)
+		query += fmt.Sprintf(" LIMIT $%d", argN)
+		if offset > 0 {
+			argN++
+			args = append(args, offset)
+			query += fmt.Sprintf(" OFFSET $%d", argN)
+		}
+	}
 
 	rows, err := s.pool.Query(ctx, query, args...)
 	if err != nil {
-		return nil, fmt.Errorf("query learners: %w", err)
+		return nil, 0, fmt.Errorf("query learners: %w", err)
 	}
 	defer rows.Close()
 
@@ -143,16 +160,17 @@ func (s *Service) List(ctx context.Context, tenantID uuid.UUID, grade, stream, s
 	for rows.Next() {
 		l, err := scanLearner(rows)
 		if err != nil {
-			return nil, fmt.Errorf("scan learner: %w", err)
+			return nil, 0, fmt.Errorf("scan learner: %w", err)
 		}
 		learners = append(learners, *l)
 	}
-	return learners, rows.Err()
+	return learners, total, rows.Err()
 }
 
-// ListByGrade returns learners filtered by grade and stream.
+// ListByGrade returns learners filtered by grade and stream (unpaginated).
 func (s *Service) ListByGrade(ctx context.Context, tenantID uuid.UUID, grade, stream string) ([]Learner, error) {
-	return s.List(ctx, tenantID, grade, stream, "", false)
+	learners, _, err := s.List(ctx, tenantID, grade, stream, "", false, 0, 0)
+	return learners, err
 }
 
 // GetByID returns a single learner.

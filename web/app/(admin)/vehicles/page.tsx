@@ -252,9 +252,9 @@ export default function VehiclesPage() {
       {/* Table */}
       <div className="card overflow-hidden">
         {loading ? (
-          <div className="p-8 text-center text-gray-400">Loading vehicles...</div>
+          <div className="p-8 text-center text-gray-600">Loading vehicles...</div>
         ) : vehicles.length === 0 ? (
-          <div className="p-8 text-center text-gray-400">
+          <div className="p-8 text-center text-gray-600">
             <Bus className="w-12 h-12 mx-auto mb-3 opacity-50" />
             <p>No vehicles found</p>
             <p className="text-xs mt-2">Add your first vehicle to get started</p>

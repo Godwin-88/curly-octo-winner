@@ -29,7 +29,7 @@ interface RequestOptions {
   token?: string;
 }
 
-async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+async function requestRaw(path: string, options: RequestOptions = {}): Promise<Response> {
   const { method = 'GET', body, token } = options;
 
   const headers: Record<string, string> = {
@@ -65,6 +65,12 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
     const errorData = await res.json().catch(() => ({ error: 'Unknown error', code: 'UNKNOWN' }));
     throw new APIError(errorData.error || 'Request failed', errorData.code || 'UNKNOWN', res.status);
   }
+
+  return res;
+}
+
+async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  const res = await requestRaw(path, options);
 
   if (res.status === 204) {
     return undefined as T;
@@ -1898,6 +1904,26 @@ export const api = {
     if (params.search) qs.set('search', params.search);
     if (params.include_inactive) qs.set('include_inactive', 'true');
     return request<Learner[]>(`/learners?${qs.toString()}`, { token });
+  },
+
+  // Paginated variant: the API returns the matching row count in the
+  // X-Total-Count header (server-side pagination), so large schools get fast
+  // first pages and honest page counts.
+  listLearnersPage: async (
+    params: { grade?: string; stream?: string; search?: string; include_inactive?: boolean; limit?: number; offset?: number },
+    token: string
+  ): Promise<{ items: Learner[]; total: number }> => {
+    const qs = new URLSearchParams();
+    if (params.grade) qs.set('grade', params.grade);
+    if (params.stream) qs.set('stream', params.stream);
+    if (params.search) qs.set('search', params.search);
+    if (params.include_inactive) qs.set('include_inactive', 'true');
+    if (params.limit) qs.set('limit', String(params.limit));
+    if (params.offset) qs.set('offset', String(params.offset));
+    const res = await requestRaw(`/learners?${qs.toString()}`, { token });
+    const items = (await res.json()) as Learner[];
+    const total = Number(res.headers.get('X-Total-Count') ?? items.length);
+    return { items, total: Number.isFinite(total) ? total : items.length };
   },
 
   createLearner: (data: CreateLearnerRequest, token: string) =>
