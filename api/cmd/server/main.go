@@ -37,6 +37,7 @@ import (
 	"github.com/shule360/api/internal/procurement"
 	"github.com/shule360/api/internal/reports"
 	"github.com/shule360/api/internal/security"
+	"github.com/shule360/api/internal/settings"
 	"github.com/shule360/api/internal/teacher"
 	"github.com/shule360/api/internal/transport"
 	"github.com/shule360/api/pkg/backblaze"
@@ -192,6 +193,33 @@ func main() {
 	// Initialize teacher PWA handler
 	teacherHandler := teacher.NewHandler(sb.Pool)
 
+	// Initialize tenant settings (school profile, operational config, and the
+	// per-school integration credentials). Credentials are sealed with a key
+	// derived from SETTINGS_ENCRYPTION_KEY, falling back to JWT_SECRET.
+	settingsSecret := cfg.SettingsEncryptionKey
+	if settingsSecret == "" {
+		settingsSecret = cfg.JWTSecret
+	}
+	settingsSealer, sealErr := settings.NewSealer(settingsSecret)
+	if sealErr != nil {
+		slog.Warn("credential encryption unavailable; settings can be read but not configured", "error", sealErr)
+	}
+	settingsService := settings.NewService(sb.Pool, settingsSealer)
+	settingsHandler := settings.NewHandler(settingsService, settings.PlatformCredentials{
+		MpesaConsumerKey:    cfg.MpesaConsumerKey,
+		MpesaConsumerSecret: cfg.MpesaConsumerSecret,
+		MpesaBaseURL:        cfg.MpesaBaseURL,
+		ATAPIKey:            cfg.ATAPIKey,
+		ATUsername:          cfg.ATUsername,
+		MetaWAToken:         cfg.MetaWAToken,
+		B2AccountID:         cfg.B2AccountID,
+		B2ApplicationKey:    cfg.B2ApplicationKey,
+		B2Endpoint:          cfg.B2Endpoint,
+		GroqAPIKey:          cfg.GroqAPIKey,
+		UpstashRedisURL:     cfg.UpstashRedisURL,
+		UpstashRedisToken:   cfg.UpstashRedisToken,
+	})
+
 	// Initialize auth handler
 	authHandler := auth.NewHandler(sb, cfg, redisClient)
 
@@ -291,6 +319,10 @@ func main() {
 				transportHandler.Mount(r)
 				reportsHandler.Mount(r)
 				teacherHandler.Mount(r)
+
+				// Settings: every staff member can read the school's
+				// configuration; only principal/super_admin can change it.
+				settingsHandler.Mount(r, managementRoles...)
 			})
 
 			// Parent portal — guardians only

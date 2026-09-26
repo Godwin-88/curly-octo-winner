@@ -14,7 +14,7 @@ const STATUS_STYLES: Record<string, string> = {
 };
 
 export default function TripsPage() {
-  const { token } = useAuth();
+  const { token, staff } = useAuth();
   const [trips, setTrips] = useState<Trip[]>([]);
   const [routes, setRoutes] = useState<Route[]>([]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
@@ -30,7 +30,7 @@ export default function TripsPage() {
   const [checkinForm, setCheckinForm] = useState({ learner_id: '', stop_id: '', action: 'boarded' });
 
   const load = async () => {
-    if (!token) return;
+    if (!staff) return;
     setLoading(true);
     setError('');
     try {

@@ -32,6 +32,7 @@ const STAFF_PREFIXES = [
   '/procurement',
   '/intelligence',
   '/security',
+  '/settings',
   '/teacher',
 ];
 

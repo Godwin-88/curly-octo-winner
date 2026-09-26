@@ -7,7 +7,7 @@ import { Wallet, TrendingUp, AlertTriangle, CreditCard } from 'lucide-react';
 import { api, FeeCollectionSummary, PaymentChannelBreakdown, FeeDefaulter, MonthlyCollectionTrend } from '@/lib/api';
 
 export default function FinancialAnalyticsPage() {
-  const { token } = useAuth();
+  const { token, staff } = useAuth();
   const [feeSummary, setFeeSummary] = useState<FeeCollectionSummary[]>([]);
   const [channels, setChannels] = useState<PaymentChannelBreakdown[]>([]);
   const [defaulters, setDefaulters] = useState<FeeDefaulter[]>([]);
@@ -18,7 +18,7 @@ export default function FinancialAnalyticsPage() {
   const [year, setYear] = useState(2026);
 
   const load = async () => {
-    if (!token) return;
+    if (!staff) return;
     setLoading(true);
     setError('');
     try {

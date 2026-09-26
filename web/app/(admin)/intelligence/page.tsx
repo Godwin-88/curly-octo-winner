@@ -8,7 +8,7 @@ import { TrendingUp, MessageSquare, Brain, Wallet, BarChart3 } from 'lucide-reac
 import { api, FeeCollectionSummary, ChannelReach, CampaignDeliverySummary } from '@/lib/api';
 
 export default function IntelligenceDashboardPage() {
-  const { token } = useAuth();
+  const { token, staff } = useAuth();
   const [feeSummary, setFeeSummary] = useState<FeeCollectionSummary[]>([]);
   const [channelReach, setChannelReach] = useState<ChannelReach[]>([]);
   const [campaigns, setCampaigns] = useState<CampaignDeliverySummary[]>([]);
@@ -16,7 +16,7 @@ export default function IntelligenceDashboardPage() {
   const [error, setError] = useState('');
 
   const load = async () => {
-    if (!token) return;
+    if (!staff) return;
     setLoading(true);
     setError('');
     try {

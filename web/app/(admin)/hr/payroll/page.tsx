@@ -7,7 +7,7 @@ import { Plus, Trash2, Eye } from 'lucide-react';
 import { api, PayrollRun, StaffProfile } from '@/lib/api';
 
 export default function PayrollPage() {
-  const { token } = useAuth();
+  const { token, staff: session } = useAuth();
   const [runs, setRuns] = useState<PayrollRun[]>([]);
   const [staff, setStaff] = useState<StaffProfile[]>([]);
   const [loading, setLoading] = useState(true);
@@ -23,7 +23,7 @@ export default function PayrollPage() {
   });
 
   const load = async () => {
-    if (!token) return;
+    if (!session) return;
     setLoading(true);
     setError('');
     try {

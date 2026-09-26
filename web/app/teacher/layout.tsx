@@ -12,14 +12,16 @@ export default function TeacherLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const { token, ready, logoutStaff, staff } = useAuth();
+  const { ready, logoutStaff, staff } = useAuth();
   const router = useRouter();
 
+  // Guard on the verified session (hydrated from the HttpOnly cookie), not on
+  // the in-memory token — a hard reload has no token but does have a session.
   useEffect(() => {
-    if (ready && !token) {
+    if (ready && !staff) {
       router.replace('/auth/login');
     }
-  }, [ready, token, router]);
+  }, [ready, staff, router]);
 
   const signOut = () => logoutStaff('/auth/login');
 
@@ -31,7 +33,7 @@ export default function TeacherLayout({
       <nav className="bg-indigo-600 text-white p-4" aria-label="Teacher navigation">
         <div className="max-w-4xl mx-auto flex justify-between items-center gap-4">
           <h1 className="text-xl font-bold">Shule360 Teacher</h1>
-          {token ? (
+          {staff ? (
             <div className="flex items-center gap-4">
               {/* Horizontally scrollable nav strip on mobile — every link
                   stays reachable instead of being hidden below sm. */}

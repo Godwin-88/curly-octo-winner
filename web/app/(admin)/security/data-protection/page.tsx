@@ -7,7 +7,7 @@ import { FileBarChart, Plus, Trash2, CheckCircle2 } from 'lucide-react';
 import { api, DataProcessingRecord, ErasureRequest } from '@/lib/api';
 
 export default function DataProtectionPage() {
-  const { token } = useAuth();
+  const { token, staff } = useAuth();
   const [records, setRecords] = useState<DataProcessingRecord[]>([]);
   const [erasure, setErasure] = useState<ErasureRequest[]>([]);
   const [loading, setLoading] = useState(true);
@@ -30,7 +30,7 @@ export default function DataProtectionPage() {
   const [requestType, setRequestType] = useState('erasure');
 
   const load = async () => {
-    if (!token) return;
+    if (!staff) return;
     setLoading(true);
     setError('');
     try {

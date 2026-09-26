@@ -12,14 +12,16 @@ export default function ParentLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const { guardianToken, ready, logoutGuardian, guardian } = useAuth();
+  const { ready, logoutGuardian, guardian } = useAuth();
   const router = useRouter();
 
+  // Guard on the verified guardian session (hydrated from the HttpOnly
+  // cookie), not on the in-memory token.
   useEffect(() => {
-    if (ready && !guardianToken) {
+    if (ready && !guardian) {
       router.replace('/parent/login');
     }
-  }, [ready, guardianToken, router]);
+  }, [ready, guardian, router]);
 
   const signOut = () => logoutGuardian();
 
@@ -31,7 +33,7 @@ export default function ParentLayout({
       <nav className="bg-blue-600 text-white p-4">
         <div className="max-w-4xl mx-auto flex justify-between items-center gap-4">
           <h1 className="text-xl font-bold">Shule360 Parent Portal</h1>
-          {guardianToken ? (
+          {guardian ? (
             <div className="flex items-center gap-4">
               <div className="hidden sm:flex space-x-4">
                 <Link href="/parent" className="hover:underline">Dashboard</Link>

@@ -15,10 +15,10 @@ export default function TeacherDashboardPage() {
   const [classes, setClasses] = useState<ClassSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const { token } = useAuth();
+  const { token, staff } = useAuth();
 
   useEffect(() => {
-    if (!token) return;
+    if (!staff) return;
     fetch(`${API_BASE}/teacher/classes`, {
       headers: { Authorization: `Bearer ${token}` },
     })

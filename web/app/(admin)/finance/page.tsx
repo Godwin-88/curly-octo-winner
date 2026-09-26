@@ -8,7 +8,7 @@ import { Wallet, FileText, Receipt, BadgeDollarSign, ArrowRight } from 'lucide-r
 import { api, Invoice, Payment, FeeStructure } from '@/lib/api';
 
 export default function FinanceOverviewPage() {
-  const { token } = useAuth();
+  const { token, staff } = useAuth();
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
   const [structures, setStructures] = useState<FeeStructure[]>([]);
@@ -16,7 +16,7 @@ export default function FinanceOverviewPage() {
   const [error, setError] = useState('');
 
   const load = async () => {
-    if (!token) return;
+    if (!staff) return;
     setLoading(true);
     setError('');
     try {

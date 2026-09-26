@@ -17,7 +17,7 @@ const GRADES = ['PP1', 'PP2', 'Grade 1', 'Grade 2', 'Grade 3', 'Grade 4', 'Grade
 const PAGE_SIZE = 25;
 
 export default function LearnersPage() {
-  const { token } = useAuth();
+  const { token, staff } = useAuth();
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
   const [grade, setGrade] = useState('');
@@ -50,7 +50,7 @@ export default function LearnersPage() {
         },
         token
       ),
-    { enabled: !!token }
+    { enabled: !!staff }
   );
 
   const learners = learnersQuery.data?.items ?? [];

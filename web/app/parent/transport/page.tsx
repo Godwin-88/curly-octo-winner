@@ -19,10 +19,10 @@ export default function ParentTransportPage() {
   const [trips, setTrips] = useState<TripBrief[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const { guardianToken: token } = useAuth();
+  const { token, guardian } = useAuth();
 
   useEffect(() => {
-    if (!token) return;
+    if (!guardian) return;
     fetch(`${API_BASE}/parent/transport`, {
       headers: { Authorization: `Bearer ${token}` },
     })

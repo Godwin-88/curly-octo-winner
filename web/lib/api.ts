@@ -2655,3 +2655,115 @@ export const api = {
   getReportCardPDF: (reportCardId: string, token: string) =>
     request<ReportCardPDF>(`/reports/${reportCardId}/pdf`, { token }),
 };
+
+// --- Settings (school profile, operations, integrations) ---
+
+export interface SchoolProfile {
+  id: string;
+  name: string;
+  slug: string;
+  logo_url?: string;
+  subscription_tier: string;
+  phone?: string;
+  email?: string;
+  address?: string;
+  county?: string;
+  mpesa_shortcode?: string;
+  mpesa_account_basis: 'phone' | 'account' | 'customer';
+  mpesa_callback_url?: string;
+  wa_phone_number_id?: string;
+  wa_business_account_id?: string;
+  at_sender_id?: string;
+  updated_at: string;
+}
+
+export interface GradingBand {
+  min: number;
+  label: string;
+  points: number;
+}
+
+export interface SchoolSettings {
+  tenant_id: string;
+  current_term?: string;
+  current_academic_year?: string;
+  grading_scale: GradingBand[];
+  attendance_time: string;
+  attendance_deadline: string;
+  report_card_footer?: string;
+  receipt_footer?: string;
+  mpesa_enabled: boolean;
+  sms_enabled: boolean;
+  whatsapp_enabled: boolean;
+  require_parent_consent: boolean;
+  require_staff_approval_on_transfer: boolean;
+  updated_at: string;
+  updated_by?: string;
+}
+
+export interface SettingsBundle {
+  profile: SchoolProfile;
+  settings: SchoolSettings;
+  providers: string[];
+}
+
+export interface TenantIntegration {
+  provider: string;
+  label?: string;
+  is_enabled: boolean;
+  use_platform_default: boolean;
+  config: Record<string, string>;
+  /** Names of the credential fields that are stored — never their values. */
+  secret_fields: string[];
+  last_tested_at?: string;
+  last_test_status: 'never' | 'ok' | 'failed';
+  last_test_message?: string;
+  updated_at: string;
+}
+
+export interface IntegrationInput {
+  label?: string;
+  is_enabled?: boolean;
+  use_platform_default?: boolean;
+  config?: Record<string, string>;
+  /** Only send the credentials actually typed; blanks keep the stored value. */
+  secrets?: Record<string, string>;
+  clear_secrets?: string[];
+}
+
+export interface IntegrationTestResult {
+  ok: boolean;
+  message: string;
+}
+
+export const settings = {
+  get: (token: string) => request<SettingsBundle>('/settings', { token }),
+
+  update: (
+    token: string,
+    payload: { profile?: Partial<SchoolProfile>; settings?: Partial<SchoolSettings> }
+  ) => request<{ profile: SchoolProfile; settings: SchoolSettings }>('/settings', {
+    method: 'PATCH',
+    body: payload,
+    token,
+  }),
+
+  listIntegrations: (token: string) => request<TenantIntegration[]>('/settings/integrations', { token }),
+
+  saveIntegration: (provider: string, input: IntegrationInput, token: string) =>
+    request<TenantIntegration>(`/settings/integrations/${provider}`, {
+      method: 'PUT',
+      body: input,
+      token,
+    }),
+
+  deleteIntegration: (provider: string, token: string) =>
+    request<{ status: string }>(`/settings/integrations/${provider}`, { method: 'DELETE', token }),
+
+  testIntegration: (provider: string, token: string) =>
+    request<IntegrationTestResult>(`/settings/integrations/${provider}/test`, {
+      method: 'POST',
+      token,
+    }),
+};
+

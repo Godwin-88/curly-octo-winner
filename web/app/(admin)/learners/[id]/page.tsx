@@ -19,7 +19,7 @@ type Tab = 'overview' | 'documents' | 'progression' | 'attendance';
 export default function LearnerDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const router = useRouter();
-  const { token } = useAuth();
+  const { token, staff } = useAuth();
 
   const [learner, setLearner] = useState<Learner | null>(null);
   const [guardians, setGuardians] = useState<GuardianBrief[]>([]);
@@ -43,7 +43,7 @@ export default function LearnerDetailPage({ params }: { params: Promise<{ id: st
   const [docForm, setDocForm] = useState({ doc_type: 'other', file_name: '', file_url: '', mime_type: '', file_size: '' });
 
   const loadAll = async () => {
-    if (!token) return;
+    if (!staff) return;
     setLoading(true);
     setError('');
     try {

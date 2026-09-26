@@ -7,7 +7,7 @@ import { Plus, MapPin, Trash2, Users, UserPlus } from 'lucide-react';
 import { api, Route, Vehicle, Learner, Assignment } from '@/lib/api';
 
 export default function RoutesPage() {
-  const { token } = useAuth();
+  const { token, staff } = useAuth();
   const [routes, setRoutes] = useState<Route[]>([]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [learners, setLearners] = useState<Learner[]>([]);
@@ -22,7 +22,7 @@ export default function RoutesPage() {
   const [newAssignment, setNewAssignment] = useState({ learner_id: '', stop_id: '', direction: 'both' });
 
   const load = async () => {
-    if (!token) return;
+    if (!staff) return;
     setLoading(true);
     setError('');
     try {

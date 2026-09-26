@@ -8,7 +8,7 @@ import { FileText, BarChart3, AlertTriangle, ArrowRight, Users } from 'lucide-re
 import { api, ReportCard, AlertLearner, SchoolOverview } from '@/lib/api';
 
 export default function ReportsOverviewPage() {
-  const { token } = useAuth();
+  const { token, staff } = useAuth();
   const [cards, setCards] = useState<ReportCard[]>([]);
   const [atRisk, setAtRisk] = useState<AlertLearner[]>([]);
   const [overview, setOverview] = useState<SchoolOverview | null>(null);
@@ -16,7 +16,7 @@ export default function ReportsOverviewPage() {
   const [error, setError] = useState('');
 
   const load = async () => {
-    if (!token) return;
+    if (!staff) return;
     setLoading(true);
     setError('');
     try {

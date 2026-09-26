@@ -13,7 +13,7 @@ const STATUS_STYLES: Record<string, string> = {
 };
 
 export default function VehiclesPage() {
-  const { token } = useAuth();
+  const { token, staff } = useAuth();
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -32,7 +32,7 @@ export default function VehiclesPage() {
   });
 
   const load = async () => {
-    if (!token) return;
+    if (!staff) return;
     setLoading(true);
     setError('');
     try {

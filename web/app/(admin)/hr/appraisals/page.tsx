@@ -7,7 +7,7 @@ import { Plus, Trash2, Eye } from 'lucide-react';
 import { api, StaffAppraisal, StaffProfile } from '@/lib/api';
 
 export default function AppraisalsPage() {
-  const { token } = useAuth();
+  const { token, staff: session } = useAuth();
   const [appraisals, setAppraisals] = useState<StaffAppraisal[]>([]);
   const [staff, setStaff] = useState<StaffProfile[]>([]);
   const [loading, setLoading] = useState(true);
@@ -21,7 +21,7 @@ export default function AppraisalsPage() {
   });
 
   const load = async () => {
-    if (!token) return;
+    if (!session) return;
     setLoading(true);
     setError('');
     try {

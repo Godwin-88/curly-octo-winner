@@ -6,7 +6,19 @@ const eslintConfig = [
   ...nextCoreWebVitals,
   ...nextTypescript,
   {
-    ignores: ['.next/**', 'node_modules/**', 'out/**', 'next-env.d.ts'],
+    // Playwright writes its HTML report and failure artefacts into these
+    // directories; linting the generated bundles produced thousands of
+    // errors that have nothing to do with our code.
+    ignores: [
+      '.next/**',
+      'node_modules/**',
+      'out/**',
+      'next-env.d.ts',
+      'playwright-report/**',
+      'test-results/**',
+      'blob-report/**',
+      'playwright/.cache/**',
+    ],
   },
   {
     rules: {

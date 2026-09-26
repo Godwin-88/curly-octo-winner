@@ -7,7 +7,7 @@ import { Plus, Check, X, Eye } from 'lucide-react';
 import { api, LeaveRequest, StaffProfile } from '@/lib/api';
 
 export default function LeavePage() {
-  const { token } = useAuth();
+  const { token, staff: session } = useAuth();
   const [leaves, setLeaves] = useState<LeaveRequest[]>([]);
   const [staff, setStaff] = useState<StaffProfile[]>([]);
   const [loading, setLoading] = useState(true);
@@ -20,7 +20,7 @@ export default function LeavePage() {
   });
 
   const load = async () => {
-    if (!token) return;
+    if (!session) return;
     setLoading(true);
     setError('');
     try {

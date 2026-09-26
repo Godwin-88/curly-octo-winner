@@ -16,7 +16,7 @@ const ROLE_LABELS: Record<string, string> = {
 };
 
 export default function RolesPage() {
-  const { token } = useAuth();
+  const { token, staff } = useAuth();
   const [roles, setRoles] = useState<RolePermissionsResponse[]>([]);
   const [allPermissions, setAllPermissions] = useState<Permission[]>([]);
   const [selectedRole, setSelectedRole] = useState<string>('principal');
@@ -25,7 +25,7 @@ export default function RolesPage() {
   const [error, setError] = useState('');
 
   const load = async () => {
-    if (!token) return;
+    if (!staff) return;
     setLoading(true);
     setError('');
     try {

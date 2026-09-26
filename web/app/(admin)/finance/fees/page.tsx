@@ -9,7 +9,7 @@ import { api, FeeStructure, FeeItemInput } from '@/lib/api';
 const ITEM_TYPES = ['tuition', 'caution', 'transport', 'activity', 'boarding', 'other'];
 
 export default function FeesPage() {
-  const { token } = useAuth();
+  const { token, staff } = useAuth();
   const [structures, setStructures] = useState<FeeStructure[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -26,7 +26,7 @@ export default function FeesPage() {
   ]);
 
   const load = async () => {
-    if (!token) return;
+    if (!staff) return;
     setLoading(true);
     setError('');
     try {

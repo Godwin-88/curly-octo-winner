@@ -7,7 +7,7 @@ import { RefreshCw, Trash2, Eye } from 'lucide-react';
 import { api, ReportCard, Learner } from '@/lib/api';
 
 export default function ReportCardsPage() {
-  const { token } = useAuth();
+  const { token, staff } = useAuth();
   const [cards, setCards] = useState<ReportCard[]>([]);
   const [learners, setLearners] = useState<Learner[]>([]);
   const [selected, setSelected] = useState<ReportCard | null>(null);
@@ -19,7 +19,7 @@ export default function ReportCardsPage() {
   const [generating, setGenerating] = useState(false);
 
   const load = async () => {
-    if (!token) return;
+    if (!staff) return;
     setLoading(true);
     setError('');
     try {

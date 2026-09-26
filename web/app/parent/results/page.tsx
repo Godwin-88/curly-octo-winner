@@ -19,10 +19,10 @@ export default function ParentResultsPage() {
   const [cards, setCards] = useState<ReportCardBrief[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const { guardianToken: token } = useAuth();
+  const { token, guardian } = useAuth();
 
   useEffect(() => {
-    if (!token) return;
+    if (!guardian) return;
     const learnerId = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('learner_id') || '' : '';
     if (!learnerId) {
       setLoading(false);

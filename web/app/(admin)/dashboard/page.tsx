@@ -29,7 +29,7 @@ import { PILOT_SCHOOL } from '@/lib/nairobi';
 import { useAuth } from '@/lib/auth';
 
 export default function DashboardPage() {
-  const { token } = useAuth();
+  const { token, staff } = useAuth();
   const [loading, setLoading] = useState(true);
 
   const [overview, setOverview] = useState<SchoolOverview | null>(null);
@@ -50,7 +50,7 @@ export default function DashboardPage() {
   const [subCounty, setSubCounty] = useState('');
 
   const load = async () => {
-    if (!token) return;
+    if (!staff) return;
     setLoading(true);
 
     const results = await Promise.allSettled([

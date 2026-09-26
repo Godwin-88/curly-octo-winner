@@ -15,7 +15,7 @@ const CONSENT_LABELS: Record<string, string> = {
 };
 
 export default function ConsentPage() {
-  const { token } = useAuth();
+  const { token, staff } = useAuth();
   const [consents, setConsents] = useState<ConsentAgreement[]>([]);
   const [guardianId, setGuardianId] = useState('');
   const [consentType, setConsentType] = useState('whatsapp_opt_in');
@@ -23,7 +23,7 @@ export default function ConsentPage() {
   const [error, setError] = useState('');
 
   const load = async () => {
-    if (!token) return;
+    if (!staff) return;
     setLoading(true);
     setError('');
     try {

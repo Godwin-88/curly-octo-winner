@@ -51,8 +51,13 @@ type Config struct {
 	CORSAllowedOrigins []string
 
 	JWTSecret string
-	Port      string
-	AppEnv    string
+	// SettingsEncryptionKey seals the per-school integration credentials
+	// (M-Pesa keys, WhatsApp tokens, ...). Optional: when empty the API falls
+	// back to JWTSecret, which couples rotating the session secret to
+	// re-entering every school credential — so set a dedicated value.
+	SettingsEncryptionKey string
+	Port                  string
+	AppEnv                string
 }
 
 // Load reads and validates all required environment variables.
@@ -88,6 +93,7 @@ func Load() (*Config, error) {
 		MpesaAllowedIPs:          splitCSV(os.Getenv("MPESA_ALLOWED_IPS")),
 		CORSAllowedOrigins:       splitCSV(os.Getenv("CORS_ALLOWED_ORIGINS")),
 		JWTSecret:                os.Getenv("JWT_SECRET"),
+		SettingsEncryptionKey:    os.Getenv("SETTINGS_ENCRYPTION_KEY"),
 		Port:                     os.Getenv("PORT"),
 		AppEnv:                   os.Getenv("APP_ENV"),
 	}

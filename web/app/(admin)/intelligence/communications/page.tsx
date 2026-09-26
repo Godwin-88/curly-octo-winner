@@ -7,7 +7,7 @@ import { MessageSquare, CheckCircle2, XCircle, BarChart3 } from 'lucide-react';
 import { api, CampaignDeliverySummary, ChannelReach, FailedNumber } from '@/lib/api';
 
 export default function CommunicationAnalyticsPage() {
-  const { token } = useAuth();
+  const { token, staff } = useAuth();
   const [campaigns, setCampaigns] = useState<CampaignDeliverySummary[]>([]);
   const [reach, setReach] = useState<ChannelReach[]>([]);
   const [failed, setFailed] = useState<FailedNumber[]>([]);
@@ -15,7 +15,7 @@ export default function CommunicationAnalyticsPage() {
   const [error, setError] = useState('');
 
   const load = async () => {
-    if (!token) return;
+    if (!staff) return;
     setLoading(true);
     setError('');
     try {

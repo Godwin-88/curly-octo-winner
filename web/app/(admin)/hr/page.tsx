@@ -7,7 +7,7 @@ import { Users, Wallet, CalendarClock, ClipboardCheck } from 'lucide-react';
 import { api, StaffProfile, PayrollRun, LeaveRequest, StaffAppraisal } from '@/lib/api';
 
 export default function HRPage() {
-  const { token } = useAuth();
+  const { token, staff: session } = useAuth();
   const [staff, setStaff] = useState<StaffProfile[]>([]);
   const [payroll, setPayroll] = useState<PayrollRun[]>([]);
   const [leave, setLeave] = useState<LeaveRequest[]>([]);
@@ -16,7 +16,7 @@ export default function HRPage() {
   const [error, setError] = useState('');
 
   const load = async () => {
-    if (!token) return;
+    if (!session) return;
     setLoading(true);
     setError('');
     try {

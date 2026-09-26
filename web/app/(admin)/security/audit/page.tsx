@@ -14,7 +14,7 @@ const ACTION_COLORS: Record<string, string> = {
 };
 
 export default function AuditLogPage() {
-  const { token } = useAuth();
+  const { token, staff } = useAuth();
   const [logs, setLogs] = useState<AuditLog[]>([]);
   const [entityType, setEntityType] = useState('');
   const [action, setAction] = useState('');
@@ -22,7 +22,7 @@ export default function AuditLogPage() {
   const [error, setError] = useState('');
 
   const load = async () => {
-    if (!token) return;
+    if (!staff) return;
     setLoading(true);
     setError('');
     try {

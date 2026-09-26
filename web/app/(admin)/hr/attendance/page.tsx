@@ -7,7 +7,7 @@ import { Plus, Trash2 } from 'lucide-react';
 import { api, StaffAttendance, StaffProfile } from '@/lib/api';
 
 export default function StaffAttendancePage() {
-  const { token } = useAuth();
+  const { token, staff: session } = useAuth();
   const [records, setRecords] = useState<StaffAttendance[]>([]);
   const [staff, setStaff] = useState<StaffProfile[]>([]);
   const [loading, setLoading] = useState(true);
@@ -21,7 +21,7 @@ export default function StaffAttendancePage() {
   });
 
   const load = async () => {
-    if (!token) return;
+    if (!session) return;
     setLoading(true);
     setError('');
     try {

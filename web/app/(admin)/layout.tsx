@@ -17,17 +17,21 @@ export default function AdminLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const { token, ready } = useAuth();
+  const { token, ready, staff } = useAuth();
   const router = useRouter();
   const [mobileOpen, setMobileOpen] = useState(false);
 
+  // Guard on the verified staff session (hydrated from the HttpOnly cookie),
+  // NOT on `token`: since the cookie migration the token only exists in memory
+  // after a sign-in, so guarding on it bounced every page to the sign-in form
+  // on any hard reload.
   useEffect(() => {
-    if (ready && !token) {
+    if (ready && !staff) {
       router.replace('/auth/login');
     }
-  }, [ready, token, router]);
+  }, [ready, staff, router]);
 
-  if (!ready || !token) {
+  if (!ready || !staff) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-sm text-gray-600">

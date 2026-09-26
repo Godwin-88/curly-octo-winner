@@ -21,7 +21,7 @@ const STATUS_STYLES: Record<string, string> = {
 };
 
 export default function PaymentsPage() {
-  const { token } = useAuth();
+  const { token, staff } = useAuth();
   const [payments, setPayments] = useState<Payment[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -29,7 +29,7 @@ export default function PaymentsPage() {
   const [channelFilter, setChannelFilter] = useState('');
 
   const load = async () => {
-    if (!token) return;
+    if (!staff) return;
     setLoading(true);
     setError('');
     try {

@@ -7,7 +7,7 @@ import { Brain, MessageSquare, Sparkles, Plus, Trash2, Send, BookOpen } from 'lu
 import { api, FAQEntry, MessageTemplateEmbedding, TemplateSuggestion, AutoResponse, PortfolioSummary } from '@/lib/api';
 
 export default function AIAssistantPage() {
-  const { token } = useAuth();
+  const { token, staff } = useAuth();
   const [faqs, setFaqs] = useState<FAQEntry[]>([]);
   const [templates, setTemplates] = useState<MessageTemplateEmbedding[]>([]);
   const [loading, setLoading] = useState(true);
@@ -34,7 +34,7 @@ export default function AIAssistantPage() {
   const [portfolioSummary, setPortfolioSummary] = useState<PortfolioSummary | null>(null);
 
   const load = async () => {
-    if (!token) return;
+    if (!staff) return;
     setLoading(true);
     setError('');
     try {

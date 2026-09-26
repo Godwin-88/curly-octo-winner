@@ -11,10 +11,10 @@ export default function SMSTemplatesPage() {
   const [name, setName] = useState('');
   const [content, setContent] = useState('');
   const [category, setCategory] = useState('general');
-  const { token } = useAuth();
+  const { token, staff } = useAuth();
 
   useEffect(() => {
-    if (!token) return;
+    if (!staff) return;
     api.listSMSTemplates(token)
       .then(setTemplates)
       .catch(() => {})

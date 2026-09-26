@@ -29,6 +29,7 @@ The Blueprint prompts for each secret (`sync: false`); set them in the service's
 | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` | Supabase project (staff auth + admin user API). |
 | `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` | Upstash Redis REST credentials. |
 | `JWT_SECRET` | **REQUIRED** — the server refuses to boot without it. Use a long random value, not the `.env.example` placeholder. |
+| `SETTINGS_ENCRYPTION_KEY` | Encrypts the integration credentials each school enters in **Settings → Integrations** (AES-256-GCM). Optional: the API falls back to `JWT_SECRET`, but a dedicated value lets you rotate the session secret without invalidating every school's stored credentials. |
 | `PORT` | Already `8080` in the Blueprint (Render's default is 10000; either works as long as the API binds it — it reads `PORT`). |
 | `APP_ENV` | `production` (set by the Blueprint; enables the production config guards). |
 
@@ -95,6 +96,27 @@ SELECT indexname FROM pg_indexes WHERE indexname = 'uq_payments_mpesa_checkout';
 curl https://shule360-api.onrender.com/health    # {"status":"ok","version":"..."}
 curl https://shule360-api.onrender.com/metrics   # Prometheus exposition (wire to Grafana/uptime tooling)
 ```
+
+### Settings (per-school configuration)
+
+A school principal configures their own school at **Settings** in the admin UI
+(`/settings`): school profile, M-Pesa paybill and callback URL, term and
+attendance window, feature switches, and integration credentials (M-Pesa,
+Africa's Talking, WhatsApp Cloud, Backblaze B2, Groq, Upstash).
+
+- Credentials are **encrypted at rest** (AES-256-GCM, key from
+  `SETTINGS_ENCRYPTION_KEY`) and are never returned to a browser; the API only
+  reports *which* fields are set. Saving is principal/super_admin only, and every
+  change is written to `audit_logs`.
+- "Test connection" performs a real API call per provider (Daraja OAuth token,
+  Africa's Talking account API, Graph `/me`, B2 authorize, Groq models, Upstash
+  PING) and records the outcome, so a principal can confirm credentials before
+  relying on them.
+- A school can keep using the platform's environment credentials
+  (`use_platform_default`) instead of entering its own.
+- Runtime consumption of per-school credentials happens through
+  `settings.Service.ResolveSecrets`; the boot-time clients still use the
+  environment values until each module is switched over.
 
 ---
 

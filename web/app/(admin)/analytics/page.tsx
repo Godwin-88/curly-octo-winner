@@ -7,7 +7,7 @@ import { AlertTriangle, Users, BookOpen, ClipboardList } from 'lucide-react';
 import { api, StrandCoverage, CompetencyDistribution, TeacherVelocity, LearnerPortfolio, AlertLearner, SchoolOverview } from '@/lib/api';
 
 export default function AnalyticsDashboardPage() {
-  const { token } = useAuth();
+  const { token, staff } = useAuth();
   const [overview, setOverview] = useState<SchoolOverview | null>(null);
   const [coverage, setCoverage] = useState<StrandCoverage[]>([]);
   const [distribution, setDistribution] = useState<CompetencyDistribution[]>([]);
@@ -22,7 +22,7 @@ export default function AnalyticsDashboardPage() {
   const [stream, setStream] = useState('');
 
   const load = async () => {
-    if (!token) return;
+    if (!staff) return;
     setLoading(true);
     setError('');
     try {

@@ -18,7 +18,7 @@ const STATUS_STYLES: Record<string, string> = {
 const DISCOUNT_TYPES = ['scholarship', 'sibling', 'waiver', 'other'];
 
 export default function InvoicesPage() {
-  const { token } = useAuth();
+  const { token, staff } = useAuth();
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [learners, setLearners] = useState<Learner[]>([]);
   const [feeStructures, setFeeStructures] = useState<FeeStructure[]>([]);
@@ -42,7 +42,7 @@ export default function InvoicesPage() {
   const [stkForm, setStkForm] = useState({ phone: '', amount_cents: 0 });
 
   const load = async () => {
-    if (!token) return;
+    if (!staff) return;
     setLoading(true);
     setError('');
     try {
