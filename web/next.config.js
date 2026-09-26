@@ -15,7 +15,7 @@ if (process.env.NODE_ENV === 'production' && !process.env.NEXT_PUBLIC_API_URL) {
   console.warn(
     '\n[shule360] WARNING: NEXT_PUBLIC_API_URL is not set for this production build.\n' +
       '[shule360] /api/v1/* will proxy to http://localhost:8080, which will fail in production.\n' +
-      '[shule360] Set NEXT_PUBLIC_API_URL to the Go API origin (e.g. https://shule360-api.fly.dev).\n'
+      '[shule360] Set NEXT_PUBLIC_API_URL to the Go API origin (e.g. https://shule360-api.onrender.com).\n'
   );
 }
 
@@ -42,7 +42,9 @@ const nextConfig = {
 // Sentry wraps the config to inject instrumentation; it is inert unless
 // SENTRY_DSN / NEXT_PUBLIC_SENTRY_DSN are set (and never uploads sourcemaps
 // without SENTRY_ORG/SENTRY_PROJECT/auth token).
-import { withSentryConfig } from '@sentry/nextjs';
+// Imported from '@sentry/nextjs/config': the root export is deprecated and
+// stops working in Sentry v11.
+import { withSentryConfig } from '@sentry/nextjs/config';
 
 export default withSentryConfig(nextConfig, {
   silent: true,

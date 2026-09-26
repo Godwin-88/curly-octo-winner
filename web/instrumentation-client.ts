@@ -12,3 +12,7 @@ if (process.env.NEXT_PUBLIC_SENTRY_DSN) {
     // Route transitions create spans only when traces are on; skip for now.
   });
 }
+
+// @sentry/nextjs requires this export to instrument App Router navigations.
+// Without it the SDK logs an ACTION REQUIRED warning on every build/start.
+export const onRouterTransitionStart = Sentry.captureRouterTransitionStart;

@@ -113,17 +113,22 @@ func main() {
 		fmt.Printf("  %s / %s (%s)\n", u.Email, u.Password, u.Role)
 	}
 
-	// Seed guardian PINs
+	// Seed guardian PINs.
+	//
+	// These phone numbers MUST match the demo guardians inserted by
+	// migrations/seed/seed.sql: the UPDATE below is skipped silently by Postgres
+	// when nothing matches, which used to leave every demo guardian without a
+	// PIN and made the parent portal impossible to sign into.
 	slog.Info("seeding guardian PINs")
 	guardianPINs := []struct {
 		Phone string
 		PIN   string
 	}{
-		{"+254712345678", "1234"},
-		{"+254723456789", "1234"},
-		{"+254734567890", "1234"},
-		{"+254745678901", "1234"},
-		{"+254756789012", "1234"},
+		{"+254712345101", "1234"},
+		{"+254712345102", "1234"},
+		{"+254712345103", "1234"},
+		{"+254712345104", "1234"},
+		{"+254712345105", "1234"},
 	}
 
 	for _, g := range guardianPINs {
@@ -132,15 +137,19 @@ func main() {
 			slog.Error("failed to hash guardian PIN", "phone", g.Phone, "error", err)
 			continue
 		}
-		_, err = sb.Pool.Exec(ctx,
+		tag, err := sb.Pool.Exec(ctx,
 			"UPDATE guardians SET pin_hash = $1 WHERE phone_primary = $2 AND tenant_id = 'a0000000-0000-0000-0000-000000000001'",
 			string(hash), g.Phone,
 		)
 		if err != nil {
 			slog.Error("failed to seed guardian PIN", "phone", g.Phone, "error", err)
-		} else {
-			slog.Info("seeded guardian PIN", "phone", g.Phone)
+			continue
 		}
+		if tag.RowsAffected() == 0 {
+			slog.Warn("no guardian matched this phone; check migrations/seed/seed.sql", "phone", g.Phone)
+			continue
+		}
+		slog.Info("seeded guardian PIN", "phone", g.Phone, "pin", g.PIN)
 	}
 }
 
@@ -169,16 +178,20 @@ func findSupabaseUserID(ctx context.Context, sb *supabase.Client, email string) 
 		return "", fmt.Errorf("lookup error (status %d): %s", resp.StatusCode, string(body))
 	}
 
-	var users []struct {
-		ID string `json:"id"`
+	// The admin list endpoint returns {"users":[...],"aud":"authenticated"},
+	// not a bare array, so the envelope is decoded rather than a []struct.
+	var result struct {
+		Users []struct {
+			ID string `json:"id"`
+		} `json:"users"`
 	}
-	if err := json.Unmarshal(body, &users); err != nil {
+	if err := json.Unmarshal(body, &result); err != nil {
 		return "", err
 	}
-	if len(users) == 0 {
+	if len(result.Users) == 0 {
 		return "", fmt.Errorf("no user found")
 	}
-	return users[0].ID, nil
+	return result.Users[0].ID, nil
 }
 
 func ioReadAll(r io.Reader) ([]byte, error) {

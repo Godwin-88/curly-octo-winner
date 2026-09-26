@@ -130,7 +130,7 @@ graph TD
     API --> MIG["migrations/"]
     API --> ENV[".env.example"]
     API --> DOCKER["Dockerfile"]
-    API --> FLY["fly.toml"]
+    API --> RENDER["render.yaml"]
     API --> MAKE["Makefile"]
 
     CMD --> MAIN["main.go — entrypoint, wiring, router"]
@@ -342,7 +342,6 @@ shule360/
     │   ├── migrations/               # 30 SQL migrations + seed
 │   ├── .env.example
 │   ├── Dockerfile
-│   ├── fly.toml
 │   └── Makefile
 └── web/                          # Next.js 16 Frontend
     ├── app/

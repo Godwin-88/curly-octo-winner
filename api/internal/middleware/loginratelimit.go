@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -85,7 +86,9 @@ const loginMaxAttempts = 5
 var timeNow = time.Now().Unix
 
 // ClientIP prefers the first hop of X-Forwarded-For (Fly.io sets it at the
-// edge) and falls back to the socket remote address.
+// edge) and falls back to the socket address. The port is stripped from the
+// fallback: a "host:port" rate-limit key would give every TCP connection its
+// own budget and quietly weaken per-IP brute-force protection.
 func ClientIP(r *http.Request) string {
 	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
 		if idx := strings.IndexByte(xff, ','); idx >= 0 {
@@ -93,5 +96,9 @@ func ClientIP(r *http.Request) string {
 		}
 		return strings.TrimSpace(xff)
 	}
-	return r.RemoteAddr
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
 }

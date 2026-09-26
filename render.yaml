@@ -1,12 +1,33 @@
+# Render Blueprint for the Shule360 Go API.
+#
+# Deploy: Render Dashboard → New → Blueprint → pick this repo → Apply. Render
+# reads this file from the repo root and provisions the service below. Entries
+# marked `sync: false` are secrets: Render prompts for them in the dashboard
+# and they are never committed to git.
+#
+# Notes
+# - Native Go runtime with rootDir: api — Render builds ./cmd/server and runs
+#   it. PORT is set to 8080 to match config.Load()'s default and the
+#   Dockerfile's EXPOSE; Render routes web traffic to whatever PORT says.
+# - Migrations are not part of a Render deploy. Apply them from a machine that
+#   can reach the database:
+#       cd api && DATABASE_URL=... go run ./cmd/migrate
+#   On a paid instance type you can instead automate it by adding
+#       preDeployCommand: go run ./cmd/migrate
+#   (pre-deploy commands are not available on the free plan).
+# - Free instances spin down after ~15 minutes idle, so the first request after
+#   a quiet period pays a cold-start penalty (~1 min). Use the starter plan for
+#   a production school.
 services:
   - type: web
     name: shule360-api
-    env: go
+    runtime: go
     rootDir: api
     plan: free
     region: frankfurt
     buildCommand: go build -o server ./cmd/server
     startCommand: ./server
+    healthCheckPath: /health
     envVars:
       - key: PORT
         value: 8080
@@ -63,4 +84,16 @@ services:
       - key: MPESA_CALLBACK_URL
         sync: false
       - key: MPESA_BASE_URL
+        sync: false
+
+      # --- strongly recommended ---
+      - key: MPESA_ALLOWED_IPS
+        sync: false
+      - key: CORS_ALLOWED_ORIGINS
+        sync: false
+      - key: SENTRY_DSN
+        sync: false
+
+      # --- intelligence (AI assistant + template suggestions) ---
+      - key: GROQ_API_KEY
         sync: false

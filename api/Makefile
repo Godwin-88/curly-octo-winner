@@ -1,4 +1,4 @@
-.PHONY: build run test lint fmt clean seed
+.PHONY: build run test lint fmt clean seed seed-data deps migrate-status migrate-up migrate-baseline
 
 build:
 	go build ./...
@@ -25,10 +25,22 @@ seed:
 deps:
 	go mod tidy
 
-migrate-up:
-	# Apply pending migrations (requires a migration runner)
-	@echo "Run migrations via your migration tool"
+# Migrations are plain, forward-only SQL files in migrations/, applied in
+# filename order by cmd/migrate (tracked in the schema_migrations table).
+migrate-status:
+	go run ./cmd/migrate -status
 
-migrate-down:
-	# Rollback last migration
-	@echo "Run rollback via your migration tool"
+migrate-up:
+	go run ./cmd/migrate
+
+# For a database whose schema was created by hand (e.g. applied with psql):
+# record every existing migration as applied without executing it.
+migrate-baseline:
+	go run ./cmd/migrate -baseline
+
+# Demo data (one tenant + sample learners, guardians, staff, invoices, ...).
+# Reuses the migration runner against migrations/seed/, so it is applied once
+# and recorded in schema_migrations; cmd/seed then creates the matching
+# Supabase Auth users for the demo logins.
+seed-data:
+	go run ./cmd/migrate -dir migrations/seed

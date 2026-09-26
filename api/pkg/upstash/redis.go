@@ -27,14 +27,20 @@ func NewRedisClient(baseURL, token string) *RedisClient {
 	}
 }
 
-// redisCommand represents a single command sent to Upstash Redis REST API.
-type redisCommand struct {
-	Command []string `json:"command"`
-}
-
-// Do executes a raw Redis command and returns the raw response body.
+// Do executes a raw Redis command and returns the decoded reply payload.
+//
+// Upstash's REST API expects the command itself as a bare JSON array
+// (["SET","k","v"]); the {"command":[...]} envelope is rejected with HTTP 400
+// "expected JSON array". Replies arrive wrapped as {"result": ...} (or
+// {"error": ...}), so Do unwraps the envelope and returns the raw Redis reply —
+// bare string, number, array or null — which is what the typed helpers below
+// parse.
 func (c *RedisClient) Do(ctx context.Context, command ...string) ([]byte, error) {
-	payload, err := json.Marshal(redisCommand{Command: command})
+	if c.baseURL == "" || c.token == "" {
+		return nil, fmt.Errorf("upstash redis is not configured (set UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN)")
+	}
+
+	payload, err := json.Marshal(command)
 	if err != nil {
 		return nil, fmt.Errorf("marshal redis command: %w", err)
 	}
@@ -61,6 +67,21 @@ func (c *RedisClient) Do(ctx context.Context, command ...string) ([]byte, error)
 		return nil, fmt.Errorf("redis error (status %d): %s", resp.StatusCode, string(body))
 	}
 
+	// Unwrap {"result": ...}; fall back to the raw body for endpoints that
+	// answer with a bare value.
+	var envelope map[string]json.RawMessage
+	if err := json.Unmarshal(body, &envelope); err == nil {
+		if errRaw, ok := envelope["error"]; ok {
+			var msg string
+			if json.Unmarshal(errRaw, &msg) != nil {
+				msg = string(errRaw)
+			}
+			return nil, fmt.Errorf("redis error: %s", msg)
+		}
+		if result, ok := envelope["result"]; ok {
+			return result, nil
+		}
+	}
 	return body, nil
 }
 

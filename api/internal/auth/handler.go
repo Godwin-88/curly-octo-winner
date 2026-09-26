@@ -56,16 +56,21 @@ func NewHandler(supabase *supabaseclient.Client, cfg *config.Config, redis *upst
 }
 
 // Mount registers public auth routes.
+//
+// Paths are part of the client contract (web/lib/auth.tsx): POST /api/v1/login
+// signs in, POST /api/v1/auth/logout clears the session cookie. Logout is
+// deliberately public — clearing an invalid or expired cookie must always
+// succeed, so it cannot sit behind the Auth middleware.
 func (h *Handler) Mount(r chi.Router) {
 	r.Post("/login", h.Login)
-	r.Post("/logout", h.Logout)
+	r.Post("/auth/logout", h.Logout)
 }
 
 // MountPrivate registers authenticated auth routes. Call this from inside the
 // Auth middleware group so /auth/me can trust the verified identity in the
-// request context.
+// request context. Matches GET ${API_BASE}/auth/me in web/lib/auth.tsx.
 func (h *Handler) MountPrivate(r chi.Router) {
-	r.Get("/me", h.Me)
+	r.Get("/auth/me", h.Me)
 }
 
 // Login handles POST /api/v1/auth/login.

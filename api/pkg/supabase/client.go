@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -21,11 +23,55 @@ type Client struct {
 	http        *http.Client
 }
 
-// NewClient creates a new Supabase client with a pgx connection pool.
-func NewClient(ctx context.Context, databaseURL, supabaseURL, serviceKey string) (*Client, error) {
-	pool, err := pgxpool.New(ctx, databaseURL)
+// NewPool creates a pgx connection pool tuned for how Supabase exposes
+// Postgres.
+//
+// Supabase's transaction pooler (pgbouncer/Supavisor, port 6543) multiplexes
+// many client connections onto a smaller set of server sessions. pgx's default
+// statement cache prepares *named* statements ("stmtcache_<hash of SQL>") that
+// every client connection using the same SQL text reuses; because the name is
+// derived from the SQL alone, two pooled connections can be routed onto the
+// same server session and the second one fails with
+//
+//	ERROR: prepared statement "stmtcache_..." already exists (SQLSTATE 42P05)
+//
+// Under load that surfaces as intermittent, hard-to-reproduce 500s. Disabling
+// the cache (QueryExecModeExec = one unnamed statement per execution) removes
+// the shared-name collision while keeping server-side parameter binding.
+// Direct (unpooled) connections keep the default cache, where it is a win.
+func NewPool(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
+	cfg, err := pgxpool.ParseConfig(databaseURL)
+	if err != nil {
+		return nil, fmt.Errorf("parse database url: %w", err)
+	}
+
+	if isTransactionPooler(cfg.ConnConfig) {
+		cfg.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeExec
+	}
+
+	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("create pgx pool: %w", err)
+	}
+	return pool, nil
+}
+
+// isTransactionPooler reports whether the connection goes through a
+// transaction-mode pooler, where prepared statements cannot be cached:
+// Supabase's pooler port is 6543, and libpq clients also mark pooled URLs with
+// ?pgbouncer=true.
+func isTransactionPooler(cfg *pgx.ConnConfig) bool {
+	if cfg.Port == 6543 || strings.Contains(cfg.Host, "pooler.supabase.com") {
+		return true
+	}
+	return strings.Contains(cfg.RuntimeParams["pgbouncer"], "true")
+}
+
+// NewClient creates a new Supabase client with a pgx connection pool.
+func NewClient(ctx context.Context, databaseURL, supabaseURL, serviceKey string) (*Client, error) {
+	pool, err := NewPool(ctx, databaseURL)
+	if err != nil {
+		return nil, err
 	}
 
 	// Verify connection

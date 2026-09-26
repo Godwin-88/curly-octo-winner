@@ -100,6 +100,9 @@ func main() {
 
 	// Initialize Upstash clients
 	redisClient := upstash.NewRedisClient(cfg.UpstashRedisURL, cfg.UpstashRedisToken)
+	if cfg.UpstashRedisURL == "" || cfg.UpstashRedisToken == "" {
+		slog.Warn("UPSTASH_REDIS_REST_URL/TOKEN not set: login rate limiting fails closed, so every login attempt will return 503")
+	}
 	vectorClient := upstash.NewVectorClient(cfg.UpstashVectorURL, cfg.UpstashVectorToken)
 	_ = vectorClient // Reserved for Phase 2 template suggestion
 	searchClient := upstash.NewSearchClient(cfg.UpstashSearchURL, cfg.UpstashSearchToken)

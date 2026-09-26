@@ -77,6 +77,14 @@ jobs:
         run: npm ci
       - name: Install Playwright browser
         run: npx playwright install --with-deps chromium
+      - name: Build (Playwright starts the production server)
+        run: npm run build
+        env:
+          # The smoke suite runs without the Go API by design: the same-origin
+          # rewrite proxy answers 5xx and the app degrades to the sign-in
+          # redirects. An origin is still set so the production build does not
+          # warn about a missing proxy target.
+          NEXT_PUBLIC_API_URL: http://127.0.0.1:8080
       - name: Run smoke tests (public surface + axe WCAG checks)
         run: npx playwright test
       - uses: actions/upload-artifact@v4

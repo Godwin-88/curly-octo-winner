@@ -59,11 +59,17 @@ func (h *Handler) Mount(r chi.Router) {
 // MountPrivate registers authenticated guardian routes. Call from inside the
 // guardian RequireRole group so /me and /logout can trust the verified
 // guardian identity in the request context.
+//
+// NOTE: these routes are registered as plain paths (not via r.Route) on
+// purpose. Mount() already mounted a subrouter on /auth/guardian, and chi
+// Group() shares the parent radix tree, so calling Route()/Mount() on the same
+// pattern a second time panics with "attempting to Mount() a handler on an
+// existing path". Registering the leaf paths directly adds them as static
+// children of the existing /auth/guardian/* node, which the router resolves
+// before falling through to the public subrouter.
 func (h *Handler) MountPrivate(r chi.Router) {
-	r.Route("/auth/guardian", func(r chi.Router) {
-		r.Get("/me", h.me)
-		r.Post("/logout", h.logout)
-	})
+	r.Get("/auth/guardian/me", h.me)
+	r.Post("/auth/guardian/logout", h.logout)
 }
 
 func (h *Handler) login(w http.ResponseWriter, r *http.Request) {

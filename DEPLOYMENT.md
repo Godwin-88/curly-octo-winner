@@ -12,16 +12,31 @@ added in Phase 2.
 
 ---
 
-## 1. Go API (Fly.io, `api/`)
+## 1. Go API (Render, `api/`)
 
-### Required secrets
+`render.yaml` (repo root) is a Render Blueprint: Dashboard → **New →
+Blueprint** → pick this repo → **Apply** creates the web service (native Go
+runtime, `rootDir: api`, health check on `/health`).
 
-```bash
-fly secrets set \
-  DATABASE_URL=... \
-  SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... \
-  JWT_SECRET=...   # REQUIRED — the server refuses to boot without it
-```
+### Required environment variables
+
+The Blueprint prompts for each secret (`sync: false`); set them in the service's
+**Environment** tab if you create the service manually instead:
+
+| Var | Notes |
+| --- | --- |
+| `DATABASE_URL` | Supabase **transaction pooler** URL (port 6543). The API disables pgx's prepared-statement cache automatically for pooler connections. |
+| `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` | Supabase project (staff auth + admin user API). |
+| `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` | Upstash Redis REST credentials. |
+| `JWT_SECRET` | **REQUIRED** — the server refuses to boot without it. Use a long random value, not the `.env.example` placeholder. |
+| `PORT` | Already `8080` in the Blueprint (Render's default is 10000; either works as long as the API binds it — it reads `PORT`). |
+| `APP_ENV` | `production` (set by the Blueprint; enables the production config guards). |
+
+> **Upstash Redis is not optional in practice:** login rate limiting fails
+> *closed* (by design — a Redis outage must not open password/PIN brute
+> forcing), so without it every login attempt returns
+> `503 RATE_LIMITER_UNAVAILABLE`. The API logs a warning at startup when the
+> Redis URL/token are missing.
 
 ### Strongly recommended before enabling real M-Pesa
 
@@ -33,11 +48,37 @@ fly secrets set \
 
 ### Migrations
 
-Run in numeric order (001 → 034) against the production database before/at
-deploy time:
+Migrations are plain, forward-only SQL files in `api/migrations/`. They are
+applied in filename order by `api/cmd/migrate`, which records each version plus
+a checksum of the file in the `schema_migrations` table:
 
 ```bash
-psql "$DATABASE_URL" -f api/migrations/034_mpesa_idempotency.sql
+cd api
+go run ./cmd/migrate -status    # applied / pending / drifted — changes nothing
+go run ./cmd/migrate            # apply every pending migration
+go run ./cmd/migrate -baseline  # mark all as applied WITHOUT running them
+```
+
+- **Fresh database:** `make migrate-up` creates the whole schema (001 → 034).
+- **Render deploys do not run migrations** (that needs a paid instance's
+  pre-deploy command — see `render.yaml`): run `make migrate-up` from a machine
+  that can reach the database before deploying API code that depends on new
+  columns/tables.
+- **Database already built by hand** (e.g. with `psql -f`): run
+  `make migrate-baseline` once, then `make migrate-up` for future files.
+- Each migration runs in a single transaction *together* with its bookkeeping
+  row, so a failing migration leaves the database untouched and the command can
+  simply be re-run after the file is fixed.
+- `DRIFTED` in `-status` means an already-applied file was edited afterwards;
+  the statement is not re-run, but the divergence should be accounted for with
+  a new migration.
+
+Demo data for a fresh development/staging environment:
+
+```bash
+cd api
+make seed-data   # demo tenant + guardians/learners/staff (migrations/seed/seed.sql)
+make seed        # Supabase Auth users + guardian PINs for the demo logins
 ```
 
 034 adds a unique index on `payments(checkout_request_id)` — required by the
@@ -50,8 +91,9 @@ SELECT indexname FROM pg_indexes WHERE indexname = 'uq_payments_mpesa_checkout';
 ### Post-deploy checks
 
 ```bash
-curl https://shule360-api.fly.dev/health    # {"status":"ok","version":"..."}
-curl https://shule360-api.fly.dev/metrics   # Prometheus exposition (wire to Grafana/uptime tooling)
+# Replace with the service's own onrender.com hostname (Dashboard → Settings).
+curl https://shule360-api.onrender.com/health    # {"status":"ok","version":"..."}
+curl https://shule360-api.onrender.com/metrics   # Prometheus exposition (wire to Grafana/uptime tooling)
 ```
 
 ---
@@ -62,7 +104,7 @@ curl https://shule360-api.fly.dev/metrics   # Prometheus exposition (wire to Gra
 
 | Var | Meaning |
 | --- | --- |
-| `NEXT_PUBLIC_API_URL` | **Proxy target** for `/api/v1/*` rewrites (e.g. `https://shule360-api.fly.dev`). The browser never calls it directly. A production build without it warns loudly at build time (defaults to `localhost:8080`, which will fail). |
+| `NEXT_PUBLIC_API_URL` | **Proxy target** for `/api/v1/*` rewrites (e.g. `https://shule360-api.onrender.com`). The browser never calls it directly. A production build without it warns loudly at build time (defaults to `localhost:8080`, which will fail). |
 | `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Realtime inbox updates. |
 | `NEXT_PUBLIC_SENTRY_DSN` | Client-side error tracking (optional). |
 | `SENTRY_DSN` (optional, server) | Server-side Next error tracking. |
