@@ -123,6 +123,7 @@ func (s *CommsService) CreateAndSend(ctx context.Context, tenantID uuid.UUID, re
 	validAudiences := map[string]bool{
 		"all_parents": true, "grade": true, "stream": true,
 		"transport": true, "fee_defaulters": true, "custom": true,
+		"contacts": true, // the school's saved contact book
 	}
 	if !validAudiences[req.AudienceType] {
 		return nil, fmt.Errorf("invalid audience_type: %s", req.AudienceType)
@@ -258,6 +259,31 @@ func (s *CommsService) BuildAudience(ctx context.Context, tenantID uuid.UUID, au
 			  AND i.status NOT IN ('draft', 'void', 'paid')
 			  AND (i.total_cents - i.discount_cents - i.paid_cents) > 0
 		`, &recipients)
+		if err != nil {
+			return nil, err
+		}
+
+	case "contacts":
+		// People from the school's contact book (Communications → Contacts).
+		// Opted-out and archived contacts are never messaged, and the optional
+		// tag filter is how a school targets a segment of that book.
+		var f struct {
+			Tag string `json:"tag"`
+		}
+		if len(filter) > 0 {
+			if err := json.Unmarshal(filter, &f); err != nil {
+				return nil, fmt.Errorf("parse contacts filter: %w", err)
+			}
+		}
+		err := s.queryRecipients(ctx, tenantID, `
+			SELECT id, phone, full_name
+			FROM contacts
+			WHERE tenant_id = $1
+			  AND is_active = true
+			  AND is_opted_out = false
+			  AND phone <> ''
+			  AND ($2 = '' OR tags @> ARRAY[$2]::text[])
+		`, &recipients, strings.ToLower(strings.TrimSpace(f.Tag)))
 		if err != nil {
 			return nil, err
 		}

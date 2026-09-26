@@ -9,6 +9,7 @@ import {
   MessageSquare,
   MessageCircle,
   Inbox,
+  Contact,
   Users,
   GraduationCap,
   Bus,
@@ -64,6 +65,7 @@ const navItems: NavItem[] = [
       icon: MessageSquare,
       children: [
         { href: '/communications', label: 'Overview', icon: MessageSquare },
+        { href: '/communications/contacts', label: 'Contacts', icon: Contact },
         { href: '/communications/sms', label: 'SMS Campaigns', icon: MessageSquare },
         { href: '/communications/sms/templates', label: 'SMS Templates', icon: MessageSquareText },
         { href: '/communications/whatsapp', label: 'WhatsApp', icon: MessageCircle },
@@ -201,7 +203,20 @@ export default function Sidebar({
   }, [mobileOpen, onClose]);
 
   const isGroupActive = (children?: ChildItem[]) =>
-    children?.some((child) => pathname === child.href) ?? false;
+    children?.some(
+      (child) => pathname === child.href || pathname.startsWith(`${child.href}/`)
+    ) ?? false;
+
+  // Open the section that owns the current page. Without this the active page
+  // is invisible on a fresh load or a direct link: the group header is tinted
+  // but its children — including the one you are on — stay collapsed. Keyed on
+  // the pathname only, so manually collapsing a section while staying on the
+  // same page still sticks.
+  useEffect(() => {
+    const activeGroup = navItems.find((item) => isGroupActive(item.children));
+    if (activeGroup) setExpanded(activeGroup.label);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname]);
 
   // Module-level role filter: a top-level item (or group) is visible if the
   // signed-in role can access it. super_admin / principal see everything.

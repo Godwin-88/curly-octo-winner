@@ -6,6 +6,12 @@ import { defineConfig, devices } from '@playwright/test';
 // keeps the suite fast and DB-free while still covering routing, rendering,
 // redirect guards, and accessibility on the public surface. Authenticated
 // flows are gated behind env vars for when a staging API is available.
+//
+// IMPORTANT: this suite serves a PRODUCTION build from web/.next. `next dev`
+// writes to that same directory, so do NOT keep a dev server running while
+// executing these tests: the dev server overwrites the production chunks and
+// the server then 500s on them ("This page hit a problem" / ChunkLoadError).
+// Stop `next dev` (or use a separate checkout) before running Playwright.
 
 const PORT = Number(process.env.E2E_PORT || 3100);
 

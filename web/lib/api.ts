@@ -341,6 +341,79 @@ export interface GuardianDirectoryEntry {
   is_sms_opted_out: boolean;
 }
 
+/** A person the school can message (Communications → Contacts). */
+export interface Contact {
+  id: string;
+  tenant_id: string;
+  full_name: string;
+  phone: string;
+  email?: string;
+  relationship?: string;
+  grade_stream?: string;
+  tags: string[];
+  notes?: string;
+  source: 'manual' | 'import' | 'guardian';
+  is_active: boolean;
+  is_opted_out: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ContactInput {
+  full_name: string;
+  phone: string;
+  email?: string;
+  relationship?: string;
+  grade_stream?: string;
+  tags?: string[];
+  notes?: string;
+  is_opted_out?: boolean;
+}
+
+/** Per-row outcome of a bulk import. */
+export interface ContactRowError {
+  line: number;
+  phone?: string;
+  name?: string;
+  message: string;
+}
+
+export interface ContactImportResult {
+  created: number;
+  updated: number;
+  skipped: number;
+  total: number;
+  errors: ContactRowError[];
+  contacts: Contact[];
+}
+
+/** Dry-run preview: what an import would do, before it does it. */
+export interface ContactImportPreview {
+  total: number;
+  valid: number;
+  invalid: number;
+  duplicates: number;
+  rows: {
+    line: number;
+    name?: string;
+    phone?: string;
+    phone_raw?: string;
+    tags?: string[];
+    valid: boolean;
+    duplicate: boolean;
+    existing_name?: string;
+    message?: string;
+  }[];
+}
+
+export interface ContactSummary {
+  total: number;
+  active: number;
+  opted_out: number;
+  with_phone: number;
+  by_tag: Record<string, number>;
+}
+
 export interface CreateLearnerRequest {
   upi: string;
   full_name: string;
@@ -1955,6 +2028,56 @@ export const api = {
   // Tenant-wide guardian directory (used by the SMS/WhatsApp audience picker).
   listGuardians: (search: string, token: string) =>
     request<GuardianDirectoryEntry[]>(`/learners/guardians${search ? `?search=${encodeURIComponent(search)}` : ''}`, { token }),
+
+  // --- Contact book -------------------------------------------------------
+  // Curated before sending: these are the people a school can message.
+
+  listContacts: (
+    params: { search?: string; tag?: string; status?: string; limit?: number; offset?: number },
+    token: string
+  ) => {
+    const q = new URLSearchParams();
+    if (params.search) q.set('search', params.search);
+    if (params.tag) q.set('tag', params.tag);
+    if (params.status && params.status !== 'active') q.set('status', params.status);
+    if (params.limit) q.set('limit', String(params.limit));
+    if (params.offset) q.set('offset', String(params.offset));
+    const qs = q.toString();
+    return request<Contact[]>(`/contacts${qs ? `?${qs}` : ''}`, { token });
+  },
+
+  getContactSummary: (token: string) => request<ContactSummary>('/contacts/summary', { token }),
+
+  createContact: (body: ContactInput, token: string) =>
+    request<Contact>('/contacts', { method: 'POST', body, token }),
+
+  updateContact: (id: string, body: ContactInput, token: string) =>
+    request<Contact>(`/contacts/${id}`, { method: 'PATCH', body, token }),
+
+  archiveContact: (id: string, token: string) =>
+    request<void>(`/contacts/${id}`, { method: 'DELETE', token }),
+
+  restoreContact: (id: string, token: string) =>
+    request<void>(`/contacts/${id}/restore`, { method: 'POST', token }),
+
+  // Dry run: parses and validates without saving anything, so the import
+  // dialog can show "12 ready, 2 need fixing" before committing.
+  previewContactImport: (body: { csv: string; default_relationship?: string }, token: string) =>
+    request<ContactImportPreview>('/contacts/import', {
+      method: 'POST',
+      body: { ...body, dry_run: true },
+      token,
+    }),
+
+  runContactImport: (
+    body: { csv: string; default_relationship?: string; update_existing: boolean },
+    token: string
+  ) =>
+    request<ContactImportResult>('/contacts/import', {
+      method: 'POST',
+      body: { ...body, dry_run: false },
+      token,
+    }),
 
   listLearnerProgressions: (id: string, token: string) =>
     request<LearnerProgression[]>(`/learners/${id}/progressions`, { token }),

@@ -60,7 +60,7 @@ go run ./cmd/migrate            # apply every pending migration
 go run ./cmd/migrate -baseline  # mark all as applied WITHOUT running them
 ```
 
-- **Fresh database:** `make migrate-up` creates the whole schema (001 → 034).
+- **Fresh database:** `make migrate-up` creates the whole schema (001 → 036).
 - **Render deploys do not run migrations** (that needs a paid instance's
   pre-deploy command — see `render.yaml`): run `make migrate-up` from a machine
   that can reach the database before deploying API code that depends on new

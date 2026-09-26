@@ -9,6 +9,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
+	"github.com/shule360/api/internal/comms/contacts"
 	"github.com/shule360/api/internal/comms/inbox"
 	"github.com/shule360/api/internal/comms/sms"
 	"github.com/shule360/api/internal/middleware"
@@ -21,7 +22,8 @@ type Handler struct {
 	inboxService interface {
 		ListConversations(ctx context.Context, tenantID uuid.UUID, status, assignedTo string, limit, offset int) ([]inbox.Conversation, error)
 	}
-	smsService *sms.SMSService
+	smsService      *sms.SMSService
+	contactsHandler *contacts.Handler
 }
 
 // NewHandler creates a new communications handler.
@@ -32,6 +34,12 @@ func NewHandler(service *CommsService) *Handler {
 // NewHandlerWithSMS creates a new communications handler with SMS support.
 func NewHandlerWithSMS(service *CommsService, smsService *sms.SMSService) *Handler {
 	return &Handler{service: service, smsService: smsService}
+}
+
+// SetContactsHandler wires the contact book routes. Kept as a setter because
+// the comms handler is constructed before the contacts service exists.
+func (h *Handler) SetContactsHandler(ch *contacts.Handler) {
+	h.contactsHandler = ch
 }
 
 // Mount registers all comms routes under the provided router.
@@ -60,6 +68,12 @@ func (h *Handler) Mount(r chi.Router) {
 	if h.smsService != nil {
 		smsHandler := sms.NewHandler(h.smsService)
 		smsHandler.Mount(r)
+	}
+
+	// Contact book: the people a school can actually message. Mounted here so
+	// it inherits the same all-staff role group as the rest of Communications.
+	if h.contactsHandler != nil {
+		h.contactsHandler.Mount(r)
 	}
 }
 

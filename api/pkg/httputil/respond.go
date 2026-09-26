@@ -50,6 +50,13 @@ func RespondNotFound(w http.ResponseWriter, code, message string) {
 	RespondError(w, http.StatusNotFound, code, message)
 }
 
+// RespondConflict writes a 409 Conflict error, used when a write clashes with
+// existing data (e.g. a contact whose phone number is already saved). The
+// client can offer "update the existing one instead" instead of failing.
+func RespondConflict(w http.ResponseWriter, code, message string) {
+	RespondError(w, http.StatusConflict, code, message)
+}
+
 // RespondInternalError writes a 500 error and logs the underlying error.
 func RespondInternalError(w http.ResponseWriter, err error) {
 	slog.Error("internal server error", "error", err)

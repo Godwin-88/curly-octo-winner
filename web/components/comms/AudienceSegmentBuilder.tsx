@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 
-import { api, GuardianDirectoryEntry, ReachEstimate } from '@/lib/api';
+import { api, ContactSummary, GuardianDirectoryEntry, ReachEstimate } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 
 interface Props {
@@ -15,6 +15,7 @@ interface Props {
 }
 
 const AUDIENCE_TYPES = [
+  { value: 'contacts', label: 'Saved contacts' },
   { value: 'all_parents', label: 'All Parents' },
   { value: 'grade', label: 'By Grade' },
   { value: 'stream', label: 'By Grade & Stream' },
@@ -159,6 +160,90 @@ function GuardianPicker({
   );
 }
 
+/**
+ * Filter for the "Saved contacts" audience.
+ *
+ * Reads the tag breakdown from the contact book so the sender can see what is
+ * actually available ("12 contacts, 2 segments") instead of guessing, and
+ * links straight to the contact screen when the list needs work.
+ */
+function SavedContactsFilter({
+  tag,
+  onChange,
+}: {
+  tag: string;
+  onChange: (tag: string) => void;
+}) {
+  const { token } = useAuth();
+  const [summary, setSummary] = useState<ContactSummary | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    api
+      .getContactSummary(token)
+      .then((s) => {
+        if (alive) setSummary(s);
+      })
+      .catch(() => {
+        if (alive) setSummary(null);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [token]);
+
+  const tags = summary ? Object.entries(summary.by_tag) : [];
+
+  return (
+    <div className="border border-indigo-200 bg-indigo-50 rounded-md p-4">
+      <p className="text-sm text-indigo-900">
+        This audience is the contact book under{' '}
+        <a href="/communications/contacts" className="underline font-medium">
+          Communications → Contacts
+        </a>
+        . Archived and opted-out contacts are never messaged.
+      </p>
+
+      {summary && (
+        <p className="text-sm text-indigo-800 mt-2">
+          {summary.active} contact{summary.active === 1 ? '' : 's'} available
+          {summary.opted_out > 0 && ` (${summary.opted_out} opted out)`}.
+        </p>
+      )}
+
+      {tags.length > 0 && (
+        <fieldset className="mt-3">
+          <legend className="text-xs font-medium text-indigo-900 uppercase tracking-wide">
+            Limit to a tag
+          </legend>
+          <div className="flex flex-wrap gap-2 mt-2">
+            {tags.map(([t, n]) => (
+              <label
+                key={t}
+                className="flex items-center gap-1.5 text-sm bg-white rounded-full px-3 py-1 border border-indigo-200 cursor-pointer"
+              >
+                <input
+                  type="radio"
+                  name="contacts-tag"
+                  checked={tag === t}
+                  onChange={() => onChange(t)}
+                />
+                {t} <span className="text-gray-500">({n})</span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
+      )}
+
+      {summary && summary.active === 0 && (
+        <p className="text-sm text-amber-800 mt-2">
+          Your contact book is empty. Add contacts first, then come back to send.
+        </p>
+      )}
+    </div>
+  );
+}
+
 export default function AudienceSegmentBuilder({
   audienceType,
   setAudienceType,
@@ -191,6 +276,13 @@ export default function AudienceSegmentBuilder({
             ))}
           </select>
         </div>
+
+        {audienceType === 'contacts' && (
+          <SavedContactsFilter
+            tag={(audienceFilter.tag as string) || ''}
+            onChange={(t) => setAudienceFilter({ tag: t })}
+          />
+        )}
 
         {audienceType === 'grade' && (
           <div>

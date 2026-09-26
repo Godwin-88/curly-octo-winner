@@ -1,11 +1,19 @@
 import Link from 'next/link';
-import { MessageSquare, MessageCircle, Inbox } from 'lucide-react';
+import { MessageSquare, MessageCircle, Inbox, Contact } from 'lucide-react';
 
 export default function CommunicationsPage() {
   return (
     <div>
       <h1 className="text-2xl font-bold mb-6">Communications Hub</h1>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <Link href="/communications/contacts" className="card p-6 hover:shadow-md transition-shadow">
+          <Contact className="w-8 h-8 text-indigo-600 mb-3" />
+          <h3 className="font-semibold text-lg">Contacts</h3>
+          <p className="text-sm text-gray-500 mt-1">
+            Build and maintain the list of people you can message, one at a time or by importing
+            your whole register.
+          </p>
+        </Link>
         <Link href="/communications/sms" className="card p-6 hover:shadow-md transition-shadow">
           <MessageSquare className="w-8 h-8 text-blue-600 mb-3" />
           <h3 className="font-semibold text-lg">SMS Campaigns</h3>

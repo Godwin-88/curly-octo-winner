@@ -23,6 +23,7 @@ import (
 	"github.com/shule360/api/internal/academic/curriculum"
 	"github.com/shule360/api/internal/auth"
 	"github.com/shule360/api/internal/comms"
+	"github.com/shule360/api/internal/comms/contacts"
 	"github.com/shule360/api/internal/comms/sms"
 	"github.com/shule360/api/internal/comms/whatsapp"
 	"github.com/shule360/api/internal/config"
@@ -134,6 +135,13 @@ func main() {
 	// Initialize comms service
 	commsService := comms.NewCommsService(sb.Pool, redisClient, atClient, waClient)
 	commsHandler := comms.NewHandlerWithSMS(commsService, smsService)
+
+	// Initialize the contact book (Communications → Contacts). Staff curate
+	// this before sending: it is the address book behind the "contacts"
+	// audience in the SMS/WhatsApp composer.
+	contactsService := contacts.NewService(sb.Pool)
+	contactsHandler := contacts.NewHandler(contactsService)
+	commsHandler.SetContactsHandler(contactsHandler)
 
 	// Initialize WhatsApp webhook handler
 	waWebhook := whatsapp.NewWebhookHandler(cfg.MetaWAWebhookVerifyToken, sb.Pool, chatbot, waClient)
