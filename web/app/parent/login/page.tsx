@@ -5,6 +5,7 @@
 // guardians never need to know their tenant UUID.
 
 import { useEffect, useState } from 'react';
+import { API_BASE } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 
 interface School {
@@ -31,7 +32,6 @@ export default function ParentLoginPage() {
 
   // Load the school list on mount.
   useEffect(() => {
-    const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080/api/v1';
     fetch(`${API_BASE}/auth/guardian/schools`)
       .then((res) => (res.ok ? res.json() : Promise.reject(new Error('Failed to load schools'))))
       .then(setSchools)
@@ -129,7 +129,9 @@ export default function ParentLoginPage() {
             {loading ? 'Signing in...' : 'Sign In'}
           </button>
           <p className="text-center text-xs text-gray-500">
-            Demo: use phone + PIN from seed data
+            {process.env.NODE_ENV !== 'production'
+              ? 'Demo: use phone + PIN from seed data'
+              : 'Trouble signing in? Contact your school office.'}
           </p>
         </form>
       </div>

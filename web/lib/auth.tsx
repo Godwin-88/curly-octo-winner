@@ -6,11 +6,16 @@
 //   - staff    (admin dashboard + teacher portal)  -> `token`, `staff`
 //   - guardian (parent portal)                     -> `guardianToken`, `guardian`
 //
-// Sessions are hydrated once on mount from localStorage (written at login) and
-// mirrored into cookies (`shule360_token`, `shule360_guardian_token`) so the
-// edge proxy can route-protect areas without shipping tokens to it in headers.
-// The Go API always re-validates the JWT signature on every request; the proxy
-// check is a UX fast-path, not the security boundary.
+// Sessions are HttpOnly cookies issued by the Go API at login and carried
+// same-origin on every request (next.config.js proxies /api/v1/* to the API).
+// JavaScript never touches the tokens: on mount the provider asks the API
+// "who am I?" (GET /auth/me, GET /auth/guardian/me) and hydrates the profile
+// from the *verified* server response. Only the non-secret profile (name,
+// email, role) is cached in localStorage for an instant first paint — the
+// cookie is the source of truth.
+//
+// The Go API re-validates the JWT signature on every request; the edge proxy
+// (web/proxy.ts) is a UX fast-path, not the security boundary.
 
 import {
   createContext,
@@ -44,13 +49,13 @@ export interface GuardianUser {
 }
 
 interface AuthContextValue {
-  /** Staff JWT (admin + teacher portals). Empty until hydrated or when signed out. */
+  /** Staff JWT (admin + teacher portals). Held in memory only, when available. */
   token: string;
   staff: StaffUser | null;
-  /** Guardian JWT (parent portal). Empty until hydrated or when signed out. */
+  /** Guardian JWT (parent portal). Held in memory only, when available. */
   guardianToken: string;
   guardian: GuardianUser | null;
-  /** True once the initial localStorage hydration has run. */
+  /** True once the initial who-am-i hydration has run. */
   ready: boolean;
   loginStaff: (email: string, password: string) => Promise<StaffUser>;
   logoutStaff: (redirectTo?: string) => void;
@@ -58,37 +63,51 @@ interface AuthContextValue {
   logoutGuardian: () => void;
 }
 
-// --- Storage keys (kept identical to the keys written by earlier versions) ---
+// --- Profile cache & legacy cleanup ---
 
-const STAFF_TOKEN_KEY = 'token';
-const STAFF_USER_KEY = 'staff';
-const GUARDIAN_TOKEN_KEY = 'guardian_token';
-const GUARDIAN_USER_KEY = 'guardian';
+const STAFF_PROFILE_KEY = 'staff';
+const GUARDIAN_PROFILE_KEY = 'guardian';
 
-// Cookies read by web/proxy.ts (edge route protection).
-const STAFF_COOKIE = 'shule360_token';
-const GUARDIAN_COOKIE = 'shule360_guardian_token';
+// Cookies used by pre-cookie-auth builds (JS-readable JWT mirrors). They are
+// cleared on every mount — the httpOnly shule360_session cookies replaced them.
+const LEGACY_COOKIE_NAMES = ['shule360_token', 'shule360_guardian_token'];
+const LEGACY_STORAGE_KEYS = ['token', 'guardian_token'];
 
-// Matches the 24h expiry the Go API issues on both JWT types.
-const SESSION_MAX_AGE_SECONDS = 24 * 60 * 60;
-
-function writeSessionCookie(name: string, value: string) {
-  if (typeof document === 'undefined') return;
-  const secure = typeof window !== 'undefined' && window.location.protocol === 'https:' ? '; Secure' : '';
-  document.cookie = `${name}=${encodeURIComponent(value)}; path=/; max-age=${SESSION_MAX_AGE_SECONDS}; SameSite=Lax${secure}`;
+function clearLegacySessions() {
+  if (typeof window === 'undefined') return;
+  for (const key of LEGACY_STORAGE_KEYS) {
+    window.localStorage.removeItem(key);
+  }
+  for (const name of LEGACY_COOKIE_NAMES) {
+    document.cookie = `${name}=; path=/; max-age=0; SameSite=Lax`;
+  }
 }
 
-function clearSessionCookie(name: string) {
-  if (typeof document === 'undefined') return;
-  document.cookie = `${name}=; path=/; max-age=0; SameSite=Lax`;
+function cacheProfile<T>(key: string, value: T | null) {
+  if (typeof window === 'undefined') return;
+  if (value) {
+    window.localStorage.setItem(key, JSON.stringify(value));
+  } else {
+    window.localStorage.removeItem(key);
+  }
 }
 
-function safeParse<T>(raw: string | null): T | null {
-  if (!raw) return null;
+function readCachedProfile<T>(key: string): T | null {
+  if (typeof window === 'undefined') return null;
   try {
-    return JSON.parse(raw) as T;
+    const raw = window.localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as T) : null;
   } catch {
     return null;
+  }
+}
+
+/** Best-effort POST that swallows network/HTTP errors (used by logout). */
+async function postAndIgnore(path: string) {
+  try {
+    await fetch(`${API_BASE}${path}`, { method: 'POST' });
+  } catch {
+    // Logging out must never fail because the API is unreachable.
   }
 }
 
@@ -104,21 +123,54 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);
   const router = useRouter();
 
-  // Hydrate on mount (client only). Running this in an effect instead of a
-  // lazy useState initializer keeps the first client render identical to the
-  // SSR output (token = '') and avoids hydration mismatches.
+  // Who-am-i hydration on mount (client only). Sessions live in HttpOnly
+  // cookies, so the browser asks the API who it is: each /me endpoint answers
+  // 200 + profile for a valid cookie of its scope, or 401 when absent/expired.
+  // The cached localStorage profile is painted immediately (optimistic) and
+  // then reconciled with the verified server response.
   useEffect(() => {
-    const t = window.localStorage.getItem(STAFF_TOKEN_KEY) || '';
-    const gt = window.localStorage.getItem(GUARDIAN_TOKEN_KEY) || '';
-    setToken(t);
-    setStaff(safeParse<StaffUser>(window.localStorage.getItem(STAFF_USER_KEY)));
-    setGuardianToken(gt);
-    setGuardian(safeParse<GuardianUser>(window.localStorage.getItem(GUARDIAN_USER_KEY)));
-    // Re-sync cookies in case they expired while localStorage still holds the
-    // session, so edge route protection keeps working on the next navigation.
-    if (t) writeSessionCookie(STAFF_COOKIE, t);
-    if (gt) writeSessionCookie(GUARDIAN_COOKIE, gt);
-    setReady(true);
+    let alive = true;
+    clearLegacySessions();
+
+    setStaff(readCachedProfile<StaffUser>(STAFF_PROFILE_KEY));
+    setGuardian(readCachedProfile<GuardianUser>(GUARDIAN_PROFILE_KEY));
+
+    (async () => {
+      const [staffRes, guardianRes] = await Promise.all([
+        fetch(`${API_BASE}/auth/me`),
+        fetch(`${API_BASE}/auth/guardian/me`),
+      ]);
+
+      if (!alive) return;
+
+      if (staffRes.ok) {
+        const data = (await staffRes.json().catch(() => null)) as { staff?: StaffUser } | null;
+        if (data?.staff) {
+          setStaff(data.staff);
+          cacheProfile(STAFF_PROFILE_KEY, data.staff);
+        }
+      } else {
+        setStaff(null);
+        cacheProfile(STAFF_PROFILE_KEY, null);
+      }
+
+      if (guardianRes.ok) {
+        const data = (await guardianRes.json().catch(() => null)) as { guardian?: GuardianUser } | null;
+        if (data?.guardian) {
+          setGuardian(data.guardian);
+          cacheProfile(GUARDIAN_PROFILE_KEY, data.guardian);
+        }
+      } else {
+        setGuardian(null);
+        cacheProfile(GUARDIAN_PROFILE_KEY, null);
+      }
+
+      if (alive) setReady(true);
+    })();
+
+    return () => {
+      alive = false;
+    };
   }, []);
 
   const loginStaff = useCallback(
@@ -133,11 +185,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         throw new Error(data.error || 'Login failed');
       }
       const user = data.staff as StaffUser;
-      window.localStorage.setItem(STAFF_TOKEN_KEY, data.token);
-      window.localStorage.setItem(STAFF_USER_KEY, JSON.stringify(user));
-      writeSessionCookie(STAFF_COOKIE, data.token);
+      // The Go API set the HttpOnly session cookie on this response; the token
+      // stays in memory only (never persisted to JS-accessible storage).
       setToken(data.token);
       setStaff(user);
+      cacheProfile(STAFF_PROFILE_KEY, user);
       return user;
     },
     []
@@ -145,11 +197,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logoutStaff = useCallback(
     (redirectTo = '/auth/login') => {
-      window.localStorage.removeItem(STAFF_TOKEN_KEY);
-      window.localStorage.removeItem(STAFF_USER_KEY);
-      clearSessionCookie(STAFF_COOKIE);
+      // Server clears the HttpOnly cookie; best effort if the API is down.
+      postAndIgnore('/auth/logout');
       setToken('');
       setStaff(null);
+      cacheProfile(STAFF_PROFILE_KEY, null);
       router.push(redirectTo);
     },
     [router]
@@ -167,23 +219,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         throw new Error(data.error || 'Login failed');
       }
       const user = data.guardian as GuardianUser;
-      window.localStorage.setItem(GUARDIAN_TOKEN_KEY, data.token);
-      window.localStorage.setItem(GUARDIAN_USER_KEY, JSON.stringify(user));
-      window.localStorage.setItem('tenant_id', tenantId);
-      writeSessionCookie(GUARDIAN_COOKIE, data.token);
       setGuardianToken(data.token);
       setGuardian(user);
+      cacheProfile(GUARDIAN_PROFILE_KEY, user);
+      // Remember the school so the picker can pre-select it next visit.
+      window.localStorage.setItem('tenant_id', tenantId);
       return user;
     },
     []
   );
 
   const logoutGuardian = useCallback(() => {
-    window.localStorage.removeItem(GUARDIAN_TOKEN_KEY);
-    window.localStorage.removeItem(GUARDIAN_USER_KEY);
-    clearSessionCookie(GUARDIAN_COOKIE);
+    // Server clears the HttpOnly cookie AND revokes the guardian_sessions rows.
+    postAndIgnore('/auth/guardian/logout');
     setGuardianToken('');
     setGuardian(null);
+    cacheProfile(GUARDIAN_PROFILE_KEY, null);
     router.push('/parent/login');
   }, [router]);
 

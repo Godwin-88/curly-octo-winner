@@ -19,7 +19,7 @@ type SMSSender interface {
 
 // AbsenceAlertService handles sending SMS alerts for unexcused absences.
 type AbsenceAlertService struct {
-	pool     *pgxpool.Pool
+	pool      *pgxpool.Pool
 	smsSender SMSSender
 }
 
@@ -47,10 +47,10 @@ func (s *AbsenceAlertService) CheckAndAlert(ctx context.Context, tenantID uuid.U
 	defer rows.Close()
 
 	type absence struct {
-		id          uuid.UUID
-		learnerID   uuid.UUID
-		learnerName string
-		phone       string
+		id           uuid.UUID
+		learnerID    uuid.UUID
+		learnerName  string
+		phone        string
 		guardianName string
 	}
 	var absences []absence

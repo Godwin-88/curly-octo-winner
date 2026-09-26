@@ -361,7 +361,7 @@ export default function AIAssistantPage() {
               <BookOpen size={20} className="text-teal-600" />
               <h2 className="text-lg font-semibold">Learner Portfolio Summary</h2>
             </div>
-            <p className="text-sm text-gray-500 mb-4">Generate a semantic summary of a learner's assessment observations (Term 1 2026).</p>
+            <p className="text-sm text-gray-500 mb-4">Generate a semantic summary of a learner&apos;s assessment observations (Term 1 2026).</p>
             <div className="flex gap-2 mb-4">
               <input
                 value={portfolioLearner}

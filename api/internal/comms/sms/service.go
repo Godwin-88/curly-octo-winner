@@ -251,8 +251,16 @@ func (s *SMSService) GetCampaignLogs(ctx context.Context, tenantID, campaignID u
 	return logs, rows.Err()
 }
 
-func (s *SMSService) resolveAudience(ctx context.Context, tenantID uuid.UUID, audienceType string, filter json.RawMessage) ([]struct{ ID uuid.UUID; Phone string; Name string }, error) {
-	var recipients []struct{ ID uuid.UUID; Phone string; Name string }
+func (s *SMSService) resolveAudience(ctx context.Context, tenantID uuid.UUID, audienceType string, filter json.RawMessage) ([]struct {
+	ID    uuid.UUID
+	Phone string
+	Name  string
+}, error) {
+	var recipients []struct {
+		ID    uuid.UUID
+		Phone string
+		Name  string
+	}
 
 	switch audienceType {
 	case "all_parents":
@@ -340,7 +348,11 @@ func (s *SMSService) resolveAudience(ctx context.Context, tenantID uuid.UUID, au
 	return recipients, nil
 }
 
-func (s *SMSService) queryRecipients(ctx context.Context, tenantID uuid.UUID, query string, out *[]struct{ ID uuid.UUID; Phone string; Name string }, args ...any) error {
+func (s *SMSService) queryRecipients(ctx context.Context, tenantID uuid.UUID, query string, out *[]struct {
+	ID    uuid.UUID
+	Phone string
+	Name  string
+}, args ...any) error {
 	fullArgs := append([]any{tenantID}, args...)
 	rows, err := s.pool.Query(ctx, query, fullArgs...)
 	if err != nil {

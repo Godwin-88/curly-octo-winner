@@ -5,9 +5,8 @@ import { useAuth } from '@/lib/auth';
 import { useEffect, useState } from 'react';
 import { api, GoodsReceipt, PurchaseOrder, CreateGoodsReceiptRequest, GoodsReceiptItemInput } from '@/lib/api';
 
-const { token } = useAuth();
-
 export default function ReceiptsPage() {
+  const { token } = useAuth();
   const [receipts, setReceipts] = useState<GoodsReceipt[]>([]);
   const [orders, setOrders] = useState<PurchaseOrder[]>([]);
   const [loading, setLoading] = useState(true);

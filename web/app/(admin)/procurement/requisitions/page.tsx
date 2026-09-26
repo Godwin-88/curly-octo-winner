@@ -5,9 +5,8 @@ import { useAuth } from '@/lib/auth';
 import { useEffect, useState } from 'react';
 import { api, PurchaseRequisition, CreateRequisitionRequest, RequisitionItemInput } from '@/lib/api';
 
-const { token } = useAuth();
-
 export default function RequisitionsPage() {
+  const { token } = useAuth();
   const [requisitions, setRequisitions] = useState<PurchaseRequisition[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);

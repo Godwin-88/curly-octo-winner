@@ -16,6 +16,16 @@ export default function ConversationThreadPage() {
   const { token, staff } = useAuth();
   const tenantId = staff?.tenant_id || '';
 
+  const loadConversation = async () => {
+    try {
+      const data = await api.getConversation(conversationId, token);
+      setConversation(data.conversation);
+      setMessages(data.messages);
+    } catch (err) {
+      console.error('Failed to load conversation:', err);
+    }
+  };
+
   useEffect(() => {
     if (token) loadConversation();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -30,16 +40,6 @@ export default function ConversationThreadPage() {
       sub.unsubscribe();
     };
   }, [tenantId, conversationId]);
-
-  const loadConversation = async () => {
-    try {
-      const data = await api.getConversation(conversationId, token);
-      setConversation(data.conversation);
-      setMessages(data.messages);
-    } catch (err) {
-      console.error('Failed to load conversation:', err);
-    }
-  };
 
   const handleSendReply = async () => {
     if (!reply.trim()) return;

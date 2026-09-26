@@ -5,11 +5,10 @@ import { useAuth } from '@/lib/auth';
 import { useEffect, useState } from 'react';
 import { api, Supplier, CreateSupplierRequest } from '@/lib/api';
 
-const { token } = useAuth();
-
 const categories = ['textbooks', 'stationery', 'furniture', 'ict', 'uniforms', 'food', 'lab', 'construction', 'transport', 'general'];
 
 export default function SuppliersPage() {
+  const { token } = useAuth();
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);

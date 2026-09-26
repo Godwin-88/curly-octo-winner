@@ -55,9 +55,17 @@ func NewHandler(supabase *supabaseclient.Client, cfg *config.Config, redis *upst
 	return &Handler{supabase: supabase, cfg: cfg, redis: redis}
 }
 
-// Mount registers auth routes.
+// Mount registers public auth routes.
 func (h *Handler) Mount(r chi.Router) {
 	r.Post("/login", h.Login)
+	r.Post("/logout", h.Logout)
+}
+
+// MountPrivate registers authenticated auth routes. Call this from inside the
+// Auth middleware group so /auth/me can trust the verified identity in the
+// request context.
+func (h *Handler) MountPrivate(r chi.Router) {
+	r.Get("/me", h.Me)
 }
 
 // Login handles POST /api/v1/auth/login.
@@ -102,6 +110,11 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_ = supabaseToken // Available for future use (e.g., refresh tokens)
+
+	// Issue the session JWT as an HttpOnly cookie in addition to the JSON
+	// body. The web app consumes the cookie (same-origin proxy); API clients
+	// keep using the bearer token from the body.
+	appmiddleware.SetSessionCookie(w, appmiddleware.CookieStaffSession, token, h.cfg.IsProduction())
 
 	httputil.RespondOK(w, LoginResponse{
 		Token: token,
@@ -198,4 +211,44 @@ func (h *Handler) generateToken(staff *staffRow) (string, error) {
 // ioReadAll reads all data from an io.Reader.
 func ioReadAll(r io.Reader) ([]byte, error) {
 	return io.ReadAll(r)
+}
+
+// Logout handles POST /api/v1/auth/logout. It is public: clearing an invalid
+// or expired session cookie is always safe. The JWT itself cannot be revoked
+// server-side (stateless verification), so logout only drops the cookie — the
+// 24h expiry bounds any stolen-token window.
+func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
+	appmiddleware.ClearSessionCookie(w, appmiddleware.CookieStaffSession, h.cfg.IsProduction())
+	httputil.RespondOK(w, map[string]string{"status": "logged_out"})
+}
+
+// Me handles GET /api/v1/auth/me. Mounted inside the Auth middleware group:
+// the staff identity comes from the verified JWT (never from the client) and
+// the profile is re-read from the database so role/name changes take effect
+// without waiting for token expiry.
+func (h *Handler) Me(w http.ResponseWriter, r *http.Request) {
+	staffID, ok := appmiddleware.GetStaffID(r)
+	if !ok {
+		httputil.RespondUnauthorized(w, "UNAUTHORIZED", "Not a staff session")
+		return
+	}
+
+	var s staffRow
+	err := h.supabase.Pool.QueryRow(r.Context(),
+		`SELECT id, tenant_id, full_name, email, role::text, COALESCE(phone, '') FROM staff WHERE id = $1 AND is_active = true`,
+		staffID,
+	).Scan(&s.ID, &s.TenantID, &s.FullName, &s.Email, &s.Role, &s.Phone)
+	if err != nil {
+		httputil.RespondUnauthorized(w, "UNAUTHORIZED", "Staff account not found or deactivated")
+		return
+	}
+
+	httputil.RespondOK(w, map[string]any{"staff": StaffBrief{
+		ID:       s.ID,
+		TenantID: s.TenantID,
+		FullName: s.FullName,
+		Email:    s.Email,
+		Role:     s.Role,
+		Phone:    s.Phone,
+	}})
 }

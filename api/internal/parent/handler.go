@@ -53,10 +53,10 @@ func (h *Handler) dashboard(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 
 	type LearnerBrief struct {
-		ID        uuid.UUID `json:"id"`
-		FullName  string    `json:"full_name"`
-		Grade     string    `json:"grade"`
-		Stream    string    `json:"stream"`
+		ID       uuid.UUID `json:"id"`
+		FullName string    `json:"full_name"`
+		Grade    string    `json:"grade"`
+		Stream   string    `json:"stream"`
 	}
 	var learners []LearnerBrief
 	for rows.Next() {
@@ -194,17 +194,17 @@ func (h *Handler) listFees(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 
 	type InvoiceBrief struct {
-		ID           uuid.UUID `json:"id"`
-		LearnerID    uuid.UUID `json:"learner_id"`
-		LearnerName  string    `json:"learner_name"`
-		InvoiceNumber string   `json:"invoice_number"`
-		Term         int       `json:"term"`
-		Year         int       `json:"year"`
-		TotalCents   int64     `json:"total_cents"`
-		PaidCents    int64     `json:"paid_cents"`
-		BalanceCents int64     `json:"balance_cents"`
-		Status       string    `json:"status"`
-		DueDate      *string   `json:"due_date,omitempty"`
+		ID            uuid.UUID `json:"id"`
+		LearnerID     uuid.UUID `json:"learner_id"`
+		LearnerName   string    `json:"learner_name"`
+		InvoiceNumber string    `json:"invoice_number"`
+		Term          int       `json:"term"`
+		Year          int       `json:"year"`
+		TotalCents    int64     `json:"total_cents"`
+		PaidCents     int64     `json:"paid_cents"`
+		BalanceCents  int64     `json:"balance_cents"`
+		Status        string    `json:"status"`
+		DueDate       *string   `json:"due_date,omitempty"`
 	}
 	var invoices []InvoiceBrief
 	for rows.Next() {
@@ -251,14 +251,14 @@ func (h *Handler) listTransport(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 
 	type TripBrief struct {
-		ID                  uuid.UUID `json:"id"`
-		RouteID             uuid.UUID `json:"route_id"`
-		RouteName           string    `json:"route_name"`
-		Direction           string    `json:"direction"`
-		Status              string    `json:"status"`
+		ID                 uuid.UUID `json:"id"`
+		RouteID            uuid.UUID `json:"route_id"`
+		RouteName          string    `json:"route_name"`
+		Direction          string    `json:"direction"`
+		Status             string    `json:"status"`
 		ScheduledDeparture string    `json:"scheduled_departure"`
-		ActualDeparture     *string   `json:"actual_departure,omitempty"`
-		BoardedCount        int       `json:"boarded_count"`
+		ActualDeparture    *string   `json:"actual_departure,omitempty"`
+		BoardedCount       int       `json:"boarded_count"`
 	}
 	var trips []TripBrief
 	for rows.Next() {

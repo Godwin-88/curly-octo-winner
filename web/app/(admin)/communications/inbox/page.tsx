@@ -20,6 +20,20 @@ export default function InboxPage() {
   const { token, staff } = useAuth();
   const tenantId = staff?.tenant_id || '';
 
+  const loadConversations = async () => {
+    try {
+      const data = await api.listConversations(
+        { status: statusFilter || undefined, limit: 50 },
+        token
+      );
+      setConversations(data);
+    } catch (err) {
+      console.error('Failed to load conversations:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (token) loadConversations();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -34,20 +48,6 @@ export default function InboxPage() {
       sub.unsubscribe();
     };
   }, [tenantId]);
-
-  const loadConversations = async () => {
-    try {
-      const data = await api.listConversations(
-        { status: statusFilter || undefined, limit: 50 },
-        token
-      );
-      setConversations(data);
-    } catch (err) {
-      console.error('Failed to load conversations:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   return (
     <div>

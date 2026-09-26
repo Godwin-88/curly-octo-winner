@@ -155,7 +155,7 @@ func main() {
 	securityHandler := security.NewHandler(securitySvc)
 
 	// Initialize guardian auth (parent portal)
-	guardianAuthHandler := guardian_auth.NewHandler(sb.Pool, cfg.JWTSecret, redisClient)
+	guardianAuthHandler := guardian_auth.NewHandler(sb.Pool, cfg.JWTSecret, redisClient, cfg.IsProduction())
 
 	// Initialize parent portal handler
 	parentHandler := parent.NewHandler(sb.Pool)
@@ -175,11 +175,17 @@ func main() {
 	r.Use(RecoverMiddleware)
 	r.Use(middleware.Logger)
 	r.Use(cors.Handler(cors.Options{
-		AllowedOrigins: []string{
+		// Defaults cover the production frontend, localhost dev ports, and all
+		// Vercel preview deployments (*.vercel.app). CORS_ALLOWED_ORIGINS adds
+		// custom origins (e.g. a dedicated app domain). Browser traffic is
+		// same-origin via the web proxy, so this list mainly serves direct
+		// API clients during development.
+		AllowedOrigins: append([]string{
 			"https://shule360.vercel.app",
+			"https://*.vercel.app",
 			"http://localhost:3000",
 			"http://localhost:3001",
-		},
+		}, cfg.CORSAllowedOrigins...),
 		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-Requested-With"},
 		AllowCredentials: true,
@@ -199,16 +205,28 @@ func main() {
 		authHandler.Mount(r)
 		guardianAuthHandler.Mount(r)
 
-		// Webhooks (no auth)
+		// Webhooks (no auth). The M-Pesa callback is restricted to Daraja
+		// egress IPs when MPESA_ALLOWED_IPS is configured; an empty list
+		// allows all traffic (development only) and is called out at startup.
 		r.Handle("/webhooks/whatsapp", waWebhook)
 		r.Post("/webhooks/sms/dlr", handleSMSDLR)
-		financeHandler.MountWebhooks(r)
+		r.Group(func(r chi.Router) {
+			r.Use(appmiddleware.AllowIPs(cfg.MpesaAllowedIPs))
+			financeHandler.MountWebhooks(r)
+		})
+		if len(cfg.MpesaAllowedIPs) == 0 {
+			slog.Warn("MPESA_ALLOWED_IPS not set: M-Pesa webhook accepts any source IP (set it in production)")
+		}
 
 		// Authenticated routes
 		r.Group(func(r chi.Router) {
 			r.Use(appmiddleware.Auth(cfg.JWTSecret))
 			r.Use(appmiddleware.TenantRequired)
 			r.Use(appmiddleware.RateLimit(redisClient, 100, 10))
+
+			// Authenticated auth routes: /auth/me returns the verified staff
+			// profile (identity from the JWT, profile re-read from the DB).
+			authHandler.MountPrivate(r)
 
 			// Role groups — mirrors the staff_role enum in
 			// 002_staff_auth.sql and the frontend Sidebar ROLE_NAV map.
@@ -245,6 +263,7 @@ func main() {
 			// Parent portal — guardians only
 			r.Group(func(r chi.Router) {
 				r.Use(appmiddleware.RequireRole("guardian"))
+				guardianAuthHandler.MountPrivate(r) // /auth/guardian/me + /logout
 				parentHandler.Mount(r)
 			})
 		})

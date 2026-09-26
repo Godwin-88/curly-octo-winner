@@ -18,10 +18,10 @@ import (
 
 // Handler contains the HTTP handlers for the academic API.
 type Handler struct {
-	curriculumSvc      *curriculum.Service
-	assessmentSvc      *assessment.Service
-	attendanceSvc      *attendance.Service
-	absenceAlertSvc    *attendance.AbsenceAlertService
+	curriculumSvc   *curriculum.Service
+	assessmentSvc   *assessment.Service
+	attendanceSvc   *attendance.Service
+	absenceAlertSvc *attendance.AbsenceAlertService
 }
 
 // NewHandler creates a new academic handler.

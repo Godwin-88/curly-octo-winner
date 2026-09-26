@@ -40,10 +40,12 @@ type Handler struct {
 	pool      *pgxpool.Pool
 	jwtSecret string
 	redis     *upstash.RedisClient
+	// secure is passed to session cookies (HTTPS-only in production).
+	secure bool
 }
 
-func NewHandler(pool *pgxpool.Pool, jwtSecret string, redis *upstash.RedisClient) *Handler {
-	return &Handler{pool: pool, jwtSecret: jwtSecret, redis: redis}
+func NewHandler(pool *pgxpool.Pool, jwtSecret string, redis *upstash.RedisClient, secure bool) *Handler {
+	return &Handler{pool: pool, jwtSecret: jwtSecret, redis: redis, secure: secure}
 }
 
 func (h *Handler) Mount(r chi.Router) {
@@ -51,6 +53,16 @@ func (h *Handler) Mount(r chi.Router) {
 		// Public: school list for the parent-portal sign-in form.
 		r.Get("/schools", h.schools)
 		r.Post("/login", h.login)
+	})
+}
+
+// MountPrivate registers authenticated guardian routes. Call from inside the
+// guardian RequireRole group so /me and /logout can trust the verified
+// guardian identity in the request context.
+func (h *Handler) MountPrivate(r chi.Router) {
+	r.Route("/auth/guardian", func(r chi.Router) {
+		r.Get("/me", h.me)
+		r.Post("/logout", h.logout)
 	})
 }
 
@@ -120,6 +132,9 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 		VALUES ($1, $2, $3, $4)
 	`, guardian.ID, guardian.TenantID, tokenString, time.Now().Add(24*time.Hour))
 
+	// Session cookie (HttpOnly) alongside the JSON body — see auth.Login.
+	appmiddleware.SetSessionCookie(w, appmiddleware.CookieGuardianSession, tokenString, h.secure)
+
 	httputil.RespondOK(w, LoginResponse{
 		Token: tokenString,
 		Guardian: Guardian{
@@ -136,6 +151,44 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) verifyPIN(pin, hash string) bool {
 	err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(pin))
 	return err == nil
+}
+
+// me handles GET /api/v1/auth/guardian/me (mounted inside the Auth +
+// guardian-role group). Identity comes from the verified JWT context; the
+// profile is re-read from the database so the parent portal always shows
+// current details and deactivated guardians are rejected immediately.
+func (h *Handler) me(w http.ResponseWriter, r *http.Request) {
+	guardianID, ok := appmiddleware.GetGuardianID(r)
+	if !ok {
+		httputil.RespondUnauthorized(w, "UNAUTHORIZED", "Not a guardian session")
+		return
+	}
+
+	var g Guardian
+	err := h.pool.QueryRow(r.Context(), `
+		SELECT id, tenant_id, full_name, phone_primary, COALESCE(email, '')
+		FROM guardians
+		WHERE id = $1
+	`, guardianID).Scan(&g.ID, &g.TenantID, &g.FullName, &g.Phone, &g.Email)
+	if err != nil {
+		httputil.RespondUnauthorized(w, "UNAUTHORIZED", "Guardian account not found")
+		return
+	}
+
+	httputil.RespondOK(w, map[string]any{"guardian": g})
+}
+
+// logout handles POST /api/v1/auth/guardian/logout. Unlike staff sessions
+// (stateless JWTs), guardian sessions are tracked in the guardian_sessions
+// table, so logout actually revokes them: all live sessions for this guardian
+// are deleted and the HttpOnly cookie is cleared.
+func (h *Handler) logout(w http.ResponseWriter, r *http.Request) {
+	if guardianID, ok := appmiddleware.GetGuardianID(r); ok {
+		_, _ = h.pool.Exec(r.Context(),
+			`DELETE FROM guardian_sessions WHERE guardian_id = $1`, guardianID)
+	}
+	appmiddleware.ClearSessionCookie(w, appmiddleware.CookieGuardianSession, h.secure)
+	httputil.RespondOK(w, map[string]string{"status": "logged_out"})
 }
 
 // schools handles GET /api/v1/auth/guardian/schools.

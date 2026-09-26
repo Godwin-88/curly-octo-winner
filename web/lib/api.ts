@@ -1,6 +1,16 @@
-// Typed fetch wrapper for the Shule360 Go API
+// Typed fetch wrapper for the Shule360 Go API.
+//
+// All browser traffic is same-origin: requests go to /api/v1/* on this origin
+// and are proxied server-side to the Go API (next.config.js rewrites). This
+// keeps the HttpOnly session cookies first-party and removes CORS from the
+// request path entirely.
+//
+// Authentication is cookie-first: the Go API issues an HttpOnly session
+// cookie at login and the auth middleware accepts it on every request, so
+// pages no longer need to hold or pass tokens. The optional `token` option
+// still works for explicit Authorization headers (e.g. right after login).
 
-export const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080/api/v1';
+export const API_BASE = '/api/v1';
 
 export class APIError extends Error {
   code: string;
@@ -25,15 +35,8 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
   };
-
-  // Fall back to the token stored at login if one wasn't explicitly passed.
-  // Many pages pass an empty token (via inline `const token = ''`), so reading
-  // from localStorage here centralizes auth and fixes "missing Authorization header".
-  const effectiveToken =
-    token || (typeof window !== 'undefined' ? window.localStorage.getItem('token') || '' : '');
-
-  if (effectiveToken) {
-    headers['Authorization'] = `Bearer ${effectiveToken}`;
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
   }
 
   const res = await fetch(`${API_BASE}${path}`, {
@@ -44,18 +47,18 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
 
   if (!res.ok) {
     // Global session-expiry handling: a 401 from an authenticated call means
-    // the JWT is invalid/expired. Clear both session scopes (localStorage +
-    // cookies) and bounce to the matching sign-in page. Login pages do their
-    // own fetch handling, so this never loops.
+    // the session cookie is invalid or expired (the HttpOnly cookie cannot be
+    // cleared from JS; the expired cookie is dropped by the browser/next
+    // login anyway). Clear cached profiles and bounce to the matching
+    // sign-in page. Login pages do their own fetch handling, so no loop.
     if (res.status === 401 && typeof window !== 'undefined') {
-      const hadGuardian = !!window.localStorage.getItem('guardian_token');
-      window.localStorage.removeItem('token');
+      const onParentPortal = window.location.pathname.startsWith('/parent');
       window.localStorage.removeItem('staff');
-      window.localStorage.removeItem('guardian_token');
       window.localStorage.removeItem('guardian');
+      // Legacy cookies from pre-cookie-auth builds (JS-readable mirrors).
       document.cookie = 'shule360_token=; path=/; max-age=0; SameSite=Lax';
       document.cookie = 'shule360_guardian_token=; path=/; max-age=0; SameSite=Lax';
-      window.location.href = hadGuardian ? '/parent/login' : '/auth/login';
+      window.location.href = onParentPortal ? '/parent/login' : '/auth/login';
       throw new APIError('Session expired. Please sign in again.', 'UNAUTHORIZED', 401);
     }
 

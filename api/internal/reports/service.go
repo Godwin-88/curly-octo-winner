@@ -334,14 +334,14 @@ func (s *Service) GenerateReportCard(ctx context.Context, tenantID, learnerID uu
 }
 
 type ReportCardPDF struct {
-	ID          uuid.UUID `json:"id"`
-	ReportCardID uuid.UUID `json:"report_card_id"`
-	FileName    string    `json:"file_name"`
-	FileURL     string    `json:"file_url"`
-	FileSizeBytes int64   `json:"file_size_bytes"`
-	MimeType    string    `json:"mime_type"`
-	GeneratedBy *uuid.UUID `json:"generated_by,omitempty"`
-	CreatedAt   time.Time `json:"created_at"`
+	ID            uuid.UUID  `json:"id"`
+	ReportCardID  uuid.UUID  `json:"report_card_id"`
+	FileName      string     `json:"file_name"`
+	FileURL       string     `json:"file_url"`
+	FileSizeBytes int64      `json:"file_size_bytes"`
+	MimeType      string     `json:"mime_type"`
+	GeneratedBy   *uuid.UUID `json:"generated_by,omitempty"`
+	CreatedAt     time.Time  `json:"created_at"`
 }
 
 func (s *Service) GenerateReportCardPDF(ctx context.Context, tenantID, reportCardID uuid.UUID, generatedBy uuid.UUID) (*ReportCardPDF, error) {

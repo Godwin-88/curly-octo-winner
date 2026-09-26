@@ -24,10 +24,6 @@ export default function DeliveryReportPage() {
 
   const { token } = useAuth();
 
-  useEffect(() => {
-    loadData();
-  }, [messageId]);
-
   const loadData = async () => {
     try {
       const [msgData, logData] = await Promise.all([
@@ -43,6 +39,11 @@ export default function DeliveryReportPage() {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    loadData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messageId]);
 
   const exportCSV = () => {
     const headers = ['Phone', 'Status', 'Channel', 'Delivered At', 'Error Code', 'Error Message'];

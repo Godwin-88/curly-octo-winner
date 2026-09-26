@@ -14,24 +14,24 @@ import (
 type AttendanceStatus string
 
 const (
-	AttendancePresent  AttendanceStatus = "present"
-	AttendanceAbsent   AttendanceStatus = "absent"
-	AttendanceLate     AttendanceStatus = "late"
-	AttendanceExcused  AttendanceStatus = "excused"
+	AttendancePresent AttendanceStatus = "present"
+	AttendanceAbsent  AttendanceStatus = "absent"
+	AttendanceLate    AttendanceStatus = "late"
+	AttendanceExcused AttendanceStatus = "excused"
 )
 
 // Attendance represents a single attendance record.
 type Attendance struct {
-	ID          uuid.UUID      `json:"id"`
-	TenantID    uuid.UUID      `json:"tenant_id"`
-	LearnerID   uuid.UUID      `json:"learner_id"`
-	Date        time.Time      `json:"date"`
+	ID          uuid.UUID        `json:"id"`
+	TenantID    uuid.UUID        `json:"tenant_id"`
+	LearnerID   uuid.UUID        `json:"learner_id"`
+	Date        time.Time        `json:"date"`
 	Status      AttendanceStatus `json:"status"`
-	MarkedBy    *uuid.UUID     `json:"marked_by,omitempty"`
-	Reason      string         `json:"reason,omitempty"`
-	SMSNotified bool           `json:"sms_notified"`
-	CreatedAt   time.Time      `json:"created_at"`
-	UpdatedAt   time.Time      `json:"updated_at"`
+	MarkedBy    *uuid.UUID       `json:"marked_by,omitempty"`
+	Reason      string           `json:"reason,omitempty"`
+	SMSNotified bool             `json:"sms_notified"`
+	CreatedAt   time.Time        `json:"created_at"`
+	UpdatedAt   time.Time        `json:"updated_at"`
 }
 
 // CreateAttendanceRequest is the request payload for marking attendance.
@@ -46,16 +46,16 @@ type CreateAttendanceRequest struct {
 
 // AttendanceSummary is a joined view with learner info.
 type AttendanceSummary struct {
-	ID         uuid.UUID      `json:"id"`
-	LearnerID  uuid.UUID      `json:"learner_id"`
-	LearnerName string        `json:"learner_name"`
-	Grade      string         `json:"grade"`
-	Stream     string         `json:"stream"`
-	Date       time.Time      `json:"date"`
-	Status     AttendanceStatus `json:"status"`
-	Reason     string         `json:"reason,omitempty"`
-	SMSNotified bool          `json:"sms_notified"`
-	CreatedAt  time.Time      `json:"created_at"`
+	ID          uuid.UUID        `json:"id"`
+	LearnerID   uuid.UUID        `json:"learner_id"`
+	LearnerName string           `json:"learner_name"`
+	Grade       string           `json:"grade"`
+	Stream      string           `json:"stream"`
+	Date        time.Time        `json:"date"`
+	Status      AttendanceStatus `json:"status"`
+	Reason      string           `json:"reason,omitempty"`
+	SMSNotified bool             `json:"sms_notified"`
+	CreatedAt   time.Time        `json:"created_at"`
 }
 
 // Service handles attendance-related operations.
@@ -241,12 +241,12 @@ func (s *Service) ChronicAbsenteeism(ctx context.Context, tenantID uuid.UUID, th
 			return nil, fmt.Errorf("scan chronic absenteeism: %w", err)
 		}
 		row = map[string]interface{}{
-			"learner_id":     learnerID,
-			"learner_name":   learnerName,
-			"grade":          grade,
-			"stream":         stream,
-			"total_days":     totalDays,
-			"absent_days":    absentDays,
+			"learner_id":      learnerID,
+			"learner_name":    learnerName,
+			"grade":           grade,
+			"stream":          stream,
+			"total_days":      totalDays,
+			"absent_days":     absentDays,
 			"attendance_rate": attendanceRate,
 		}
 		results = append(results, row)

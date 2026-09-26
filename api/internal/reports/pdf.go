@@ -9,8 +9,8 @@ import (
 )
 
 type ReportCardPDFData struct {
-	ReportCard   *ReportCard
-	GeneratedAt  string
+	ReportCard  *ReportCard
+	GeneratedAt string
 }
 
 func GenerateReportCardPDF(data ReportCardPDFData) ([]byte, error) {

@@ -6,9 +6,14 @@ import { NextRequest, NextResponse } from 'next/server';
 // signature on each request, so a forged or expired cookie just leads to API
 // 401s that the frontend handles by bouncing to sign-in. The goal here is that
 // anonymous visitors never see the admin/teacher/parent UI shells at all.
+//
+// The session cookies (shule360_session / shule360_guardian_session) are
+// HttpOnly cookies issued by the Go API and proxied same-origin via
+// next.config.js rewrites — the edge runtime can read request cookies, even
+// though browser JavaScript cannot.
 
-const STAFF_COOKIE = 'shule360_token';
-const GUARDIAN_COOKIE = 'shule360_guardian_token';
+const STAFF_COOKIE = 'shule360_session';
+const GUARDIAN_COOKIE = 'shule360_guardian_session';
 
 // Route prefixes served by the (admin) route group + teacher workspace.
 // Both require a staff JWT.

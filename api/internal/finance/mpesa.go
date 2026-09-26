@@ -106,31 +106,49 @@ func (s *MpesaService) ConfirmSTKPush(ctx context.Context, tenantID uuid.UUID, c
 	}
 	defer tx.Rollback(ctx)
 
-	var invoiceID uuid.UUID
+	var (
+		invoiceID uuid.UUID
+		status    string
+	)
 	err = tx.QueryRow(ctx, `
-		SELECT invoice_id FROM payments
+		SELECT invoice_id, status FROM payments
 		WHERE tenant_id = $1 AND checkout_request_id = $2 AND channel = 'mpesa'
 		ORDER BY created_at DESC LIMIT 1`, tenantID, checkoutRequestID).
-		Scan(&invoiceID)
+		Scan(&invoiceID, &status)
 	if err != nil {
 		return err
+	}
+
+	// Duplicate/retried callback: this payment already reached a final state
+	// (Safaricom retries callbacks, and can deliver the same one twice).
+	// Return success so Safaricom stops retrying; never double-apply a
+	// payment or double-refresh the invoice.
+	if status != "pending" {
+		return nil
 	}
 
 	newStatus := "completed"
 	if resultCode != "0" {
 		newStatus = "failed"
 	}
-	_, err = tx.Exec(ctx, `
+	tag, err := tx.Exec(ctx, `
 		UPDATE payments SET
 			status = $3,
 			mpesa_receipt = COALESCE($4, mpesa_receipt),
 			mpesa_result_code = $5,
 			mpesa_result_desc = $6,
 			paid_at = CASE WHEN $3 = 'completed' THEN COALESCE(paid_at, now()) ELSE paid_at END
-		WHERE tenant_id = $1 AND id = (SELECT id FROM payments WHERE tenant_id = $1 AND checkout_request_id = $2 AND channel = 'mpesa' ORDER BY created_at DESC LIMIT 1)`,
-		tenantID, checkoutRequestID, newStatus, receipt, resultCode, resultDesc)
+		WHERE tenant_id = $1 AND id = $7 AND status = 'pending'`,
+		tenantID, checkoutRequestID, newStatus, receipt, resultCode, resultDesc, invoiceID)
 	if err != nil {
 		return err
+	}
+
+	// Lost a race with a concurrent delivery of the same callback: the other
+	// worker finalised the payment between our SELECT and this UPDATE, so
+	// treat this delivery as processed too.
+	if tag.RowsAffected() == 0 {
+		return nil
 	}
 
 	if err := refreshInvoiceFinance(ctx, tx, tenantID, invoiceID); err != nil {

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 )
 
 // Config holds all application configuration loaded from environment variables.
@@ -40,6 +41,14 @@ type Config struct {
 	MpesaShortCode      string
 	MpesaCallbackURL    string
 	MpesaBaseURL        string
+	// MpesaAllowedIPs restricts the M-Pesa webhook to these IPs/CIDRs
+	// (MPESA_ALLOWED_IPS, comma separated). Empty = allow all (dev only).
+	MpesaAllowedIPs []string
+
+	// CORSAllowedOrigins adds extra origins to the default CORS allowlist
+	// (CORS_ALLOWED_ORIGINS, comma separated). The defaults already include
+	// the production frontend, localhost dev ports, and *.vercel.app previews.
+	CORSAllowedOrigins []string
 
 	JWTSecret string
 	Port      string
@@ -76,6 +85,8 @@ func Load() (*Config, error) {
 		MpesaShortCode:           os.Getenv("MPESA_SHORT_CODE"),
 		MpesaCallbackURL:         os.Getenv("MPESA_CALLBACK_URL"),
 		MpesaBaseURL:             os.Getenv("MPESA_BASE_URL"),
+		MpesaAllowedIPs:          splitCSV(os.Getenv("MPESA_ALLOWED_IPS")),
+		CORSAllowedOrigins:       splitCSV(os.Getenv("CORS_ALLOWED_ORIGINS")),
 		JWTSecret:                os.Getenv("JWT_SECRET"),
 		Port:                     os.Getenv("PORT"),
 		AppEnv:                   os.Getenv("APP_ENV"),
@@ -129,4 +140,20 @@ func (c *Config) IsProduction() bool {
 // IsDevelopment returns true when running in development mode.
 func (c *Config) IsDevelopment() bool {
 	return c.AppEnv == "development"
+}
+
+// splitCSV splits a comma-separated environment value into trimmed,
+// non-empty entries.
+func splitCSV(raw string) []string {
+	if raw == "" {
+		return nil
+	}
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }

@@ -56,9 +56,9 @@ func (h *Handler) dashboard(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 
 	type ClassSummary struct {
-		Grade       string `json:"grade"`
-		Stream      string `json:"stream"`
-		LearnerCount int64 `json:"learner_count"`
+		Grade        string `json:"grade"`
+		Stream       string `json:"stream"`
+		LearnerCount int64  `json:"learner_count"`
 	}
 	var classes []ClassSummary
 	for rows.Next() {
@@ -98,9 +98,9 @@ func (h *Handler) listClasses(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 
 	type ClassSummary struct {
-		Grade       string `json:"grade"`
-		Stream      string `json:"stream"`
-		LearnerCount int64 `json:"learner_count"`
+		Grade        string `json:"grade"`
+		Stream       string `json:"stream"`
+		LearnerCount int64  `json:"learner_count"`
 	}
 	var classes []ClassSummary
 	for rows.Next() {
@@ -200,13 +200,13 @@ func (h *Handler) markClassAttendance(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		Grade   string             `json:"grade"`
-		Stream  string             `json:"stream"`
-		Date    string             `json:"date"`
+		Grade   string `json:"grade"`
+		Stream  string `json:"stream"`
+		Date    string `json:"date"`
 		Records []struct {
 			LearnerID uuid.UUID `json:"learner_id"`
-			Status    string     `json:"status"`
-			Reason    string     `json:"reason"`
+			Status    string    `json:"status"`
+			Reason    string    `json:"reason"`
 		} `json:"records"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -265,17 +265,17 @@ func (h *Handler) getClassAssessments(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 
 	type AssessmentItem struct {
-		ID           uuid.UUID `json:"id"`
-		LearnerID    uuid.UUID `json:"learner_id"`
-		LearnerName  string    `json:"learner_name"`
-		SubStrandID  uuid.UUID `json:"sub_strand_id"`
-		SubStrandName string   `json:"sub_strand_name"`
-		StrandName   string    `json:"strand_name"`
-		LearningArea string    `json:"learning_area"`
-		RubricLevel  int       `json:"rubric_level"`
-		Note         string    `json:"note"`
-		Term         int       `json:"term"`
-		Year         int       `json:"year"`
+		ID            uuid.UUID `json:"id"`
+		LearnerID     uuid.UUID `json:"learner_id"`
+		LearnerName   string    `json:"learner_name"`
+		SubStrandID   uuid.UUID `json:"sub_strand_id"`
+		SubStrandName string    `json:"sub_strand_name"`
+		StrandName    string    `json:"strand_name"`
+		LearningArea  string    `json:"learning_area"`
+		RubricLevel   int       `json:"rubric_level"`
+		Note          string    `json:"note"`
+		Term          int       `json:"term"`
+		Year          int       `json:"year"`
 	}
 	var items []AssessmentItem
 	for rows.Next() {
@@ -353,15 +353,15 @@ func (h *Handler) getLearnerPortfolio(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 
 	type PortfolioItem struct {
-		ID           uuid.UUID `json:"id"`
-		SubStrandID  uuid.UUID `json:"sub_strand_id"`
-		SubStrandName string   `json:"sub_strand_name"`
-		StrandName   string    `json:"strand_name"`
-		LearningArea string    `json:"learning_area"`
-		RubricLevel  int       `json:"rubric_level"`
-		Note         string    `json:"note"`
-		Term         int       `json:"term"`
-		Year         int       `json:"year"`
+		ID            uuid.UUID `json:"id"`
+		SubStrandID   uuid.UUID `json:"sub_strand_id"`
+		SubStrandName string    `json:"sub_strand_name"`
+		StrandName    string    `json:"strand_name"`
+		LearningArea  string    `json:"learning_area"`
+		RubricLevel   int       `json:"rubric_level"`
+		Note          string    `json:"note"`
+		Term          int       `json:"term"`
+		Year          int       `json:"year"`
 	}
 	var items []PortfolioItem
 	for rows.Next() {

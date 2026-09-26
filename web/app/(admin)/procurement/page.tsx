@@ -13,9 +13,8 @@ import {
   SupplierPayment,
 } from '@/lib/api';
 
-const { token } = useAuth();
-
 export default function ProcurementPage() {
+  const { token } = useAuth();
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [requisitions, setRequisitions] = useState<PurchaseRequisition[]>([]);
   const [orders, setOrders] = useState<PurchaseOrder[]>([]);

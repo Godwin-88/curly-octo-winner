@@ -12,30 +12,30 @@ import (
 
 // Assessment represents a formative assessment observation.
 type Assessment struct {
-	ID           uuid.UUID   `json:"id"`
-	TenantID     uuid.UUID   `json:"tenant_id"`
-	LearnerID    uuid.UUID   `json:"learner_id"`
-	SubStrandID  uuid.UUID   `json:"sub_strand_id"`
-	RubricLevel  int         `json:"rubric_level"`
-	Note         string      `json:"note"`
-	EvidenceURLs []string    `json:"evidence_urls"`
-	TeacherID    uuid.UUID   `json:"teacher_id"`
-	Term         int         `json:"term"`
-	Year         int         `json:"year"`
-	CreatedAt    time.Time   `json:"created_at"`
-	UpdatedAt    time.Time   `json:"updated_at"`
+	ID           uuid.UUID `json:"id"`
+	TenantID     uuid.UUID `json:"tenant_id"`
+	LearnerID    uuid.UUID `json:"learner_id"`
+	SubStrandID  uuid.UUID `json:"sub_strand_id"`
+	RubricLevel  int       `json:"rubric_level"`
+	Note         string    `json:"note"`
+	EvidenceURLs []string  `json:"evidence_urls"`
+	TeacherID    uuid.UUID `json:"teacher_id"`
+	Term         int       `json:"term"`
+	Year         int       `json:"year"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
 }
 
 // CreateAssessmentRequest is the request payload for creating an assessment.
 type CreateAssessmentRequest struct {
-	LearnerID   uuid.UUID
-	SubStrandID uuid.UUID
-	RubricLevel int
-	Note        string
+	LearnerID    uuid.UUID
+	SubStrandID  uuid.UUID
+	RubricLevel  int
+	Note         string
 	EvidenceURLs []string
-	TeacherID   uuid.UUID
-	Term        int
-	Year        int
+	TeacherID    uuid.UUID
+	Term         int
+	Year         int
 }
 
 // AssessmentSummary is a joined view of assessment with learner and strand info.

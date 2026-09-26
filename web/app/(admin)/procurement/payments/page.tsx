@@ -5,9 +5,8 @@ import { useAuth } from '@/lib/auth';
 import { useEffect, useState } from 'react';
 import { api, SupplierPayment, Supplier, PurchaseOrder, GoodsReceipt, CreateSupplierPaymentRequest } from '@/lib/api';
 
-const { token } = useAuth();
-
 export default function PaymentsPage() {
+  const { token } = useAuth();
   const [payments, setPayments] = useState<SupplierPayment[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [orders, setOrders] = useState<PurchaseOrder[]>([]);

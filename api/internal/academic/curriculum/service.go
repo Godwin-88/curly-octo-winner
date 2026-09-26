@@ -24,14 +24,14 @@ type LearningArea struct {
 
 // Strand represents a KICD strand within a learning area.
 type Strand struct {
-	ID              uuid.UUID `json:"id"`
-	TenantID        uuid.UUID `json:"tenant_id"`
-	LearningAreaID  uuid.UUID `json:"learning_area_id"`
-	Name            string    `json:"name"`
-	KICDCode        string    `json:"kicd_code"`
-	Description     string    `json:"description,omitempty"`
-	CreatedAt       time.Time `json:"created_at"`
-	UpdatedAt       time.Time `json:"updated_at"`
+	ID             uuid.UUID `json:"id"`
+	TenantID       uuid.UUID `json:"tenant_id"`
+	LearningAreaID uuid.UUID `json:"learning_area_id"`
+	Name           string    `json:"name"`
+	KICDCode       string    `json:"kicd_code"`
+	Description    string    `json:"description,omitempty"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
 }
 
 // SubStrand represents a KICD sub-strand within a strand.

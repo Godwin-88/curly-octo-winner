@@ -5,9 +5,8 @@ import { useAuth } from '@/lib/auth';
 import { useEffect, useState } from 'react';
 import { api, PurchaseOrder, Supplier, CreatePurchaseOrderRequest, PurchaseOrderItemInput } from '@/lib/api';
 
-const { token } = useAuth();
-
 export default function OrdersPage() {
+  const { token } = useAuth();
   const [orders, setOrders] = useState<PurchaseOrder[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [loading, setLoading] = useState(true);

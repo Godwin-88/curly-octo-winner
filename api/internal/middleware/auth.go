@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"strings"
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
@@ -39,23 +38,18 @@ type Claims struct {
 	jwt.RegisteredClaims
 }
 
-// Auth validates the JWT and extracts tenant_id, staff_id, and role into context.
+// Auth validates the session JWT and extracts tenant_id, staff_id, and role
+// into context. The token may arrive as an Authorization: Bearer header or as
+// an HttpOnly session cookie (see TokenFromRequest).
 func Auth(jwtSecret string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			authHeader := r.Header.Get("Authorization")
-			if authHeader == "" {
-				httputil.RespondUnauthorized(w, "UNAUTHORIZED", "missing Authorization header")
+			tokenStr := TokenFromRequest(r)
+			if tokenStr == "" {
+				httputil.RespondUnauthorized(w, "UNAUTHORIZED", "Missing credentials")
 				return
 			}
 
-			parts := strings.SplitN(authHeader, " ", 2)
-			if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
-				httputil.RespondUnauthorized(w, "UNAUTHORIZED", "Invalid Authorization header format")
-				return
-			}
-
-			tokenStr := parts[1]
 			claims := &Claims{}
 
 			token, err := jwt.ParseWithClaims(tokenStr, claims, func(t *jwt.Token) (any, error) {
