@@ -330,7 +330,15 @@ export interface GuardianBrief {
   id: string;
   full_name: string;
   phone: string;
-  relation: string;
+}
+
+/** A tenant-wide guardian summary for audience pickers. */
+export interface GuardianDirectoryEntry {
+  id: string;
+  full_name: string;
+  phone: string;
+  learner_count: number;
+  is_sms_opted_out: boolean;
 }
 
 export interface CreateLearnerRequest {
@@ -1943,6 +1951,10 @@ export const api = {
 
   listLearnerGuardians: (id: string, token: string) =>
     request<GuardianBrief[]>(`/learners/${id}/guardians`, { token }),
+
+  // Tenant-wide guardian directory (used by the SMS/WhatsApp audience picker).
+  listGuardians: (search: string, token: string) =>
+    request<GuardianDirectoryEntry[]>(`/learners/guardians${search ? `?search=${encodeURIComponent(search)}` : ''}`, { token }),
 
   listLearnerProgressions: (id: string, token: string) =>
     request<LearnerProgression[]>(`/learners/${id}/progressions`, { token }),

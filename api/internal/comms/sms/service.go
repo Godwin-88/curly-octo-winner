@@ -9,6 +9,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/shule360/api/pkg/pgxutil"
 )
 
 type Campaign struct {
@@ -323,7 +325,7 @@ func (s *SMSService) resolveAudience(ctx context.Context, tenantID uuid.UUID, au
 		}
 	case "custom":
 		var f struct {
-			GuardianIDs []uuid.UUID `json:"guardian_ids"`
+			GuardianIDs []string `json:"guardian_ids"`
 		}
 		if len(filter) > 0 {
 			if err := json.Unmarshal(filter, &f); err != nil {
@@ -331,13 +333,21 @@ func (s *SMSService) resolveAudience(ctx context.Context, tenantID uuid.UUID, au
 			}
 		}
 		if len(f.GuardianIDs) == 0 {
-			return nil, fmt.Errorf("custom audience requires guardian_ids")
+			return nil, fmt.Errorf("custom audience requires at least one guardian")
+		}
+		ids := make([]uuid.UUID, 0, len(f.GuardianIDs))
+		for _, raw := range f.GuardianIDs {
+			parsed, err := uuid.Parse(strings.TrimSpace(raw))
+			if err != nil {
+				return nil, fmt.Errorf("guardian_ids contains an invalid id: %q", raw)
+			}
+			ids = append(ids, parsed)
 		}
 		err := s.queryRecipients(ctx, tenantID, `
 			SELECT id, COALESCE(phone_primary, '') AS phone, full_name
 			FROM guardians
 			WHERE tenant_id = $1 AND id = ANY($2::uuid[]) AND is_sms_opted_out = false
-		`, &recipients, f.GuardianIDs)
+		`, &recipients, pgxutil.UUIDArray(ids))
 		if err != nil {
 			return nil, err
 		}

@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/shule360/api/internal/nemis"
+	"github.com/shule360/api/pkg/pgxutil"
 )
 
 // Learner represents a learner record.
@@ -38,7 +39,6 @@ type GuardianBrief struct {
 	ID       uuid.UUID `json:"id"`
 	FullName string    `json:"full_name"`
 	Phone    string    `json:"phone"`
-	Relation string    `json:"relation"`
 }
 
 // CreateLearnerRequest is the request payload for creating a learner.
@@ -231,10 +231,10 @@ func (s *Service) Create(ctx context.Context, tenantID uuid.UUID, req CreateLear
 	var l Learner
 	err = s.pool.QueryRow(ctx, `
 		INSERT INTO learners (tenant_id, upi, full_name, date_of_birth, grade, stream, photo_url, guardian_ids, birth_cert_no, entry_level, special_needs, admission_date)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8::uuid[], $9, $10, $11, $12)
 		RETURNING `+learnerColumns+`
 	`, tenantID, req.UPI, req.FullName, req.DateOfBirth, req.Grade, req.Stream,
-		req.PhotoURL, req.GuardianIDs, req.BirthCertNo, req.EntryLevel,
+		req.PhotoURL, pgxutil.UUIDArray(req.GuardianIDs), req.BirthCertNo, req.EntryLevel,
 		req.SpecialNeeds, req.AdmissionDate).Scan(
 		&l.ID, &l.TenantID, &l.UPI, &l.FullName, &l.DateOfBirth, &l.Grade,
 		&l.Stream, &l.PhotoURL, &l.GuardianIDs, &l.BirthCertNo, &l.EntryLevel,
@@ -253,6 +253,15 @@ func (s *Service) Update(ctx context.Context, tenantID, learnerID uuid.UUID, req
 		return nil, err
 	}
 
+	// guardian_ids is only overwritten when the caller actually sent the field.
+	// A nil slice is passed as SQL NULL so COALESCE keeps the existing value;
+	// an explicit empty array clears the guardians.
+	var guardianArg *[]string
+	if req.GuardianIDs != nil {
+		ids := pgxutil.UUIDArray(req.GuardianIDs)
+		guardianArg = &ids
+	}
+
 	l, err := scanLearner(s.pool.QueryRow(ctx, `
 		UPDATE learners SET
 			full_name = COALESCE($3, full_name),
@@ -260,7 +269,7 @@ func (s *Service) Update(ctx context.Context, tenantID, learnerID uuid.UUID, req
 			grade = COALESCE($5, grade),
 			stream = COALESCE($6, stream),
 			photo_url = COALESCE($7, photo_url),
-			guardian_ids = COALESCE($8, guardian_ids),
+			guardian_ids = COALESCE($8::uuid[], guardian_ids),
 			birth_cert_no = COALESCE($9, birth_cert_no),
 			entry_level = COALESCE($10, entry_level),
 			special_needs = COALESCE($11, special_needs),
@@ -269,7 +278,7 @@ func (s *Service) Update(ctx context.Context, tenantID, learnerID uuid.UUID, req
 		WHERE tenant_id = $1 AND id = $2
 		RETURNING `+learnerColumns+`
 	`, tenantID, learnerID, req.FullName, req.DateOfBirth, req.Grade, req.Stream,
-		req.PhotoURL, req.GuardianIDs, req.BirthCertNo, req.EntryLevel,
+		req.PhotoURL, guardianArg, req.BirthCertNo, req.EntryLevel,
 		req.SpecialNeeds, req.AdmissionDate))
 	if err != nil {
 		return nil, fmt.Errorf("update learner: %w", err)
@@ -308,9 +317,60 @@ func (s *Service) Reactivate(ctx context.Context, tenantID, learnerID uuid.UUID)
 }
 
 // ListGuardians returns the guardian records referenced by a learner.
+// GuardianDirectoryEntry is a tenant-wide guardian summary used by audience
+// pickers (Communications → SMS/WhatsApp) so staff select guardians by name
+// instead of pasting raw UUIDs.
+type GuardianDirectoryEntry struct {
+	ID            uuid.UUID `json:"id"`
+	FullName      string    `json:"full_name"`
+	Phone         string    `json:"phone"`
+	LearnerCount  int       `json:"learner_count"`
+	IsSMSOptedOut bool      `json:"is_sms_opted_out"`
+}
+
+// ListTenantGuardians returns every guardian in the tenant with their linked
+// learner count. search matches name or phone (case-insensitive prefix/substring).
+// Results are capped to keep the picker responsive on large schools.
+func (s *Service) ListTenantGuardians(ctx context.Context, tenantID uuid.UUID, search string) ([]GuardianDirectoryEntry, error) {
+	search = strings.TrimSpace(search)
+	pattern := "%" + strings.ToLower(search) + "%"
+
+	rows, err := s.pool.Query(ctx, `
+		SELECT g.id,
+		       g.full_name,
+		       COALESCE(g.phone_wa, g.phone_primary) AS phone,
+		       COALESCE((
+		           SELECT COUNT(DISTINCT l.id)
+		           FROM learners l
+		           WHERE l.tenant_id = g.tenant_id AND g.id = ANY(l.guardian_ids)
+		       ), 0),
+		       g.is_sms_opted_out
+		FROM guardians g
+		WHERE g.tenant_id = $1
+		  AND ($2 = '%%' OR LOWER(g.full_name) LIKE $2
+		       OR LOWER(COALESCE(g.phone_wa, g.phone_primary)) LIKE $2)
+		ORDER BY g.full_name
+		LIMIT 500
+	`, tenantID, pattern)
+	if err != nil {
+		return nil, fmt.Errorf("query guardian directory: %w", err)
+	}
+	defer rows.Close()
+
+	guardians := make([]GuardianDirectoryEntry, 0, 32)
+	for rows.Next() {
+		var g GuardianDirectoryEntry
+		if err := rows.Scan(&g.ID, &g.FullName, &g.Phone, &g.LearnerCount, &g.IsSMSOptedOut); err != nil {
+			return nil, fmt.Errorf("scan guardian: %w", err)
+		}
+		guardians = append(guardians, g)
+	}
+	return guardians, rows.Err()
+}
+
 func (s *Service) ListGuardians(ctx context.Context, tenantID, learnerID uuid.UUID) ([]GuardianBrief, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT g.id, g.full_name, g.phone, g.relation
+		SELECT g.id, g.full_name, COALESCE(g.phone_wa, g.phone_primary)
 		FROM guardians g
 		JOIN learners l ON l.tenant_id = g.tenant_id
 		WHERE l.tenant_id = $1 AND l.id = $2 AND g.id = ANY(l.guardian_ids)
@@ -324,7 +384,7 @@ func (s *Service) ListGuardians(ctx context.Context, tenantID, learnerID uuid.UU
 	var guardians []GuardianBrief
 	for rows.Next() {
 		var g GuardianBrief
-		if err := rows.Scan(&g.ID, &g.FullName, &g.Phone, &g.Relation); err != nil {
+		if err := rows.Scan(&g.ID, &g.FullName, &g.Phone); err != nil {
 			return nil, fmt.Errorf("scan guardian: %w", err)
 		}
 		guardians = append(guardians, g)

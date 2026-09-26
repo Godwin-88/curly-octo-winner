@@ -27,6 +27,13 @@ func (h *Handler) Mount(r chi.Router) {
 	r.Route("/learners", func(r chi.Router) {
 		r.Get("/", h.list)
 		r.Post("/", h.create)
+
+		// Tenant-wide guardian directory. Powers the "custom audience" picker in
+		// Communications: staff choose guardians by name instead of pasting raw
+		// UUIDs. Registered before /{id} because "/guardians" is a static segment
+		// that would otherwise be at risk of being captured by the {id} param.
+		r.Get("/guardians", h.guardianDirectory)
+
 		r.Get("/{id}", h.get)
 		r.Patch("/{id}", h.update)
 		r.Delete("/{id}", h.deactivate)
@@ -202,6 +209,23 @@ func (h *Handler) reactivate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httputil.RespondOK(w, learner)
+}
+
+// guardianDirectory handles GET /learners/guardians — every guardian in the
+// tenant, used to build "custom" audiences by name rather than by raw UUID.
+func (h *Handler) guardianDirectory(w http.ResponseWriter, r *http.Request) {
+	tenantID, ok := middleware.GetTenantID(r)
+	if !ok {
+		httputil.RespondUnauthorized(w, "UNAUTHORIZED", "Tenant ID not found")
+		return
+	}
+
+	guardians, err := h.service.ListTenantGuardians(r.Context(), tenantID, r.URL.Query().Get("search"))
+	if err != nil {
+		httputil.RespondInternalError(w, err)
+		return
+	}
+	httputil.RespondOK(w, guardians)
 }
 
 // listGuardians handles GET /learners/{id}/guardians

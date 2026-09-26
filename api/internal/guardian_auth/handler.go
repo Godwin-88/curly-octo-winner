@@ -68,8 +68,20 @@ func (h *Handler) Mount(r chi.Router) {
 // children of the existing /auth/guardian/* node, which the router resolves
 // before falling through to the public subrouter.
 func (h *Handler) MountPrivate(r chi.Router) {
-	r.Get("/auth/guardian/me", h.me)
 	r.Post("/auth/guardian/logout", h.logout)
+}
+
+// MountSession registers the endpoints that any authenticated session may call.
+//
+// GET /auth/guardian/me sits here rather than behind RequireRole("guardian")
+// on purpose: the web client uses it to answer "is this a parent session?"
+// during hydration. A staff cookie hitting the guardian-only route answered 403
+// on every single page load, which logged a console error each time. It now
+// answers 200 with {"guardian": null} for a non-guardian session — which also
+// keeps the very common Kenyan case of a teacher who is also a parent working
+// across both portals in the same browser.
+func (h *Handler) MountSession(r chi.Router) {
+	r.Get("/auth/guardian/me", h.session)
 }
 
 func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
@@ -177,6 +189,34 @@ func (h *Handler) me(w http.ResponseWriter, r *http.Request) {
 		WHERE id = $1
 	`, guardianID).Scan(&g.ID, &g.TenantID, &g.FullName, &g.Phone, &g.Email)
 	if err != nil {
+		httputil.RespondUnauthorized(w, "UNAUTHORIZED", "Guardian account not found")
+		return
+	}
+
+	httputil.RespondOK(w, map[string]any{"guardian": g})
+}
+
+// session handles GET /api/v1/auth/guardian/me for ANY authenticated session.
+//
+// It answers 200 with a null guardian when the session belongs to staff, which
+// is a normal, expected answer rather than a 403 the browser logs as a failed
+// request on every page load. An unauthenticated caller never reaches here (the
+// auth middleware answers 401 first).
+func (h *Handler) session(w http.ResponseWriter, r *http.Request) {
+	guardianID, ok := appmiddleware.GetGuardianID(r)
+	if !ok {
+		httputil.RespondOK(w, map[string]any{"guardian": nil})
+		return
+	}
+
+	var g Guardian
+	err := h.pool.QueryRow(r.Context(), `
+		SELECT id, tenant_id, full_name, phone_primary, COALESCE(email, '')
+		FROM guardians
+		WHERE id = $1
+	`, guardianID).Scan(&g.ID, &g.TenantID, &g.FullName, &g.Phone, &g.Email)
+	if err != nil {
+		// The session claims to be a guardian but the record is gone.
 		httputil.RespondUnauthorized(w, "UNAUTHORIZED", "Guardian account not found")
 		return
 	}

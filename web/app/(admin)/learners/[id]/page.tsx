@@ -220,11 +220,10 @@ export default function LearnerDetailPage({ params }: { params: Promise<{ id: st
                 <div className="space-y-3">
                   {guardians.map((g) => (
                     <div key={g.id} className="flex items-center justify-between p-3 border rounded-md">
-                      <div>
-                        <p className="font-medium text-sm">{g.full_name}</p>
-                        <p className="text-xs text-gray-500">{g.relation}</p>
-                      </div>
-                      <p className="text-sm text-gray-600">{g.phone}</p>
+                      <p className="font-medium text-sm">{g.full_name}</p>
+                      <p className="text-sm text-gray-600">
+                        {g.phone || <span className="text-gray-400">no phone on file</span>}
+                      </p>
                     </div>
                   ))}
                 </div>

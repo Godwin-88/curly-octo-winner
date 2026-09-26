@@ -155,10 +155,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       if (guardianRes.ok) {
-        const data = (await guardianRes.json().catch(() => null)) as { guardian?: GuardianUser } | null;
+        const data = (await guardianRes.json().catch(() => null)) as { guardian?: GuardianUser | null } | null;
         if (data?.guardian) {
           setGuardian(data.guardian);
           cacheProfile(GUARDIAN_PROFILE_KEY, data.guardian);
+        } else {
+          // The API answers 200 with a null guardian for a staff session, so a
+          // cached parent profile must be dropped here — otherwise a browser
+          // that once held a guardian session keeps rendering the parent portal.
+          setGuardian(null);
+          cacheProfile(GUARDIAN_PROFILE_KEY, null);
         }
       } else {
         setGuardian(null);

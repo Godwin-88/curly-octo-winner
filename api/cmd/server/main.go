@@ -289,6 +289,10 @@ func main() {
 			// profile (identity from the JWT, profile re-read from the DB).
 			authHandler.MountPrivate(r)
 
+			// Reachable by any authenticated session: the web client asks it
+			// "is this a parent session?" while hydrating.
+			guardianAuthHandler.MountSession(r)
+
 			// Role groups — mirrors the staff_role enum in
 			// 002_staff_auth.sql and the frontend Sidebar ROLE_NAV map.
 			allStaff := []string{"super_admin", "principal", "teacher", "bursar", "transport_manager", "hr"}
@@ -328,7 +332,7 @@ func main() {
 			// Parent portal — guardians only
 			r.Group(func(r chi.Router) {
 				r.Use(appmiddleware.RequireRole("guardian"))
-				guardianAuthHandler.MountPrivate(r) // /auth/guardian/me + /logout
+				guardianAuthHandler.MountPrivate(r) // /auth/guardian/logout
 				parentHandler.Mount(r)
 			})
 		})

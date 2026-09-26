@@ -11,17 +11,36 @@ const STEPS = ['Audience', 'Message', 'Review & Send'];
 
 export default function SMSCampaignPage() {
   const [step, setStep] = useState(0);
-  const [audienceType, setAudienceType] = useState('all_parents');
-  const [audienceFilter, setAudienceFilter] = useState<Record<string, unknown>>({});
+  const [audienceType, setAudienceTypeRaw] = useState('all_parents');
+  const [audienceFilter, setAudienceFilterRaw] = useState<Record<string, unknown>>({});
+
+  // Changing the audience invalidates the reach estimate. Clearing it here
+  // guarantees the "Send Now" confirmation always reflects the audience that
+  // will actually be messaged (and its cost).
+  const setAudienceType = (type: string) => {
+    setAudienceTypeRaw(type);
+    setAudienceFilterRaw({});
+    setEstimate(null);
+    setError(null);
+  };
+  const setAudienceFilter = (filter: Record<string, unknown>) => {
+    setAudienceFilterRaw(filter);
+    setEstimate(null);
+    setError(null);
+  };
   const [content, setContent] = useState('');
   const [scheduledAt, setScheduledAt] = useState<string | undefined>();
   const [estimate, setEstimate] = useState<ReachEstimate | null>(null);
   const [sending, setSending] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [estimating, setEstimating] = useState(false);
 
   const { token } = useAuth();
 
-  const handleEstimate = async () => {
+  const handleEstimate = async (): Promise<boolean> => {
+    setEstimating(true);
+    setError(null);
     try {
       const req: CreateMessageRequest = {
         channel: 'sms',
@@ -32,13 +51,21 @@ export default function SMSCampaignPage() {
       };
       const result = await api.estimateReach(req, token);
       setEstimate(result);
+      return true;
     } catch (err) {
-      console.error('Estimate failed:', err);
+      // Surface the API message: a failed estimate used to vanish into the
+      // console while the wizard still advanced to the next step.
+      setEstimate(null);
+      setError(err instanceof Error ? err.message : 'Could not estimate reach');
+      return false;
+    } finally {
+      setEstimating(false);
     }
   };
 
   const handleSend = async () => {
     setSending(true);
+    setError(null);
     try {
       const req: CreateMessageRequest = {
         channel: 'sms',
@@ -53,8 +80,7 @@ export default function SMSCampaignPage() {
       setStep(0);
       alert('Message sent successfully!');
     } catch (err) {
-      console.error('Send failed:', err);
-      alert('Failed to send message');
+      setError(err instanceof Error ? err.message : 'Failed to send message');
     } finally {
       setSending(false);
     }
@@ -63,6 +89,15 @@ export default function SMSCampaignPage() {
   return (
     <div>
       <h1 className="text-2xl font-bold mb-6">SMS Campaign Builder</h1>
+
+      {error && (
+        <div
+          className="bg-red-50 border border-red-200 text-red-700 rounded-md p-3 mb-4 text-sm"
+          role="alert"
+        >
+          {error}
+        </div>
+      )}
 
       {/* Step indicator */}
       <div className="flex items-center gap-2 mb-8">
@@ -137,7 +172,11 @@ export default function SMSCampaignPage() {
           </div>
 
           <div className="flex gap-3 mt-6">
-            <button className="btn-secondary" onClick={() => setStep(1)}>
+            <button
+              className="btn-secondary"
+              onClick={() => setStep(1)}
+              disabled={!content.trim()}
+            >
               Back
             </button>
             <button
@@ -149,7 +188,8 @@ export default function SMSCampaignPage() {
                   handleSend();
                 }
               }}
-              disabled={sending}
+              // Never send a paid bulk SMS without a confirmed audience size.
+              disabled={sending || !estimate}
             >
               {sending ? 'Sending...' : 'Send Now'}
             </button>
@@ -167,12 +207,18 @@ export default function SMSCampaignPage() {
           )}
           <button
             className="btn-primary"
-            onClick={() => {
-              if (step === 0) handleEstimate();
+            onClick={async () => {
+              // Step 0 needs a real reach estimate before the user can move on;
+              // a failed estimate used to advance silently to the next step.
+              if (step === 0) {
+                const ok = await handleEstimate();
+                if (!ok) return;
+              }
               setStep(step + 1);
             }}
+            disabled={estimating}
           >
-            Continue
+            {estimating ? 'Checking reach…' : 'Continue'}
           </button>
         </div>
       )}

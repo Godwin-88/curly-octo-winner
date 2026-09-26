@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/shule360/api/internal/comms/sms"
 	"github.com/shule360/api/internal/comms/whatsapp"
+	"github.com/shule360/api/pkg/pgxutil"
 	"github.com/shule360/api/pkg/upstash"
 )
 
@@ -242,13 +244,19 @@ func (s *CommsService) BuildAudience(ctx context.Context, tenantID uuid.UUID, au
 		}
 
 	case "fee_defaulters":
-		// Stub: return mock data (guardians with balance > 0)
+		// Guardians of learners with an outstanding balance on a live invoice
+		// (not draft, not void, and not fully paid). Previously this was a
+		// "stub" that returned the first 10 guardians of the school, which made
+		// the reach estimate lie to the bursar.
 		err := s.queryRecipients(ctx, tenantID, `
 			SELECT DISTINCT g.id, COALESCE(g.phone_wa, g.phone_primary) AS phone, g.full_name
 			FROM guardians g
 			JOIN learners l ON l.tenant_id = g.tenant_id AND g.id = ANY(l.guardian_ids)
-			WHERE g.tenant_id = $1 AND g.is_sms_opted_out = false
-			LIMIT 10
+			JOIN invoices i ON i.tenant_id = l.tenant_id AND i.learner_id = l.id
+			WHERE g.tenant_id = $1
+			  AND g.is_sms_opted_out = false
+			  AND i.status NOT IN ('draft', 'void', 'paid')
+			  AND (i.total_cents - i.discount_cents - i.paid_cents) > 0
 		`, &recipients)
 		if err != nil {
 			return nil, err
@@ -256,7 +264,7 @@ func (s *CommsService) BuildAudience(ctx context.Context, tenantID uuid.UUID, au
 
 	case "custom":
 		var f struct {
-			GuardianIDs []uuid.UUID `json:"guardian_ids"`
+			GuardianIDs []string `json:"guardian_ids"`
 		}
 		if len(filter) > 0 {
 			if err := json.Unmarshal(filter, &f); err != nil {
@@ -264,13 +272,23 @@ func (s *CommsService) BuildAudience(ctx context.Context, tenantID uuid.UUID, au
 			}
 		}
 		if len(f.GuardianIDs) == 0 {
-			return nil, fmt.Errorf("custom audience requires guardian_ids")
+			return nil, fmt.Errorf("custom audience requires at least one guardian")
+		}
+		// Validate each id so a bad value reports exactly which entry is wrong
+		// instead of a raw pgx/Postgres error.
+		ids := make([]uuid.UUID, 0, len(f.GuardianIDs))
+		for _, raw := range f.GuardianIDs {
+			parsed, err := uuid.Parse(strings.TrimSpace(raw))
+			if err != nil {
+				return nil, fmt.Errorf("guardian_ids contains an invalid id: %q", raw)
+			}
+			ids = append(ids, parsed)
 		}
 		err := s.queryRecipients(ctx, tenantID, `
 			SELECT id, COALESCE(phone_wa, phone_primary) AS phone, full_name
 			FROM guardians
 			WHERE tenant_id = $1 AND id = ANY($2::uuid[]) AND is_sms_opted_out = false
-		`, &recipients, f.GuardianIDs)
+		`, &recipients, pgxutil.UUIDArray(ids))
 		if err != nil {
 			return nil, err
 		}

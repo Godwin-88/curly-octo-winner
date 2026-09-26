@@ -1,6 +1,9 @@
 'use client';
 
-import { ReachEstimate } from '@/lib/api';
+import { useEffect, useMemo, useState } from 'react';
+
+import { api, GuardianDirectoryEntry, ReachEstimate } from '@/lib/api';
+import { useAuth } from '@/lib/auth';
 
 interface Props {
   audienceType: string;
@@ -23,6 +26,139 @@ const AUDIENCE_TYPES = [
 const GRADES = ['Grade 4', 'Grade 5', 'Grade 6'];
 const STREAMS = ['North', 'South'];
 
+/**
+ * Searchable guardian multi-select for the "Custom Selection" audience.
+ *
+ * Staff pick guardians by name; the UUIDs are managed by this component. The
+ * previous implementation asked users to paste comma-separated UUIDs, which
+ * produced cryptic "invalid UUID length" errors from the API on any typo.
+ */
+function GuardianPicker({
+  selected,
+  onChange,
+}: {
+  selected: string[];
+  onChange: (ids: string[]) => void;
+}) {
+  const { token } = useAuth();
+  const [search, setSearch] = useState('');
+  const [guardians, setGuardians] = useState<GuardianDirectoryEntry[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    setLoading(true);
+    setFailed(false);
+
+    // Debounce so typing a name does not fire a request per keystroke.
+    const t = setTimeout(() => {
+      api
+        .listGuardians(search, token)
+        .then((rows) => {
+          if (alive) setGuardians(rows);
+        })
+        .catch(() => {
+          if (alive) setFailed(true);
+        })
+        .finally(() => {
+          if (alive) setLoading(false);
+        });
+    }, 250);
+
+    return () => {
+      alive = false;
+      clearTimeout(t);
+    };
+  }, [search, token]);
+
+  const selectedRows = useMemo(
+    () => guardians.filter((g) => selected.includes(g.id)),
+    [guardians, selected]
+  );
+
+  const toggle = (id: string) => {
+    onChange(selected.includes(id) ? selected.filter((x) => x !== id) : [...selected, id]);
+  };
+
+  return (
+    <div className="space-y-3">
+      <div>
+        <label className="label" htmlFor="guardian-search">
+          Search guardians
+        </label>
+        <input
+          id="guardian-search"
+          className="input"
+          value={search}
+          placeholder="Search by name or phone…"
+          onChange={(e) => setSearch(e.target.value)}
+        />
+      </div>
+
+      {selected.length > 0 && (
+        <div>
+          <p className="text-sm text-gray-600 mb-2">
+            {selected.length} guardian{selected.length === 1 ? '' : 's'} selected
+          </p>
+          <ul className="flex flex-wrap gap-2" aria-label="Selected guardians">
+            {selectedRows.map((g) => (
+              <li key={g.id}>
+                <button
+                  type="button"
+                  className="text-xs font-medium text-blue-700 bg-blue-50 rounded-full px-2 py-0.5"
+                  onClick={() => toggle(g.id)}
+                  aria-label={`Remove ${g.full_name}`}
+                >
+                  {g.full_name} ×
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {failed && (
+        <p className="text-sm text-red-600" role="alert">
+          Could not load guardians. Check your connection and try again.
+        </p>
+      )}
+
+      <fieldset className="border border-gray-200 rounded-md p-3 max-h-64 overflow-y-auto">
+        <legend className="sr-only">Guardians</legend>
+        {loading && <p className="text-sm text-gray-500">Loading guardians…</p>}
+        {!loading && !failed && guardians.length === 0 && (
+          <p className="text-sm text-gray-500">No guardians match “{search}”.</p>
+        )}
+        {guardians.map((g) => (
+          <label
+            key={g.id}
+            className="flex items-center gap-3 py-1.5 text-sm cursor-pointer"
+          >
+            <input
+              type="checkbox"
+              checked={selected.includes(g.id)}
+              onChange={() => toggle(g.id)}
+            />
+            <span className="flex-1">
+              {g.full_name}
+              <span className="text-gray-500"> · {g.phone || 'no phone'}</span>
+            </span>
+            {g.is_sms_opted_out && (
+              <span
+                className="text-xs font-medium text-amber-700 bg-amber-50 rounded-full px-2 py-0.5"
+                title="This guardian has opted out of SMS"
+              >
+                opted out
+              </span>
+            )}
+          </label>
+        ))}
+      </fieldset>
+    </div>
+  );
+}
+
 export default function AudienceSegmentBuilder({
   audienceType,
   setAudienceType,
@@ -31,6 +167,8 @@ export default function AudienceSegmentBuilder({
   onEstimate,
   estimate,
 }: Props) {
+  const selectedIds = (audienceFilter.guardian_ids as string[] | undefined) ?? [];
+
   return (
     <div className="card p-6 max-w-2xl">
       <h2 className="text-lg font-semibold mb-4">Select Audience</h2>
@@ -108,21 +246,10 @@ export default function AudienceSegmentBuilder({
         )}
 
         {audienceType === 'custom' && (
-          <div>
-            <label className="label">Guardian IDs (comma-separated)</label>
-            <textarea
-              className="input"
-              rows={3}
-              placeholder="c0000000-0000-0000-0000-000000000001, c0000000-0000-0000-0000-000000000002"
-              onChange={(e) => {
-                const ids = e.target.value
-                  .split(',')
-                  .map((s) => s.trim())
-                  .filter(Boolean);
-                setAudienceFilter({ ...audienceFilter, guardian_ids: ids });
-              }}
-            />
-          </div>
+          <GuardianPicker
+            selected={selectedIds}
+            onChange={(ids) => setAudienceFilter({ ...audienceFilter, guardian_ids: ids })}
+          />
         )}
 
         <button className="btn-secondary" onClick={onEstimate}>

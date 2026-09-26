@@ -39,6 +39,10 @@ func (h *Handler) Mount(r chi.Router) {
 	r.Route("/messages", func(r chi.Router) {
 		r.Post("/", h.createMessage)
 		r.Get("/", h.listMessages)
+		// The estimate takes an audience + body, so it is a POST (this is what
+		// the spec and the web client use). The GET below is kept as an alias
+		// for older clients.
+		r.Post("/estimate", h.estimateReach)
 		r.Get("/estimate", h.estimateReach)
 		r.Get("/{id}", h.getMessage)
 		r.Get("/{id}/logs", h.getMessageLogs)
