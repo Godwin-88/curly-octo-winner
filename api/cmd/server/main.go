@@ -32,6 +32,7 @@ import (
 	"github.com/shule360/api/internal/hr"
 	"github.com/shule360/api/internal/intelligence"
 	"github.com/shule360/api/internal/learner"
+	"github.com/shule360/api/internal/learnerimport"
 	appmiddleware "github.com/shule360/api/internal/middleware"
 	"github.com/shule360/api/internal/nemis"
 	"github.com/shule360/api/internal/parent"
@@ -156,6 +157,11 @@ func main() {
 	// Initialize learner services (EPIC 3)
 	learnerSvc := learner.NewService(sb.Pool, nemisClient)
 	learnerHandler := learner.NewHandler(learnerSvc)
+
+	// Staging area for CSV learner imports. A roster is learner data, so it
+	// mounts alongside the learner routes and under the same role group.
+	learnerImportSvc := learnerimport.NewService(sb.Pool)
+	learnerImportHandler := learnerimport.NewHandler(learnerImportSvc)
 
 	// Initialize M-Pesa Daraja client (EPIC 5)
 	mpesaClient := mpesa.NewClient(cfg.MpesaConsumerKey, cfg.MpesaConsumerSecret,
@@ -328,6 +334,7 @@ func main() {
 				commsHandler.Mount(r)
 				academicHandler.Mount(r)
 				learnerHandler.Mount(r)
+				learnerImportHandler.Mount(r)
 				transportHandler.Mount(r)
 				reportsHandler.Mount(r)
 				teacherHandler.Mount(r)
