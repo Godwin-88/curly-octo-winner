@@ -174,7 +174,7 @@ func (s *Service) ListSummariesByTermYear(ctx context.Context, tenantID uuid.UUI
 	rows, err := s.pool.Query(ctx, `
 		SELECT
 			a.id, a.learner_id, l.full_name AS learner_name, l.grade, l.stream,
-			a.sub_strand_id, ss.name AS sub_strand_name, ss.kicd_code AS sub_strand_code,
+			a.sub_strand_id, ss.name AS sub_strand_name, COALESCE(ss.kicd_code, '') AS sub_strand_code,
 			st.name AS strand_name, la.name AS learning_area,
 			a.rubric_level,
 			CASE a.rubric_level
@@ -219,7 +219,7 @@ func (s *Service) ListSummariesByLearner(ctx context.Context, tenantID, learnerI
 	rows, err := s.pool.Query(ctx, `
 		SELECT
 			a.id, a.learner_id, l.full_name AS learner_name, l.grade, l.stream,
-			a.sub_strand_id, s.name AS sub_strand_name, s.kicd_code AS sub_strand_code,
+			a.sub_strand_id, s.name AS sub_strand_name, COALESCE(s.kicd_code, '') AS sub_strand_code,
 			str.name AS strand_name, la.name AS learning_area,
 			a.rubric_level,
 			CASE a.rubric_level

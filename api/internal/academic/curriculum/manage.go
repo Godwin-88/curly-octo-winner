@@ -74,8 +74,8 @@ func (s *Service) UpdateLearningArea(ctx context.Context, tenantID, id uuid.UUID
 		UPDATE learning_areas
 		SET name = $3, kicd_code = $4, grade_level = $5, description = $6, updated_at = now()
 		WHERE tenant_id = $1 AND id = $2
-		RETURNING id, tenant_id, name, kicd_code, grade_level, description, created_at, updated_at
-	`, tenantID, id, la.Name, la.KICDCode, la.GradeLevel, la.Description).Scan(
+		RETURNING id, tenant_id, name, COALESCE(kicd_code, ''), grade_level, description, created_at, updated_at
+	`, tenantID, id, la.Name, nullIfEmpty(la.KICDCode), la.GradeLevel, la.Description).Scan(
 		&la.ID, &la.TenantID, &la.Name, &la.KICDCode,
 		&la.GradeLevel, &la.Description, &la.CreatedAt, &la.UpdatedAt,
 	)
@@ -121,8 +121,8 @@ func (s *Service) UpdateStrand(ctx context.Context, tenantID, id uuid.UUID, st *
 		UPDATE strands
 		SET name = $3, kicd_code = $4, description = $5, updated_at = now()
 		WHERE tenant_id = $1 AND id = $2
-		RETURNING id, tenant_id, learning_area_id, name, kicd_code, description, created_at, updated_at
-	`, tenantID, id, st.Name, st.KICDCode, st.Description).Scan(
+		RETURNING id, tenant_id, learning_area_id, name, COALESCE(kicd_code, ''), description, created_at, updated_at
+	`, tenantID, id, st.Name, nullIfEmpty(st.KICDCode), st.Description).Scan(
 		&st.ID, &st.TenantID, &st.LearningAreaID, &st.Name, &st.KICDCode,
 		&st.Description, &st.CreatedAt, &st.UpdatedAt,
 	)
@@ -168,8 +168,8 @@ func (s *Service) UpdateSubStrand(ctx context.Context, tenantID, id uuid.UUID, s
 		UPDATE sub_strands
 		SET name = $3, kicd_code = $4, description = $5, updated_at = now()
 		WHERE tenant_id = $1 AND id = $2
-		RETURNING id, tenant_id, strand_id, name, kicd_code, description, created_at, updated_at
-	`, tenantID, id, ss.Name, ss.KICDCode, ss.Description).Scan(
+		RETURNING id, tenant_id, strand_id, name, COALESCE(kicd_code, ''), description, created_at, updated_at
+	`, tenantID, id, ss.Name, nullIfEmpty(ss.KICDCode), ss.Description).Scan(
 		&ss.ID, &ss.TenantID, &ss.StrandID, &ss.Name, &ss.KICDCode,
 		&ss.Description, &ss.CreatedAt, &ss.UpdatedAt,
 	)
@@ -225,8 +225,8 @@ func (s *Service) UpdateCoreCompetency(ctx context.Context, tenantID, id uuid.UU
 		UPDATE core_competencies
 		SET name = $3, kicd_code = $4, description = $5, updated_at = now()
 		WHERE tenant_id = $1 AND id = $2
-		RETURNING id, tenant_id, name, kicd_code, description, created_at, updated_at
-	`, tenantID, id, cc.Name, cc.KICDCode, cc.Description).Scan(
+		RETURNING id, tenant_id, name, COALESCE(kicd_code, ''), description, created_at, updated_at
+	`, tenantID, id, cc.Name, nullIfEmpty(cc.KICDCode), cc.Description).Scan(
 		&cc.ID, &cc.TenantID, &cc.Name, &cc.KICDCode, &cc.Description,
 		&cc.CreatedAt, &cc.UpdatedAt,
 	)
@@ -258,8 +258,8 @@ func (s *Service) UpdateValue(ctx context.Context, tenantID, id uuid.UUID, v *Va
 		UPDATE values
 		SET name = $3, kicd_code = $4, description = $5, updated_at = now()
 		WHERE tenant_id = $1 AND id = $2
-		RETURNING id, tenant_id, name, kicd_code, description, created_at, updated_at
-	`, tenantID, id, v.Name, v.KICDCode, v.Description).Scan(
+		RETURNING id, tenant_id, name, COALESCE(kicd_code, ''), description, created_at, updated_at
+	`, tenantID, id, v.Name, nullIfEmpty(v.KICDCode), v.Description).Scan(
 		&v.ID, &v.TenantID, &v.Name, &v.KICDCode, &v.Description,
 		&v.CreatedAt, &v.UpdatedAt,
 	)

@@ -79,6 +79,22 @@ type Value struct {
 	UpdatedAt   time.Time `json:"updated_at"`
 }
 
+// nullIfEmpty maps the form's "no KICD code yet" to SQL NULL.
+//
+// The curriculum forms treat the code as optional and send "" when it is blank,
+// but kicd_code carries a UNIQUE constraint per tenant. Storing "" meant the
+// first code-less row occupied the empty string and every later one collided
+// with it -- so a strand could hold only one sub-strand unless the user knew
+// the ministry codes. NULLs are distinct inside a unique index, so "not known
+// yet" no longer competes with itself. Reads wrap the column in COALESCE, which
+// keeps the Go field and the JSON contract a plain string.
+func nullIfEmpty(code string) *string {
+	if code == "" {
+		return nil
+	}
+	return &code
+}
+
 // Service handles curriculum-related operations.
 type Service struct {
 	pool *pgxpool.Pool
@@ -92,7 +108,7 @@ func NewService(pool *pgxpool.Pool) *Service {
 // ListLearningAreas returns all learning areas for a tenant.
 func (s *Service) ListLearningAreas(ctx context.Context, tenantID uuid.UUID) ([]LearningArea, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, tenant_id, name, kicd_code, grade_level, description, created_at, updated_at
+		SELECT id, tenant_id, name, COALESCE(kicd_code, ''), grade_level, description, created_at, updated_at
 		FROM learning_areas
 		WHERE tenant_id = $1
 		ORDER BY grade_level, name
@@ -120,7 +136,7 @@ func (s *Service) ListLearningAreas(ctx context.Context, tenantID uuid.UUID) ([]
 func (s *Service) GetLearningArea(ctx context.Context, tenantID, id uuid.UUID) (*LearningArea, error) {
 	var la LearningArea
 	err := s.pool.QueryRow(ctx, `
-		SELECT id, tenant_id, name, kicd_code, grade_level, description, created_at, updated_at
+		SELECT id, tenant_id, name, COALESCE(kicd_code, ''), grade_level, description, created_at, updated_at
 		FROM learning_areas
 		WHERE tenant_id = $1 AND id = $2
 	`, tenantID, id).Scan(
@@ -141,8 +157,8 @@ func (s *Service) CreateLearningArea(ctx context.Context, tenantID uuid.UUID, la
 	err := s.pool.QueryRow(ctx, `
 		INSERT INTO learning_areas (tenant_id, name, kicd_code, grade_level, description)
 		VALUES ($1, $2, $3, $4, $5)
-		RETURNING id, tenant_id, name, kicd_code, grade_level, description, created_at, updated_at
-	`, tenantID, la.Name, la.KICDCode, la.GradeLevel, la.Description).Scan(
+		RETURNING id, tenant_id, name, COALESCE(kicd_code, ''), grade_level, description, created_at, updated_at
+	`, tenantID, la.Name, nullIfEmpty(la.KICDCode), la.GradeLevel, la.Description).Scan(
 		&la.ID, &la.TenantID, &la.Name, &la.KICDCode,
 		&la.GradeLevel, &la.Description, &la.CreatedAt, &la.UpdatedAt,
 	)
@@ -155,7 +171,7 @@ func (s *Service) CreateLearningArea(ctx context.Context, tenantID uuid.UUID, la
 // ListStrands returns all strands for a learning area.
 func (s *Service) ListStrands(ctx context.Context, tenantID, learningAreaID uuid.UUID) ([]Strand, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, tenant_id, learning_area_id, name, kicd_code, description, created_at, updated_at
+		SELECT id, tenant_id, learning_area_id, name, COALESCE(kicd_code, ''), description, created_at, updated_at
 		FROM strands
 		WHERE tenant_id = $1 AND learning_area_id = $2
 		ORDER BY name
@@ -184,8 +200,8 @@ func (s *Service) CreateStrand(ctx context.Context, tenantID uuid.UUID, st *Stra
 	err := s.pool.QueryRow(ctx, `
 		INSERT INTO strands (tenant_id, learning_area_id, name, kicd_code, description)
 		VALUES ($1, $2, $3, $4, $5)
-		RETURNING id, tenant_id, learning_area_id, name, kicd_code, description, created_at, updated_at
-	`, tenantID, st.LearningAreaID, st.Name, st.KICDCode, st.Description).Scan(
+		RETURNING id, tenant_id, learning_area_id, name, COALESCE(kicd_code, ''), description, created_at, updated_at
+	`, tenantID, st.LearningAreaID, st.Name, nullIfEmpty(st.KICDCode), st.Description).Scan(
 		&st.ID, &st.TenantID, &st.LearningAreaID, &st.Name, &st.KICDCode,
 		&st.Description, &st.CreatedAt, &st.UpdatedAt,
 	)
@@ -198,7 +214,7 @@ func (s *Service) CreateStrand(ctx context.Context, tenantID uuid.UUID, st *Stra
 // ListSubStrands returns all sub-strands for a strand.
 func (s *Service) ListSubStrands(ctx context.Context, tenantID, strandID uuid.UUID) ([]SubStrand, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, tenant_id, strand_id, name, kicd_code, description, created_at, updated_at
+		SELECT id, tenant_id, strand_id, name, COALESCE(kicd_code, ''), description, created_at, updated_at
 		FROM sub_strands
 		WHERE tenant_id = $1 AND strand_id = $2
 		ORDER BY name
@@ -227,8 +243,8 @@ func (s *Service) CreateSubStrand(ctx context.Context, tenantID uuid.UUID, ss *S
 	err := s.pool.QueryRow(ctx, `
 		INSERT INTO sub_strands (tenant_id, strand_id, name, kicd_code, description)
 		VALUES ($1, $2, $3, $4, $5)
-		RETURNING id, tenant_id, strand_id, name, kicd_code, description, created_at, updated_at
-	`, tenantID, ss.StrandID, ss.Name, ss.KICDCode, ss.Description).Scan(
+		RETURNING id, tenant_id, strand_id, name, COALESCE(kicd_code, ''), description, created_at, updated_at
+	`, tenantID, ss.StrandID, ss.Name, nullIfEmpty(ss.KICDCode), ss.Description).Scan(
 		&ss.ID, &ss.TenantID, &ss.StrandID, &ss.Name, &ss.KICDCode,
 		&ss.Description, &ss.CreatedAt, &ss.UpdatedAt,
 	)
@@ -284,7 +300,7 @@ func (s *Service) CreateLearningOutcome(ctx context.Context, tenantID uuid.UUID,
 // ListCoreCompetencies returns all core competencies for a tenant.
 func (s *Service) ListCoreCompetencies(ctx context.Context, tenantID uuid.UUID) ([]CoreCompetency, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, tenant_id, name, kicd_code, description, created_at, updated_at
+		SELECT id, tenant_id, name, COALESCE(kicd_code, ''), description, created_at, updated_at
 		FROM core_competencies
 		WHERE tenant_id = $1
 		ORDER BY name
@@ -313,8 +329,8 @@ func (s *Service) CreateCoreCompetency(ctx context.Context, tenantID uuid.UUID, 
 	err := s.pool.QueryRow(ctx, `
 		INSERT INTO core_competencies (tenant_id, name, kicd_code, description)
 		VALUES ($1, $2, $3, $4)
-		RETURNING id, tenant_id, name, kicd_code, description, created_at, updated_at
-	`, tenantID, cc.Name, cc.KICDCode, cc.Description).Scan(
+		RETURNING id, tenant_id, name, COALESCE(kicd_code, ''), description, created_at, updated_at
+	`, tenantID, cc.Name, nullIfEmpty(cc.KICDCode), cc.Description).Scan(
 		&cc.ID, &cc.TenantID, &cc.Name, &cc.KICDCode,
 		&cc.Description, &cc.CreatedAt, &cc.UpdatedAt,
 	)
@@ -327,7 +343,7 @@ func (s *Service) CreateCoreCompetency(ctx context.Context, tenantID uuid.UUID, 
 // ListValues returns all values for a tenant.
 func (s *Service) ListValues(ctx context.Context, tenantID uuid.UUID) ([]Value, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, tenant_id, name, kicd_code, description, created_at, updated_at
+		SELECT id, tenant_id, name, COALESCE(kicd_code, ''), description, created_at, updated_at
 		FROM values
 		WHERE tenant_id = $1
 		ORDER BY name
@@ -356,8 +372,8 @@ func (s *Service) CreateValue(ctx context.Context, tenantID uuid.UUID, v *Value)
 	err := s.pool.QueryRow(ctx, `
 		INSERT INTO values (tenant_id, name, kicd_code, description)
 		VALUES ($1, $2, $3, $4)
-		RETURNING id, tenant_id, name, kicd_code, description, created_at, updated_at
-	`, tenantID, v.Name, v.KICDCode, v.Description).Scan(
+		RETURNING id, tenant_id, name, COALESCE(kicd_code, ''), description, created_at, updated_at
+	`, tenantID, v.Name, nullIfEmpty(v.KICDCode), v.Description).Scan(
 		&v.ID, &v.TenantID, &v.Name, &v.KICDCode,
 		&v.Description, &v.CreatedAt, &v.UpdatedAt,
 	)
