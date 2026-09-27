@@ -21,6 +21,7 @@ import {
   MapPin,
   Navigation,
   FileText,
+  FileSpreadsheet,
   Receipt,
   Smartphone,
   BarChart3,
@@ -82,7 +83,14 @@ const navItems: NavItem[] = [
       { href: '/academic/attendance', label: 'Attendance', icon: CalendarCheck },
     ],
   },
-  { href: '/learners', label: 'Learners', icon: Users },
+  {
+    label: 'Learners',
+    icon: Users,
+    children: [
+      { href: '/learners', label: 'All Learners', icon: Users },
+      { href: '/learners/import', label: 'Import Roster', icon: FileSpreadsheet },
+    ],
+  },
   {
     label: 'Transport',
     icon: Bus,

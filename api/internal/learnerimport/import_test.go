@@ -97,6 +97,25 @@ func TestMissingFieldsAgreesWithTheDatabaseRule(t *testing.T) {
 	}
 }
 
+// TestBatchFilenameIsOptional guards a bug this package shipped once: Batch's
+// Filename was a plain string while the column is nullable, so pasting rows
+// without choosing a file scanned NULL into a string and the whole upload
+// failed with a 500. The end-to-end staging path always sent a filename, so
+// only the UI (which sends none when the user pastes) hit it.
+//
+// The check is on the struct's type rather than on a database round trip so it
+// runs without a live database; a non-pointer field here is the bug.
+func TestBatchFilenameIsOptional(t *testing.T) {
+	var b Batch
+	if reflect.TypeOf(b.Filename).Kind() != reflect.Ptr {
+		t.Error("Batch.Filename must be a pointer: the column is nullable and an " +
+			"upload with no filename would fail to scan")
+	}
+	if reflect.TypeOf(b.UploadedBy).Kind() != reflect.Ptr {
+		t.Error("Batch.UploadedBy must be a pointer: a session may have no staff record")
+	}
+}
+
 // readMigration loads a migration file, failing loudly if it moved.
 func readMigration(t *testing.T, path string) []byte {
 	t.Helper()

@@ -62,15 +62,18 @@ var ErrBatchHasLearners = errors.New("batch has already produced learners")
 
 // Batch is one uploaded file.
 type Batch struct {
-	ID           uuid.UUID `json:"id"`
-	TenantID     uuid.UUID `json:"tenant_id"`
-	Filename     string    `json:"filename,omitempty"`
-	UploadedBy   uuid.UUID `json:"uploaded_by,omitempty"`
-	TotalRows    int       `json:"total_rows"`
-	ReadyRows    int       `json:"ready_rows"`
-	ImportedRows int       `json:"imported_rows"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	ID       uuid.UUID `json:"id"`
+	TenantID uuid.UUID `json:"tenant_id"`
+	// Filename is nullable: a school can paste rows without choosing a file, and
+	// the column stores that honestly rather than inventing an empty label.
+	Filename *string `json:"filename"`
+	// UploadedBy is null when the session had no staff record.
+	UploadedBy   *uuid.UUID `json:"uploaded_by"`
+	TotalRows    int        `json:"total_rows"`
+	ReadyRows    int        `json:"ready_rows"`
+	ImportedRows int        `json:"imported_rows"`
+	CreatedAt    time.Time  `json:"created_at"`
+	UpdatedAt    time.Time  `json:"updated_at"`
 }
 
 // Row is one staged line of the file.

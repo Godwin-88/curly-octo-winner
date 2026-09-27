@@ -479,6 +479,82 @@ export interface UpdateLearnerRequest {
   admission_date?: string;
 }
 
+// --- Learner CSV import (staging) ---
+//
+// A roster upload never becomes learners directly. Every row is staged first,
+// editable, and promotes only once it holds a student name, a number and a
+// grade. The nullable fields below are genuinely nullable: "not filled in yet"
+// is a normal state, which is why they are `string | null` rather than string.
+
+export interface LearnerImportBatch {
+  id: string;
+  tenant_id: string;
+  /** Null when rows were pasted without choosing a file. */
+  filename: string | null;
+  /** Null when the session had no staff record. */
+  uploaded_by: string | null;
+  total_rows: number;
+  ready_rows: number;
+  imported_rows: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export type LearnerImportRowStatus = 'draft' | 'imported' | 'rejected';
+
+/** The fields that must be present before a staged row can become a learner. */
+export type LearnerImportRequiredField = 'student_name' | 'student_number' | 'grade';
+
+export interface LearnerImportRow {
+  id: string;
+  tenant_id: string;
+  batch_id: string;
+  /** The line in the source spreadsheet, so messages point at the right row. */
+  row_number: number;
+  parent_name: string | null;
+  parent_phone: string | null;
+  student_name: string | null;
+  student_number: string | null;
+  grade: string | null;
+  stream: string | null;
+  tags: string[];
+  notes: string | null;
+  status: LearnerImportRowStatus;
+  problem?: string | null;
+  learner_id?: string;
+  guardian_id?: string;
+  /** Computed by the database, not by this page. */
+  is_sufficient: boolean;
+  /** The required fields still absent, so the UI can point at them. */
+  missing: LearnerImportRequiredField[];
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * A partial edit. Omit a key to leave it alone; send an empty string to clear
+ * it. That distinction is why these are optional rather than nullable.
+ */
+export interface LearnerImportRowPatch {
+  parent_name?: string;
+  parent_phone?: string;
+  student_name?: string;
+  student_number?: string;
+  grade?: string;
+  stream?: string;
+  tags?: string[];
+  notes?: string;
+  status?: LearnerImportRowStatus;
+}
+
+export interface LearnerImportPromoteResult {
+  row: LearnerImportRow;
+  learner_id: string;
+  guardian_id?: string;
+  /** Set when part of the row was skipped, e.g. a parent with no phone. */
+  note?: string;
+}
+
 export interface LearnerDocument {
   id: string;
   tenant_id: string;
@@ -2157,6 +2233,46 @@ export const api = {
   // Tenant-wide guardian directory (used by the SMS/WhatsApp audience picker).
   listGuardians: (search: string, token: string) =>
     request<GuardianDirectoryEntry[]>(`/learners/guardians${search ? `?search=${encodeURIComponent(search)}` : ''}`, { token }),
+
+  // --- Learner CSV import (staging) ---
+
+  listLearnerImportBatches: (token: string) =>
+    request<{ items: LearnerImportBatch[]; total: number }>('/learner-imports', { token }),
+
+  /** Stages a whole file. Nothing is rejected for being incomplete. */
+  createLearnerImport: (body: { csv: string; filename?: string }, token: string) =>
+    request<LearnerImportBatch>('/learner-imports', { method: 'POST', body, token }),
+
+  getLearnerImportBatch: (id: string, token: string) =>
+    request<LearnerImportBatch>(`/learner-imports/${id}`, { token }),
+
+  listLearnerImportRows: (
+    batchId: string,
+    filters: { status?: string; tag?: string } = {},
+    token: string = ''
+  ) => {
+    const qs = new URLSearchParams();
+    if (filters.status) qs.set('status', filters.status);
+    if (filters.tag) qs.set('tag', filters.tag);
+    const suffix = qs.toString() ? `?${qs.toString()}` : '';
+    return request<{ items: LearnerImportRow[]; total: number }>(
+      `/learner-imports/${batchId}/rows${suffix}`,
+      { token }
+    );
+  },
+
+  updateLearnerImportRow: (id: string, patch: LearnerImportRowPatch, token: string) =>
+    request<LearnerImportRow>(`/learner-imports/rows/${id}`, { method: 'PATCH', body: patch, token }),
+
+  /** Turns one sufficient staged row into a real learner. */
+  promoteLearnerImportRow: (id: string, token: string) =>
+    request<LearnerImportPromoteResult>(`/learner-imports/rows/${id}/promote`, { method: 'POST', token }),
+
+  deleteLearnerImportRow: (id: string, token: string) =>
+    request<void>(`/learner-imports/rows/${id}`, { method: 'DELETE', token }),
+
+  deleteLearnerImportBatch: (id: string, token: string) =>
+    request<void>(`/learner-imports/${id}`, { method: 'DELETE', token }),
 
   // --- Contact book -------------------------------------------------------
   // Curated before sending: these are the people a school can message.
