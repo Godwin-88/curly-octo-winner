@@ -1,0 +1,198 @@
+name: Deploy
+
+# Release pipeline. A push to `main` is the only automatic trigger.
+#
+#   api job — verifies the Go build, triggers the Render web service through its
+#             deploy hook, then waits for /health to answer.
+#   web job — verifies the Next.js build and ships it to Vercel as a production
+#             deployment. It declares `needs: api`, so the frontend never goes
+#             live ahead of the backend it proxies /api/v1/* to (DEPLOYMENT.md
+#             § 1: "Deploy the API first, then the web app").
+#
+# Nothing secret lives in this repository. Every credential is read from the
+# `production` GitHub Environment — see DEPLOYMENT.md § 3 for the one-time setup.
+# Database migrations are deliberately NOT run here: forward-only schema changes
+# are applied deliberately via the manual `migrations.yml` workflow.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# The workflow only ever reads the repository. Deploy credentials live in the
+# environment, and the Vercel/Render APIs are reached over their own auth.
+permissions:
+  contents: read
+
+# Serialise releases: two overlapping deploys of the same service would race and
+# the later one could roll back the newer commit.
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  api:
+    name: API → Render
+    runs-on: ubuntu-latest
+    environment: production
+    defaults:
+      run:
+        working-directory: ./api
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache-dependency-path: api/go.sum
+
+      - name: Verify (fmt, vet, build)
+        run: |
+          go mod verify
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "::error::gofmt needed on: $unformatted"
+            exit 1
+          fi
+          go vet ./...
+          go build ./...
+
+      - name: Test
+        run: go test ./...
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/shule360_test
+          SUPABASE_URL: http://localhost
+          SUPABASE_SERVICE_ROLE_KEY: test
+          JWT_SECRET: test_secret
+
+      - name: Trigger the Render deploy hook
+        env:
+          RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+        run: |
+          if [ -z "$RENDER_DEPLOY_HOOK_URL" ]; then
+            echo "::error::Secret RENDER_DEPLOY_HOOK_URL is missing from the 'production' environment."
+            echo "::error::Render → the API service → Settings → Deploy Hook. See DEPLOYMENT.md § 3."
+            exit 1
+          fi
+          # The hook URL embeds an unguessable key, so it is never echoed.
+          echo "Triggering the Render deploy hook..."
+          curl --fail-with-body --silent --show-error \
+               --retry 3 --retry-delay 5 --retry-connrefused \
+               --output /dev/null \
+               --request POST "$RENDER_DEPLOY_HOOK_URL"
+          echo "Render accepted the deploy request."
+
+      - name: Wait for /health
+        env:
+          API_BASE_URL: ${{ vars.API_BASE_URL }}
+        run: |
+          if [ -z "$API_BASE_URL" ]; then
+            echo "::warning::API_BASE_URL is not set on the 'production' environment — skipping the post-deploy health check."
+            echo "::warning::Set it to the Render service origin (e.g. https://shule360-api.onrender.com) to turn this on."
+            exit 0
+          fi
+
+          base="${API_BASE_URL%/}"
+          # Free Render instances spin down after ~15 min idle, so the first
+          # request pays a cold-start penalty — allow a generous window.
+          for attempt in $(seq 1 30); do
+            if body=$(curl --fail --silent --show-error --max-time 10 "${base}/health" 2>/dev/null); then
+              echo "Healthy after ${attempt} attempt(s): ${body}"
+              {
+                echo "### API deployed to Render"
+                echo ""
+                echo "- Endpoint: \`${base}\`"
+                echo "- Health: \`${body}\`"
+                echo "- Commit: \`${GITHUB_SHA::8}\`"
+                echo "- Author: @${GITHUB_ACTOR}"
+              } >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            echo "Attempt ${attempt}/30 — ${base}/health not ready yet, retrying in 10s..."
+            sleep 10
+          done
+
+          echo "::error::${base}/health did not answer within 5 minutes — the hook fired but the service is not serving."
+          echo "::error::Check the Render deploy log before shipping the frontend."
+          exit 1
+
+  web:
+    name: Web → Vercel
+    needs: api
+    runs-on: ubuntu-latest
+    environment: production
+    defaults:
+      run:
+        working-directory: ./web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Verify (lint, types, build)
+        run: |
+          npm ci
+          npm run lint
+          npx tsc --noEmit
+          # A local compile gate only. The real build runs inside `vercel build`
+          # below against the project's own environment, so no application secret
+          # has to be passed through GitHub Actions.
+          NEXT_PUBLIC_API_URL=https://api.invalid npx next build
+
+      # `vercel pull` downloads the project settings (root directory, build
+      # command, framework preset) and the project's own environment variables —
+      # including NEXT_PUBLIC_API_URL, which next.config.js bakes into the
+      # /api/v1 rewrite target — into .vercel/.
+      - name: Pull the Vercel project settings
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          if [ -z "$VERCEL_TOKEN" ] || [ -z "$VERCEL_ORG_ID" ] || [ -z "$VERCEL_PROJECT_ID" ]; then
+            echo "::error::VERCEL_TOKEN / VERCEL_ORG_ID / VERCEL_PROJECT_ID must all be set on the 'production' environment."
+            echo "::error::The IDs are shown by \`npx vercel pull --yes\` locally, and in Vercel → Project Settings → General."
+            exit 1
+          fi
+          npx --yes vercel@62 pull --yes --environment=production --token="$VERCEL_TOKEN"
+
+      - name: Build with the Vercel build pipeline
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: npx --yes vercel@62 build --prod --token="$VERCEL_TOKEN"
+
+      - name: Deploy to Vercel (production)
+        id: deploy
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -o pipefail
+          npx --yes vercel@62 deploy --prebuilt --prod --token="$VERCEL_TOKEN" | tee vercel-deploy.log
+          url=$(grep -oE 'https://[A-Za-z0-9.-]+\.vercel\.app' vercel-deploy.log | head -1)
+          echo "url=${url:-unknown}" >> "$GITHUB_OUTPUT"
+          rm -f vercel-deploy.log
+
+      - name: Summary
+        env:
+          DEPLOY_URL: ${{ steps.deploy.outputs.url }}
+        run: |
+          {
+            echo "### Frontend deployed to Vercel"
+            echo ""
+            echo "- URL: \`${DEPLOY_URL}\`"
+            echo "- Commit: \`${GITHUB_SHA::8}\`"
+            echo "- Author: @${GITHUB_ACTOR}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: vercel-build-output
+          path: web/.vercel/output
+          retention-days: 3
+          if-no-files-found: ignore
+

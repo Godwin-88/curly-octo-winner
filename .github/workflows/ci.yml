@@ -6,7 +6,27 @@ on:
   pull_request:
     branches: [main, develop]
 
+# Read-only: CI builds and tests, it never writes to the repository.
+permissions:
+  contents: read
+
 jobs:
+  # Backstop for the gitignore rules that keep api/.env (live Supabase, Upstash,
+  # Backblaze, Africa's Talking, Groq and M-Pesa credentials) and web/.env.local
+  # out of history. Runs first and needs no toolchain, so a leak is reported
+  # before any of the expensive jobs start.
+  secret-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history: a key reintroduced by a revert is still a leak.
+          fetch-depth: 0
+      - name: Scan tracked files for live credentials
+        # Invoked via `bash` rather than `./scripts/...` so the check still runs
+        # on a checkout that did not preserve the executable bit.
+        run: bash ./scripts/secret-scan.sh
+
   backend:
     runs-on: ubuntu-latest
     defaults:
