@@ -31,7 +31,7 @@ export const PROVIDERS: ProviderSpec[] = [
       { key: 'consumer_secret', label: 'Consumer secret', secret: true },
       { key: 'passkey', label: 'Passkey (STK)', secret: true },
       { key: 'shortcode', label: 'Paybill / shortcode', placeholder: '174379' },
-      { key: 'base_url', label: 'Base URL', placeholder: 'https://sandbox.safaricomm.co.ke' },
+      { key: 'base_url', label: 'Base URL', placeholder: 'https://sandbox.safaricom.co.ke' },
       {
         key: 'callback_url',
         label: 'Callback URL',

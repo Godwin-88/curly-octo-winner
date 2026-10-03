@@ -204,3 +204,36 @@ func TestSessionScopes(t *testing.T) {
 		}
 	})
 }
+
+type fakeModules map[string]bool
+
+func (f fakeModules) ModuleEnabled(_ context.Context, _ uuid.UUID, module string) (bool, error) {
+	return f[module], nil
+}
+
+// A module the school does not have is refused before the handler runs; one
+// it has passes through.
+func TestRequireModule(t *testing.T) {
+	school := uuid.New()
+	called := false
+	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { called = true; w.WriteHeader(http.StatusOK) })
+
+	for _, tc := range []struct {
+		name    string
+		modules fakeModules
+		want    int
+		reaches bool
+	}{
+		{"enabled", fakeModules{"finance": true}, http.StatusOK, true},
+		{"not enabled", fakeModules{"communications": true}, http.StatusForbidden, false},
+	} {
+		called = false
+		req := httptest.NewRequest(http.MethodGet, "/invoices", nil)
+		req = req.WithContext(context.WithValue(req.Context(), ContextKeyTenantID, school))
+		rec := httptest.NewRecorder()
+		RequireModule(tc.modules, "finance", "Finance")(next).ServeHTTP(rec, req)
+		if rec.Code != tc.want || called != tc.reaches {
+			t.Errorf("%s: status %d reached=%v, want %d reached=%v", tc.name, rec.Code, called, tc.want, tc.reaches)
+		}
+	}
+}

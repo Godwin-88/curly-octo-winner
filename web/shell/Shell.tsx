@@ -6,6 +6,7 @@ import { useEffect, useMemo } from 'react';
 import { AdminChrome } from '@/components/layout/AdminChrome';
 import { ResourceSection } from '@/framework/ResourceSection';
 import { visibleModules, visibleSections } from '@/framework/registry';
+import { useSchoolModules } from './ContextBar';
 import type { Session } from '@/framework/types';
 import { setSchoolContext } from '@/lib/api';
 import { Empty, Spinner } from '@/ui/kit';
@@ -38,7 +39,8 @@ export function Shell({ session }: { session: Session }) {
   }, []);
 
   const home = basePath(ctx);
-  const modules = visibleModules(ctx);
+  const enabled = useSchoolModules(ctx.schoolId);
+  const modules = visibleModules(ctx, ctx.scope === 'school' ? enabled : undefined);
   const current = modules.find((candidate) => candidate.id === moduleId);
   const sections = current ? visibleSections(ctx, current) : [];
   const section = sections.find((candidate) => candidate.id === sectionId);

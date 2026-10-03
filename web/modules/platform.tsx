@@ -57,6 +57,12 @@ function OpenSchool({ row, ctx }: { row: School; ctx: Ctx }) {
   );
 }
 
+/** The modules a school can have or not have. */
+const SOLD: Option[] = [
+  { value: 'communications', label: 'Communications', hint: 'SMS to parents and contacts, with delivery reports.' },
+  { value: 'finance', label: 'Finance', hint: 'Fee structures, invoices, payments, M-Pesa and balances.' },
+];
+
 const schoolFields: FormField[] = [
   { name: 'name', label: 'School name', type: 'text', required: true, placeholder: 'Jua Kali Primary School' },
   { name: 'group_id', label: 'Group', type: 'select', options: groupOptions, help: 'Leave as "Any" for a school that belongs to no group.' },
@@ -81,6 +87,10 @@ const schools = resource<School>({
   fields: [
     { label: 'Group', value: (row) => row.group_name ?? 'Not in a group' },
     { label: 'Short name', value: (row) => row.slug },
+    {
+      label: 'Modules',
+      value: (row) => SOLD.filter((module) => row.modules?.includes(module.value)).map((module) => module.label).join(', ') || 'None',
+    },
   ],
   extra: OpenSchool,
   create: {
@@ -105,6 +115,20 @@ const schools = resource<School>({
       confirm: 'Moving a school changes which group users can open it, from their next request.',
       submitLabel: 'Save changes',
       run: (_ctx, row, values) => apiRequest<School>(`/platform/schools/${row.id}`, { method: 'PATCH', body: schoolBody(values) }),
+    },
+    {
+      id: 'modules',
+      label: 'Choose modules',
+      when: isPlatform,
+      fields: SOLD.map((module) => ({ name: module.value, label: module.label, type: 'checkbox' as const, help: module.hint })),
+      initial: (row) => Object.fromEntries(SOLD.map((module) => [module.value, row.modules?.includes(module.value) ?? true])),
+      confirm: 'A module that is switched off disappears from this school’s menus and its screens stop working at once. Nothing recorded is deleted; switching it back on brings everything back.',
+      submitLabel: 'Save modules',
+      run: (_ctx, row, values) =>
+        apiRequest<School>(`/platform/schools/${row.id}/modules`, {
+          method: 'PUT',
+          body: { modules: SOLD.filter((module) => values[module.value]).map((module) => module.value) },
+        }),
     },
   ],
 });

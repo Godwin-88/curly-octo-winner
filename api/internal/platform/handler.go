@@ -33,6 +33,7 @@ func (h *Handler) Mount(r chi.Router) {
 
 		r.Post("/schools", h.createSchool)
 		r.Patch("/schools/{id}", h.updateSchool)
+		r.Put("/schools/{id}/modules", h.setModules)
 
 		r.Get("/users", h.listUsers)
 		r.Post("/users", h.createUser)
@@ -159,6 +160,25 @@ func (h *Handler) updateSchool(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	school, err := h.service.UpdateSchool(r.Context(), id, req.Name, req.GroupID)
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+	httputil.RespondOK(w, school)
+}
+
+func (h *Handler) setModules(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	var req struct {
+		Modules []string `json:"modules"`
+	}
+	if !decode(w, r, &req) {
+		return
+	}
+	school, err := h.service.SetModules(r.Context(), id, req.Modules)
 	if err != nil {
 		respondError(w, err)
 		return

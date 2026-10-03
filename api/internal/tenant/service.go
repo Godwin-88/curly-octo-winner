@@ -152,13 +152,40 @@ type School struct {
 	Slug      string     `json:"slug"`
 	GroupID   *uuid.UUID `json:"group_id,omitempty"`
 	GroupName *string    `json:"group_name,omitempty"`
+	// Modules the school has. Always the full list: a school with no list of
+	// its own has every module.
+	Modules []string `json:"modules"`
+}
+
+// Modules that can be switched on or off per school. Anything not listed here
+// is part of every school.
+var Modules = []string{"communications", "finance"}
+
+// effectiveModules turns the stored list (nil = everything) into the list
+// that applies.
+func effectiveModules(stored []string) []string {
+	if stored == nil {
+		return append([]string{}, Modules...)
+	}
+	return stored
+}
+
+// ModuleEnabled implements middleware.ModuleLookup.
+func (s *Service) ModuleEnabled(ctx context.Context, schoolID uuid.UUID, module string) (bool, error) {
+	var enabled bool
+	err := s.pool.QueryRow(ctx,
+		`SELECT modules IS NULL OR $2 = ANY(modules) FROM tenants WHERE id = $1`, schoolID, module).Scan(&enabled)
+	if err == pgx.ErrNoRows {
+		return false, nil
+	}
+	return enabled, err
 }
 
 // ListSchools returns the schools a session may open: one school (schoolID),
 // the schools of a group (groupID), or every school (both nil).
 func (s *Service) ListSchools(ctx context.Context, schoolID, groupID *uuid.UUID) ([]School, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT t.id, t.name, t.slug, t.group_id, g.name
+		SELECT t.id, t.name, t.slug, t.group_id, g.name, t.modules
 		FROM tenants t
 		LEFT JOIN school_groups g ON g.id = t.group_id
 		WHERE ($1::uuid IS NULL OR t.id = $1)
@@ -173,9 +200,11 @@ func (s *Service) ListSchools(ctx context.Context, schoolID, groupID *uuid.UUID)
 	schools := []School{}
 	for rows.Next() {
 		var sc School
-		if err := rows.Scan(&sc.ID, &sc.Name, &sc.Slug, &sc.GroupID, &sc.GroupName); err != nil {
+		var stored []string
+		if err := rows.Scan(&sc.ID, &sc.Name, &sc.Slug, &sc.GroupID, &sc.GroupName, &stored); err != nil {
 			return nil, fmt.Errorf("scan school: %w", err)
 		}
+		sc.Modules = effectiveModules(stored)
 		schools = append(schools, sc)
 	}
 	return schools, rows.Err()

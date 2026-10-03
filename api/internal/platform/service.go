@@ -16,6 +16,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/shule360/api/internal/tenant"
 )
 
 // AuthProvider is the part of Supabase Auth this package uses.
@@ -181,14 +183,42 @@ type School struct {
 	Slug      string     `json:"slug"`
 	GroupID   *uuid.UUID `json:"group_id,omitempty"`
 	GroupName *string    `json:"group_name,omitempty"`
+	Modules   []string   `json:"modules"`
+}
+
+// SetModules sets exactly which modules a school has.
+func (s *Service) SetModules(ctx context.Context, id uuid.UUID, modules []string) (*School, error) {
+	known := map[string]bool{}
+	for _, m := range tenant.Modules {
+		known[m] = true
+	}
+	chosen := []string{}
+	seen := map[string]bool{}
+	for _, m := range modules {
+		if !known[m] {
+			return nil, invalid("%s is not a module.", m)
+		}
+		if !seen[m] {
+			seen[m] = true
+			chosen = append(chosen, m)
+		}
+	}
+	tag, err := s.pool.Exec(ctx, `UPDATE tenants SET modules = $2 WHERE id = $1`, id, chosen)
+	if err != nil {
+		return nil, fmt.Errorf("set modules: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return nil, ErrNotFound
+	}
+	return s.getSchool(ctx, id)
 }
 
 func (s *Service) getSchool(ctx context.Context, id uuid.UUID) (*School, error) {
 	var sc School
 	err := s.pool.QueryRow(ctx, `
-		SELECT t.id, t.name, t.slug, t.group_id, g.name
+		SELECT t.id, t.name, t.slug, t.group_id, g.name, COALESCE(t.modules, $2::text[])
 		FROM tenants t LEFT JOIN school_groups g ON g.id = t.group_id
-		WHERE t.id = $1`, id).Scan(&sc.ID, &sc.Name, &sc.Slug, &sc.GroupID, &sc.GroupName)
+		WHERE t.id = $1`, id, tenant.Modules).Scan(&sc.ID, &sc.Name, &sc.Slug, &sc.GroupID, &sc.GroupName, &sc.Modules)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}

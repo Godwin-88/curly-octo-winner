@@ -98,6 +98,8 @@ services:
         sync: false
 
       # --- strongly recommended ---
+      - key: MPESA_WEBHOOK_TOKEN
+        sync: false
       - key: MPESA_ALLOWED_IPS
         sync: false
       - key: CORS_ALLOWED_ORIGINS

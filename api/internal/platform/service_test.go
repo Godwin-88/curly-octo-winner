@@ -123,6 +123,28 @@ func TestGroupsAndSchools(t *testing.T) {
 		t.Errorf("updating a missing school = %v, want ErrNotFound", err)
 	}
 
+	// A new school has every module; the platform can narrow it to exactly
+	// the ones bought, and the answer is read back by the API's own check.
+	if len(moved.Modules) != len(tenant.Modules) {
+		t.Errorf("a new school has modules %v, want all of %v", moved.Modules, tenant.Modules)
+	}
+	narrowed, err := f.svc.SetModules(ctx, school.ID, []string{"communications", "communications"})
+	if err != nil || len(narrowed.Modules) != 1 || narrowed.Modules[0] != "communications" {
+		t.Fatalf("SetModules = %+v, %v", narrowed, err)
+	}
+	lookup := tenant.NewService(f.pool)
+	if on, _ := lookup.ModuleEnabled(ctx, school.ID, "finance"); on {
+		t.Errorf("finance is still enabled after it was taken away")
+	}
+	if on, _ := lookup.ModuleEnabled(ctx, school.ID, "communications"); !on {
+		t.Errorf("communications was switched off although it was kept")
+	}
+	_, err = f.svc.SetModules(ctx, school.ID, []string{"payroll"})
+	wantValidation(t, err, "payroll is not a module")
+	if _, err := f.svc.SetModules(ctx, uuid.New(), nil); !errors.Is(err, ErrNotFound) {
+		t.Errorf("setting modules on a missing school = %v, want ErrNotFound", err)
+	}
+
 	got, err := f.svc.GetGroup(ctx, group.ID)
 	if err != nil || got.SchoolCount != 0 {
 		t.Errorf("group school count = %d (err %v), want 0 after the school left", got.SchoolCount, err)

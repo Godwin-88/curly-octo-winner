@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
+import { moduleEnabled } from '@/framework/registry';
+import { useSchoolModules } from '@/shell/ContextBar';
 import { navPath } from '@/shell/context';
 import {
   LayoutDashboard,
@@ -103,9 +105,11 @@ const navItems: NavItem[] = [
     icon: Wallet,
     children: [
       { href: '/finance', label: 'Overview', icon: Wallet },
-      { href: '/finance/fees', label: 'Fee Structures', icon: FileText },
       { href: '/finance/invoices', label: 'Invoices', icon: Receipt },
       { href: '/finance/payments', label: 'Payments', icon: Smartphone },
+      { href: '/finance/paybill', label: 'Paybill Payments', icon: Smartphone },
+      { href: '/finance/balances', label: 'Balances', icon: FileText },
+      { href: '/finance/fees', label: 'Fee Structures', icon: FileText },
     ],
   },
   {
@@ -186,6 +190,7 @@ export default function Sidebar({
   // navPath strips it so the items below light up the same way everywhere.
   const pathname = navPath(usePathname());
   const { staff, logoutStaff } = useAuth();
+  const enabledModules = useSchoolModules();
   // Track which group is expanded (only one at a time)
   const [expanded, setExpanded] = useState<string | null>(null);
   // Collapse-all toggle hides sub-menu group labels
@@ -237,6 +242,8 @@ export default function Sidebar({
   };
 
   const visibleNavItems = navItems.filter((item) => {
+    // A module the school has not bought is not offered.
+    if (!moduleEnabled(item.label.toLowerCase(), enabledModules)) return false;
     if (!item.href) return true; // groups are filtered via children below
     return canSee(item.href);
   });

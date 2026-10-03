@@ -114,9 +114,9 @@ test.describe('school staff', () => {
     await page.goto('/communications/messages');
     await page.getByRole('link', { name: 'New SMS' }).click();
 
-    await page.getByRole('textbox', { name: 'Message', exact: true }).fill('You owe {{fee_balance}}');
+    await page.getByRole('textbox', { name: 'Message', exact: true }).fill('Bus {{bus_number}}');
     await page.getByRole('button', { name: 'Check and continue' }).click();
-    await expect(page.getByRole('main').getByRole('alert')).toContainText('{{fee_balance}} is not something that can be filled in');
+    await expect(page.getByRole('main').getByRole('alert')).toContainText('{{bus_number}} is not something that can be filled in');
 
     await page.getByRole('textbox', { name: 'Message', exact: true }).fill('a'.repeat(460));
     await expect(page.getByText(/over the limit of 3 units/)).toBeVisible();

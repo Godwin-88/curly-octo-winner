@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
+	"sync"
 	"time"
 )
 
@@ -20,7 +22,28 @@ type Client struct {
 	shortCode      string
 	baseURL        string
 	http           *http.Client
+
+	mu          sync.Mutex
+	token       string
+	tokenExpiry time.Time
 }
+
+// RejectedError is a request Daraja answered and refused: nothing was sent to
+// the customer's phone.
+//
+// Any other error from STKPush — a timeout, a dropped connection — leaves the
+// outcome unknown: the prompt may already be on the phone.
+type RejectedError struct {
+	StatusCode int
+	Body       string
+}
+
+func (e *RejectedError) Error() string {
+	return fmt.Sprintf("M-Pesa refused the request (HTTP %d): %s", e.StatusCode, e.Body)
+}
+
+// ShortCode is the paybill or till this client collects into.
+func (c *Client) ShortCode() string { return c.shortCode }
 
 // NewClient creates a Daraja API client.
 // url defaults to the Daraja sandbox URL if empty.
@@ -33,7 +56,7 @@ func NewClient(consumerKey, consumerSecret, passkey, shortCode, url string) *Cli
 		consumerSecret: consumerSecret,
 		passkey:        passkey,
 		shortCode:      shortCode,
-		baseURL:        url,
+		baseURL:        strings.TrimRight(url, "/"),
 		http:           &http.Client{Timeout: 20 * time.Second},
 	}
 }
@@ -46,6 +69,15 @@ type tokenResponse struct {
 
 // accessToken obtains an OAuth2 token from the Daraja API.
 func (c *Client) accessToken(ctx context.Context) (string, error) {
+	// Daraja tokens last an hour; one is reused until a minute before it ends.
+	c.mu.Lock()
+	if c.token != "" && time.Now().Before(c.tokenExpiry) {
+		token := c.token
+		c.mu.Unlock()
+		return token, nil
+	}
+	c.mu.Unlock()
+
 	creds := base64.StdEncoding.EncodeToString([]byte(c.consumerKey + ":" + c.consumerSecret))
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/oauth/v1/generate?grant_type=client_credentials", nil)
 	if err != nil {
@@ -64,7 +96,8 @@ func (c *Client) accessToken(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("read token response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("daraja token error: status=%d body=%s", resp.StatusCode, string(body))
+		// No token, so nothing was asked of the customer.
+		return "", &RejectedError{StatusCode: resp.StatusCode, Body: "the consumer key or secret was not accepted"}
 	}
 
 	var tr tokenResponse
@@ -74,6 +107,10 @@ func (c *Client) accessToken(ctx context.Context) (string, error) {
 	if tr.AccessToken == "" {
 		return "", fmt.Errorf("daraja returned empty access token")
 	}
+	c.mu.Lock()
+	c.token = tr.AccessToken
+	c.tokenExpiry = time.Now().Add(50 * time.Minute)
+	c.mu.Unlock()
 	return tr.AccessToken, nil
 }
 
@@ -109,8 +146,7 @@ func (c *Client) STKPush(ctx context.Context, phone, amount, accountRef, callbac
 		return nil, err
 	}
 
-	timestamp := time.Now().Format("20060102150405")
-	password := base64.StdEncoding.EncodeToString([]byte(c.shortCode + c.passkey + timestamp))
+	timestamp, password := c.password()
 
 	payload := STKPushRequest{
 		BusinessShortCode: c.shortCode,
@@ -149,12 +185,117 @@ func (c *Client) STKPush(ctx context.Context, phone, amount, accountRef, callbac
 		return nil, fmt.Errorf("read stk push response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("daraja stk push error: status=%d body=%s", resp.StatusCode, string(respBody))
+		return nil, &RejectedError{StatusCode: resp.StatusCode, Body: errorMessage(respBody)}
 	}
 
 	var stk STKPushResponse
 	if err := json.Unmarshal(respBody, &stk); err != nil {
 		return nil, fmt.Errorf("decode stk push response: %w", err)
 	}
+	if stk.ResponseCode != "0" || stk.CheckoutRequestID == "" {
+		return nil, &RejectedError{StatusCode: resp.StatusCode, Body: firstNonEmpty(stk.ResponseDescription, "the request was not accepted")}
+	}
 	return &stk, nil
+}
+
+// EAT is the timezone Daraja timestamps are written in.
+var EAT = time.FixedZone("EAT", 3*60*60)
+
+func (c *Client) password() (timestamp, password string) {
+	timestamp = time.Now().In(EAT).Format("20060102150405")
+	password = base64.StdEncoding.EncodeToString([]byte(c.shortCode + c.passkey + timestamp))
+	return timestamp, password
+}
+
+// STKQueryResult is what Daraja knows about an STK request.
+type STKQueryResult struct {
+	// Final is false while the customer has not answered the prompt yet.
+	Final      bool
+	ResultCode string
+	ResultDesc string
+}
+
+// Paid reports that the customer completed the payment.
+func (r STKQueryResult) Paid() bool { return r.Final && r.ResultCode == "0" }
+
+// STKQuery asks Daraja for the outcome of an STK request. It is how a payment
+// is settled when the callback never arrives.
+func (c *Client) STKQuery(ctx context.Context, checkoutRequestID string) (*STKQueryResult, error) {
+	token, err := c.accessToken(ctx)
+	if err != nil {
+		return nil, err
+	}
+	timestamp, password := c.password()
+	body, err := json.Marshal(map[string]string{
+		"BusinessShortCode": c.shortCode,
+		"Password":          password,
+		"Timestamp":         timestamp,
+		"CheckoutRequestID": checkoutRequestID,
+	})
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/mpesa/stkpushquery/v1/query", bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("execute stk query: %w", err)
+	}
+	defer resp.Body.Close()
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read stk query response: %w", err)
+	}
+
+	var parsed struct {
+		ResultCode   json.RawMessage `json:"ResultCode"`
+		ResultDesc   string          `json:"ResultDesc"`
+		ErrorCode    string          `json:"errorCode"`
+		ErrorMessage string          `json:"errorMessage"`
+	}
+	if err := json.Unmarshal(respBody, &parsed); err != nil {
+		return nil, fmt.Errorf("decode stk query response: %w", err)
+	}
+	// While the prompt is still on the phone Daraja answers with an error
+	// ("The transaction is being processed") instead of a result.
+	if len(parsed.ResultCode) == 0 {
+		if resp.StatusCode == http.StatusOK || strings.Contains(strings.ToLower(parsed.ErrorMessage), "being processed") {
+			return &STKQueryResult{Final: false, ResultDesc: parsed.ErrorMessage}, nil
+		}
+		return nil, fmt.Errorf("stk query: HTTP %d %s %s", resp.StatusCode, parsed.ErrorCode, parsed.ErrorMessage)
+	}
+	return &STKQueryResult{
+		Final:      true,
+		ResultCode: strings.Trim(string(parsed.ResultCode), `"`),
+		ResultDesc: parsed.ResultDesc,
+	}, nil
+}
+
+// errorMessage pulls Daraja's own explanation out of an error body.
+func errorMessage(body []byte) string {
+	var parsed struct {
+		ErrorMessage string `json:"errorMessage"`
+	}
+	if json.Unmarshal(body, &parsed) == nil && parsed.ErrorMessage != "" {
+		return parsed.ErrorMessage
+	}
+	text := strings.TrimSpace(string(body))
+	if len(text) > 200 {
+		text = text[:200] + "…"
+	}
+	return text
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if strings.TrimSpace(v) != "" {
+			return v
+		}
+	}
+	return ""
 }

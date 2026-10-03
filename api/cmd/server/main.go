@@ -47,7 +47,6 @@ import (
 	"github.com/shule360/api/pkg/backblaze"
 	"github.com/shule360/api/pkg/groq"
 	"github.com/shule360/api/pkg/httputil"
-	"github.com/shule360/api/pkg/mpesa"
 	supabaseclient "github.com/shule360/api/pkg/supabase"
 	"github.com/shule360/api/pkg/upstash"
 )
@@ -197,18 +196,25 @@ func main() {
 	learnerImportSvc := learnerimport.NewService(sb.Pool)
 	learnerImportHandler := learnerimport.NewHandler(learnerImportSvc)
 
-	// Initialize M-Pesa Daraja client (EPIC 5)
-	mpesaClient := mpesa.NewClient(cfg.MpesaConsumerKey, cfg.MpesaConsumerSecret,
-		cfg.MpesaPasskey, cfg.MpesaShortCode, cfg.MpesaBaseURL)
-
 	// Initialize transport services (EPIC 4)
 	transportSvc := transport.NewService(sb.Pool)
 	transportHandler := transport.NewHandler(transportSvc)
 
 	// Initialize finance services (EPIC 5)
 	financeSvc := finance.NewService(sb.Pool)
-	financeMpesa := finance.NewMpesaService(sb.Pool, mpesaClient, cfg.MpesaCallbackURL)
-	financeHandler := finance.NewHandler(financeSvc, financeMpesa)
+	// Each school collects into its own Daraja account when it has entered
+	// one; a request is recorded before Safaricom is called, and anything
+	// Safaricom never reports back on is asked about every minute.
+	financeMpesa := finance.NewMpesaService(sb.Pool, finance.NewGatewayFactory(settingsService, finance.PlatformMpesa{
+		ConsumerKey:    cfg.MpesaConsumerKey,
+		ConsumerSecret: cfg.MpesaConsumerSecret,
+		Passkey:        cfg.MpesaPasskey,
+		ShortCode:      cfg.MpesaShortCode,
+		BaseURL:        cfg.MpesaBaseURL,
+		CallbackURL:    cfg.MpesaCallbackURL,
+	}))
+	go financeMpesa.Run(dispatchCtx)
+	financeHandler := finance.NewHandler(financeSvc, financeMpesa, cfg.MpesaWebhookToken)
 
 	// Initialize reports & analytics services (EPIC 6)
 	reportsSvc := reports.NewService(sb.Pool)
@@ -352,7 +358,10 @@ func main() {
 			// Finance, procurement & financial intelligence — bursar/principal
 			r.Group(func(r chi.Router) {
 				r.Use(appmiddleware.RequireRole(financeRoles...))
-				financeHandler.Mount(r)
+				r.Group(func(r chi.Router) {
+					r.Use(appmiddleware.RequireModule(tenantService, "finance", "Finance"))
+					financeHandler.Mount(r)
+				})
 				procurementHandler.Mount(r)
 				intelligenceHandler.Mount(r)
 			})
@@ -367,7 +376,10 @@ func main() {
 			// Academic & teaching operations — all staff roles
 			r.Group(func(r chi.Router) {
 				r.Use(appmiddleware.RequireRole(allStaff...))
-				commsHandler.Mount(r)
+				r.Group(func(r chi.Router) {
+					r.Use(appmiddleware.RequireModule(tenantService, "communications", "Communications"))
+					commsHandler.Mount(r)
+				})
 				academicHandler.Mount(r)
 				learnerHandler.Mount(r)
 				learnerImportHandler.Mount(r)

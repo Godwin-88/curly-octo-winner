@@ -6,10 +6,11 @@ import { APIError } from '@/lib/api';
 type Tone = 'good' | 'progress' | 'warning' | 'critical' | 'neutral';
 
 const STATUS_TONE: Record<string, Tone> = {
-  delivered: 'good', read: 'good', active: 'good', paid: 'good', approved: 'good',
+  delivered: 'good', read: 'good', active: 'good', paid: 'good', approved: 'good', completed: 'good', allocated: 'good',
   sent: 'progress', sending: 'progress', pending: 'progress', scheduled: 'progress',
   draft: 'neutral', cancelled: 'neutral', archived: 'neutral', deactivated: 'neutral',
-  'opted out': 'warning', partial: 'warning',
+  'opted out': 'warning', partial: 'warning', unpaid: 'warning', partially_paid: 'warning', unmatched: 'warning', part_allocated: 'warning',
+  void: 'neutral', reversed: 'neutral', 'switched off': 'neutral',
   failed: 'critical', rejected: 'critical', overdue: 'critical',
 };
 

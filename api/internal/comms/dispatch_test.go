@@ -630,9 +630,9 @@ func TestPersonalisationFillsEachRecipientOrRefuses(t *testing.T) {
 	// An unknown variable is refused and nothing is recorded.
 	before := countMessages(t, f)
 	_, err := f.svc.CreateAndSend(ctx, f.tenantID, Actor{StaffID: &f.staffID}, CreateMessageRequest{
-		Channel: "sms", AudienceType: "all_parents", Content: "You owe {{fee_balance}}",
+		Channel: "sms", AudienceType: "all_parents", Content: "Bus {{bus_number}}",
 	})
-	wantValidation(t, err, "{{fee_balance}} is not something that can be filled in")
+	wantValidation(t, err, "{{bus_number}} is not something that can be filled in")
 
 	// A contact has no learner: the send is refused, not sent with a gap.
 	f.contact("Sponsor", f.phone())
@@ -913,5 +913,40 @@ func TestSenderFactory(t *testing.T) {
 	}
 	if got := sender.(*sms.ATClient).SenderID(); got != "OWNID" {
 		t.Errorf("sender id = %q, want the integration's", got)
+	}
+}
+
+// {{fee_balance}} states what a parent owes from confirmed payments, and is
+// refused for anyone who owes nothing rather than texting them "KES 0".
+func TestFeeBalanceIsFilledInOnlyForParentsWhoOwe(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	owing := f.guardian("Mary Wanjiku", f.phone())
+	f.guardian("John Otieno", f.phone())
+
+	// Mary's child is billed 17,500 and 5,000 of it is paid.
+	if _, err := f.pool.Exec(ctx, `
+		INSERT INTO invoices (tenant_id, learner_id, invoice_number, term, year, total_cents, paid_cents, status)
+		SELECT tenant_id, id, 'INV-TEST-1', 1, 2026, 1750000, 500000, 'partially_paid'
+		FROM learners WHERE tenant_id = $1 AND $2 = ANY(guardian_ids)`, f.tenantID, owing); err != nil {
+		t.Fatalf("insert invoice: %v", err)
+	}
+
+	_, err := f.svc.CreateAndSend(ctx, f.tenantID, Actor{StaffID: &f.staffID}, CreateMessageRequest{
+		Channel: "sms", AudienceType: "all_parents", Content: "Fees due: {{fee_balance}}",
+	})
+	wantValidation(t, err, "{{fee_balance}} cannot be filled in for 1 of 2 recipients")
+
+	msg, err := f.svc.CreateAndSend(ctx, f.tenantID, Actor{StaffID: &f.staffID}, CreateMessageRequest{
+		Channel: "sms", AudienceType: "fee_defaulters", Content: "Dear {{parent_name}}, fees due: {{fee_balance}}.",
+	})
+	if err != nil {
+		t.Fatalf("CreateAndSend: %v", err)
+	}
+	f.sweep()
+	f.sender.mu.Lock()
+	defer f.sender.mu.Unlock()
+	if len(f.sender.calls) != 1 || f.sender.calls[0].Message != "Dear Mary Wanjiku, fees due: KES 12,500." {
+		t.Fatalf("sent %+v for message %s", f.sender.calls, msg.ID)
 	}
 }

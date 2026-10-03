@@ -5,7 +5,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { apiRequest } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import type { Ctx } from '@/framework/types';
-import { ALL, confirmLeave } from './context';
+import { ALL, confirmLeave, rememberedSchool } from './context';
 
 export interface School {
   id: string;
@@ -13,6 +13,8 @@ export interface School {
   slug: string;
   group_id?: string;
   group_name?: string;
+  /** The modules this school has. */
+  modules?: string[];
 }
 
 /** The schools this session may open. One request, shared by every screen. */
@@ -116,6 +118,19 @@ const ROLE_LABEL: Record<string, string> = {
   super_admin: 'Super admin', principal: 'Principal', teacher: 'Teacher', bursar: 'Bursar',
   transport_manager: 'Transport manager', hr: 'HR',
 };
+
+/**
+ * The modules the school in view has, or undefined while that is not known
+ * yet (nothing is hidden until it is). Without an id it is the one school the
+ * session has, or the one last opened.
+ */
+export function useSchoolModules(schoolId?: string): string[] | undefined {
+  const schools = useSchools();
+  const all = schools.data;
+  if (!all) return undefined;
+  const id = schoolId ?? (all.length === 1 ? all[0].id : rememberedSchool());
+  return all.find((school) => school.id === id)?.modules;
+}
 
 /**
  * The context switch: Group › School. A level the user can change is a drop-down; a level fixed

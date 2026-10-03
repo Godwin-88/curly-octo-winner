@@ -344,3 +344,34 @@ func RequireRole(allowedRoles ...string) func(http.Handler) http.Handler {
 		})
 	}
 }
+
+// ModuleLookup answers whether a school has a module.
+type ModuleLookup interface {
+	ModuleEnabled(ctx context.Context, schoolID uuid.UUID, module string) (bool, error)
+}
+
+// RequireModule refuses a request for a module the school in context does not
+// have. It runs after Auth, which decides the school. The answer is read on
+// every request, so switching a module off takes effect at once.
+func RequireModule(lookup ModuleLookup, module, label string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			tenantID, ok := r.Context().Value(ContextKeyTenantID).(uuid.UUID)
+			if !ok || tenantID == uuid.Nil {
+				// No school chosen: the tenant middleware answers that.
+				next.ServeHTTP(w, r)
+				return
+			}
+			enabled, err := lookup.ModuleEnabled(r.Context(), tenantID, module)
+			if err != nil {
+				httputil.RespondInternalError(w, err)
+				return
+			}
+			if !enabled {
+				httputil.RespondForbidden(w, "MODULE_NOT_ENABLED", label+" is not part of this school's plan.")
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
