@@ -46,14 +46,15 @@ func NormalizePhone(raw string) (string, error) {
 		digits = strings.TrimPrefix(digits, "0")
 	}
 
-	// Kenyan mobile numbers are exactly 9 digits starting with 7. Landlines
-	// (020, 011, ...) and other ranges are rejected: a school should not spend
-	// money texting a switchboard.
+	// Kenyan mobile numbers are exactly 9 digits starting with 7 (07xx) or 1
+	// (the newer 010x Airtel and 011x Safaricom ranges). Landlines (020, 04x,
+	// 05x, ...) are rejected: a school should not spend money texting a
+	// switchboard.
 	if len(digits) != 9 {
 		return "", fmt.Errorf("%q is not a valid Kenyan phone number (expected 9 digits after the country code)", strings.TrimSpace(raw))
 	}
-	if digits[0] != '7' {
-		return "", fmt.Errorf("%q does not look like a Kenyan mobile number (it should start with 07)", strings.TrimSpace(raw))
+	if digits[0] != '7' && digits[0] != '1' {
+		return "", fmt.Errorf("%q does not look like a Kenyan mobile number (it should start with 07 or 01)", strings.TrimSpace(raw))
 	}
 	for _, r := range digits {
 		if r < '0' || r > '9' {

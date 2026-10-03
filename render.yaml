@@ -72,6 +72,12 @@ services:
         sync: false
       - key: AT_SENDER_ID
         sync: false
+      # Secret path segment of the SMS delivery-report callback. Set the
+      # callback in the Africa's Talking dashboard to
+      #   https://<api host>/api/v1/webhooks/sms/dlr/<this value>
+      # Without it delivery reports are refused and messages stay at "sent".
+      - key: AT_DLR_TOKEN
+        sync: false
       - key: META_WA_TOKEN
         sync: false
       - key: META_WA_PHONE_NUMBER_ID

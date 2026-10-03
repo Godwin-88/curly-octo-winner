@@ -154,6 +154,32 @@ func (c *Client) CreateUser(ctx context.Context, email, password string) (string
 	return result.ID, nil
 }
 
+// SetUserPassword replaces a Supabase Auth user's password.
+func (c *Client) SetUserPassword(ctx context.Context, userID, password string) error {
+	payload, err := json.Marshal(map[string]any{"password": password})
+	if err != nil {
+		return fmt.Errorf("marshal set password: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, c.supabaseURL+"/auth/v1/admin/users/"+userID, bytes.NewReader(payload))
+	if err != nil {
+		return fmt.Errorf("create set password request: %w", err)
+	}
+	req.Header.Set("apikey", c.serviceKey)
+	req.Header.Set("Authorization", "Bearer "+c.serviceKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return fmt.Errorf("execute set password: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("set password error (status %d): %s", resp.StatusCode, string(body))
+	}
+	return nil
+}
+
 // DeleteUser removes a user from Supabase Auth.
 func (c *Client) DeleteUser(ctx context.Context, userID string) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, c.supabaseURL+"/auth/v1/admin/users/"+userID, nil)

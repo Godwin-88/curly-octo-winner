@@ -41,6 +41,15 @@ interface RequestOptions {
   token?: string;
 }
 
+// The school every request acts on, for a platform or group user. School
+// staff do not need it: the API pins them to their own school and ignores the
+// header. Set by the shell from the address (see shell/context.ts).
+let schoolContext: string | undefined;
+
+export function setSchoolContext(schoolId: string | undefined): void {
+  schoolContext = schoolId;
+}
+
 async function requestRaw(path: string, options: RequestOptions = {}): Promise<Response> {
   const { method = 'GET', body, token } = options;
 
@@ -49,6 +58,9 @@ async function requestRaw(path: string, options: RequestOptions = {}): Promise<R
   };
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;
+  }
+  if (schoolContext) {
+    headers['X-School-ID'] = schoolContext;
   }
 
   const res = await fetch(`${API_BASE}${path}`, {
@@ -81,6 +93,11 @@ async function requestRaw(path: string, options: RequestOptions = {}): Promise<R
   return res;
 }
 
+/** The typed fetch wrapper, for module definitions (web/modules). Sessions are cookies: no token is needed. */
+export function apiRequest<T>(path: string, options: Omit<RequestOptions, 'token'> = {}): Promise<T> {
+  return request<T>(path, options);
+}
+
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const res = await requestRaw(path, options);
 
@@ -103,10 +120,10 @@ export interface Message {
   content: string;
   template_id?: string;
   media_url?: string;
-  status: 'draft' | 'scheduled' | 'sending' | 'sent' | 'failed';
+  status: 'draft' | 'scheduled' | 'sending' | 'sent' | 'failed' | 'cancelled';
   scheduled_at?: string;
   sent_at?: string;
-  sent_by: string;
+  sent_by?: string;
   recipient_count: number;
   delivered_count: number;
   failed_count: number;
@@ -2990,28 +3007,8 @@ export const api = {
     request<SecuritySummary>('/security/summary', { token }),
 
   // SMS campaigns
-  sendSMS: (data: SendSMSRequest, token: string) =>
-    request<SMSCampaign>('/sms/send', { method: 'POST', body: data, token }),
-
-  createSMSCampaign: (data: SendSMSRequest, token: string) =>
-    request<SMSCampaign>('/sms/campaign', { method: 'POST', body: data, token }),
-
-  listSMSCampaigns: (params: { limit?: number; offset?: number }, token: string) => {
-    const qs = new URLSearchParams();
-    if (params.limit) qs.set('limit', String(params.limit));
-    if (params.offset) qs.set('offset', String(params.offset));
-    return request<SMSCampaign[]>(`/sms/campaigns?${qs.toString()}`, { token });
-  },
-
-  getSMSCampaign: (id: string, token: string) =>
-    request<SMSCampaign>(`/sms/campaigns/${id}`, { token }),
-
-  getSMSCampaignLogs: (id: string, params: { limit?: number; offset?: number }, token: string) => {
-    const qs = new URLSearchParams();
-    if (params.limit) qs.set('limit', String(params.limit));
-    if (params.offset) qs.set('offset', String(params.offset));
-    return request<SMSCampaignLog[]>(`/sms/campaigns/${id}/logs?${qs.toString()}`, { token });
-  },
+  // Sending SMS is api.createMessage (POST /messages). The /sms/send and
+  // /sms/campaign routes these wrapped were removed from the API.
 
   listSMSTemplates: (token: string) =>
     request<SMSTemplate[]>('/sms/templates', { token }),

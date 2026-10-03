@@ -4,11 +4,10 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
+import { navPath } from '@/shell/context';
 import {
   LayoutDashboard,
   MessageSquare,
-  MessageCircle,
-  Inbox,
   Contact,
   Users,
   GraduationCap,
@@ -65,12 +64,11 @@ const navItems: NavItem[] = [
       label: 'Communications',
       icon: MessageSquare,
       children: [
-        { href: '/communications', label: 'Overview', icon: MessageSquare },
+        // These open in the list → view → edit workspace (/w/...); the short
+        // addresses forward there. WhatsApp and its inbox are deferred.
+        { href: '/communications/messages', label: 'Messages', icon: MessageSquare },
         { href: '/communications/contacts', label: 'Contacts', icon: Contact },
-        { href: '/communications/sms', label: 'SMS Campaigns', icon: MessageSquare },
-        { href: '/communications/sms/templates', label: 'SMS Templates', icon: MessageSquareText },
-        { href: '/communications/whatsapp', label: 'WhatsApp', icon: MessageCircle },
-        { href: '/communications/inbox', label: 'Inbox', icon: Inbox },
+        { href: '/communications/templates', label: 'SMS Templates', icon: MessageSquareText },
       ],
     },
   {
@@ -184,7 +182,9 @@ export default function Sidebar({
   mobileOpen?: boolean;
   onClose?: () => void;
 } = {}) {
-  const pathname = usePathname();
+  // Inside the workspace the address starts with the context (/w/{group}/{school});
+  // navPath strips it so the items below light up the same way everywhere.
+  const pathname = navPath(usePathname());
   const { staff, logoutStaff } = useAuth();
   // Track which group is expanded (only one at a time)
   const [expanded, setExpanded] = useState<string | null>(null);

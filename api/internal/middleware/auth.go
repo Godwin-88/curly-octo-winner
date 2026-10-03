@@ -24,7 +24,40 @@ const (
 	// ContextKeyGuardianID is the context key for the guardian user ID
 	// (present only when the bearer token is a guardian token).
 	ContextKeyGuardianID contextKey = "guardian_id"
+	// ContextKeySession is the context key for the Session (who is asking and
+	// how far they may reach).
+	ContextKeySession contextKey = "session"
 )
+
+// Session scopes. A token with no scope claim is a school session: that is
+// every token issued before scopes existed.
+const (
+	ScopeSchool   = "school"
+	ScopeGroup    = "group"
+	ScopePlatform = "platform"
+)
+
+// SchoolHeader names the school a group or platform session wants to work in.
+// It is a request, not a grant: Auth narrows it to what the session allows.
+// A school session ignores it.
+const SchoolHeader = "X-School-ID"
+
+// Session describes the signed-in user's reach.
+type Session struct {
+	Scope      string
+	GroupID    uuid.UUID // ScopeGroup only
+	OperatorID uuid.UUID // platform_users.id; zero for school staff
+}
+
+// SchoolLookup answers which group a school belongs to. found is false when
+// the school does not exist.
+type SchoolLookup interface {
+	SchoolGroup(ctx context.Context, schoolID uuid.UUID) (groupID *uuid.UUID, found bool, err error)
+	// OperatorStaff returns the staff row that stands for a platform or group
+	// user inside a school, creating it on first use, and the role they hold
+	// now. active is false when the user has been deactivated.
+	OperatorStaff(ctx context.Context, schoolID, operatorID uuid.UUID) (staffID uuid.UUID, role string, active bool, err error)
+}
 
 // Claims represents the JWT claims structure for Shule360.
 //
@@ -36,6 +69,11 @@ type Claims struct {
 	StaffID    string `json:"staff_id"`
 	GuardianID string `json:"guardian_id"`
 	Role       string `json:"role"`
+	// Scope, GroupID and OperatorID are set for platform and group users
+	// (platform_users). They are absent on school staff and guardian tokens.
+	Scope      string `json:"scope,omitempty"`
+	GroupID    string `json:"group_id,omitempty"`
+	OperatorID string `json:"operator_id,omitempty"`
 	jwt.RegisteredClaims
 }
 
@@ -47,7 +85,18 @@ type Claims struct {
 // production). Cookie-based sessions are renewed once more than half their
 // lifetime has elapsed (sliding window on active use); bearer-token API
 // clients manage their own tokens and are never touched.
-func Auth(jwtSecret string, secure bool) func(http.Handler) http.Handler {
+//
+// Which school a request acts on:
+//
+//   - school staff and guardians: the school in their token. Always.
+//   - a group user: the school named in X-School-ID, if it belongs to their
+//     group; any other school answers 404, exactly like one that does not exist.
+//   - a platform user: the school named in X-School-ID, if it exists.
+//
+// A group or platform request that names no school carries no tenant;
+// TenantRequired answers it with SCHOOL_REQUIRED. schools may be nil, in which
+// case group and platform sessions can never select a school.
+func Auth(jwtSecret string, secure bool, schools SchoolLookup) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			tokenStr := TokenFromRequest(r)
@@ -71,6 +120,21 @@ func Auth(jwtSecret string, secure bool) func(http.Handler) http.Handler {
 
 			maybeRenewSession(w, r, claims, tokenStr, jwtSecret, secure)
 
+			if claims.Scope == ScopeGroup || claims.Scope == ScopePlatform {
+				ctx, ok := operatorContext(w, r, claims, schools)
+				if !ok {
+					return
+				}
+				r = r.WithContext(ctx)
+				setIdentityHeaders(r)
+				next.ServeHTTP(w, r)
+				return
+			}
+			if claims.Scope != "" && claims.Scope != ScopeSchool {
+				httputil.RespondUnauthorized(w, "UNAUTHORIZED", "Unknown session scope")
+				return
+			}
+
 			// Validate tenant_id is a valid UUID
 			tenantID, err := uuid.Parse(claims.TenantID)
 			if err != nil {
@@ -79,6 +143,7 @@ func Auth(jwtSecret string, secure bool) func(http.Handler) http.Handler {
 			}
 
 			ctx := context.WithValue(r.Context(), ContextKeyTenantID, tenantID)
+			ctx = context.WithValue(ctx, ContextKeySession, Session{Scope: ScopeSchool})
 
 			if claims.Role == "guardian" {
 				// Guardian token: requires guardian_id claim.
@@ -111,12 +176,99 @@ func Auth(jwtSecret string, secure bool) func(http.Handler) http.Handler {
 	}
 }
 
+// operatorContext builds the request context for a group or platform session,
+// resolving the school it asked for. It writes the response and returns false
+// when the request must stop.
+func operatorContext(w http.ResponseWriter, r *http.Request, claims *Claims, schools SchoolLookup) (context.Context, bool) {
+	operatorID, err := uuid.Parse(claims.OperatorID)
+	if err != nil || operatorID == uuid.Nil {
+		httputil.RespondUnauthorized(w, "UNAUTHORIZED", "Invalid operator_id in token")
+		return nil, false
+	}
+	session := Session{Scope: claims.Scope, OperatorID: operatorID}
+	if claims.Scope == ScopeGroup {
+		groupID, err := uuid.Parse(claims.GroupID)
+		if err != nil || groupID == uuid.Nil {
+			httputil.RespondUnauthorized(w, "UNAUTHORIZED", "Invalid group_id in token")
+			return nil, false
+		}
+		session.GroupID = groupID
+	}
+
+	ctx := context.WithValue(r.Context(), ContextKeySession, session)
+	ctx = context.WithValue(ctx, ContextKeyStaffRole, claims.Role)
+
+	asked := r.Header.Get(SchoolHeader)
+	if asked == "" {
+		return ctx, true // portfolio request: no school chosen
+	}
+	schoolID, err := uuid.Parse(asked)
+	if err != nil || schoolID == uuid.Nil {
+		httputil.RespondBadRequest(w, "INVALID_SCHOOL", SchoolHeader+" is not a valid school id")
+		return nil, false
+	}
+	if schools == nil {
+		httputil.RespondNotFound(w, "SCHOOL_NOT_FOUND", "School not found")
+		return nil, false
+	}
+	groupID, found, err := schools.SchoolGroup(r.Context(), schoolID)
+	if err != nil {
+		httputil.RespondInternalError(w, err)
+		return nil, false
+	}
+	// Outside the session's reach is reported exactly like "does not exist".
+	if !found || (claims.Scope == ScopeGroup && (groupID == nil || *groupID != session.GroupID)) {
+		httputil.RespondNotFound(w, "SCHOOL_NOT_FOUND", "School not found")
+		return nil, false
+	}
+
+	// Inside a school the operator acts as a staff row of their own, so every
+	// screen that records "who did this" works for them too. The role is read
+	// now, not from the token: a demotion or deactivation takes effect at once.
+	staffID, role, active, err := schools.OperatorStaff(r.Context(), schoolID, operatorID)
+	if err != nil {
+		httputil.RespondInternalError(w, err)
+		return nil, false
+	}
+	if !active {
+		httputil.RespondUnauthorized(w, "UNAUTHORIZED", "This account has been deactivated")
+		return nil, false
+	}
+	ctx = context.WithValue(ctx, ContextKeyStaffID, staffID)
+	ctx = context.WithValue(ctx, ContextKeyStaffRole, role)
+	return context.WithValue(ctx, ContextKeyTenantID, schoolID), true
+}
+
+// RequirePlatform admits only platform-scope sessions: the people who manage
+// schools, groups and the users above a school.
+func RequirePlatform(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if GetSession(r).Scope != ScopePlatform {
+			httputil.RespondForbidden(w, "FORBIDDEN", "Only platform administrators can do this")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// GetSession returns who is asking and how far they may reach.
+func GetSession(r *http.Request) Session {
+	if s, ok := r.Context().Value(ContextKeySession).(Session); ok {
+		return s
+	}
+	return Session{Scope: ScopeSchool}
+}
+
 // setIdentityHeaders copies the authenticated identity into request headers so
 // handlers that read X-Staff-ID / X-Guardian-ID / X-Tenant-ID (parent and
 // teacher packages) keep working unchanged. Values always come from the
 // *verified* JWT, never from client-supplied headers, so they cannot be
-// spoofed.
+// spoofed: whatever the client sent under these names is removed first, which
+// matters for a session that carries no staff id or no school.
 func setIdentityHeaders(r *http.Request) {
+	r.Header.Del("X-Staff-ID")
+	r.Header.Del("X-Guardian-ID")
+	r.Header.Del("X-Tenant-ID")
 	if staffID, ok := GetStaffID(r); ok {
 		r.Header.Set("X-Staff-ID", staffID.String())
 	}

@@ -14,6 +14,11 @@ func TenantRequired(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		tenantID, ok := r.Context().Value(ContextKeyTenantID).(uuid.UUID)
 		if !ok || tenantID == uuid.Nil {
+			// A group or platform user is signed in but has not opened a school.
+			if scope := GetSession(r).Scope; scope == ScopeGroup || scope == ScopePlatform {
+				httputil.RespondBadRequest(w, "SCHOOL_REQUIRED", "Choose a school first.")
+				return
+			}
 			httputil.RespondUnauthorized(w, "UNAUTHORIZED", "Tenant ID not found in context")
 			return
 		}

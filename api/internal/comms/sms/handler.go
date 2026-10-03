@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -22,132 +23,16 @@ func NewHandler(service *SMSService) *Handler {
 
 func (h *Handler) Mount(r chi.Router) {
 	r.Route("/sms", func(r chi.Router) {
-		r.Post("/send", h.sendSMS)
-		r.Post("/campaign", h.createCampaign)
-		r.Get("/campaigns", h.listCampaigns)
-		r.Get("/campaigns/{id}", h.getCampaign)
-		r.Get("/campaigns/{id}/logs", h.getCampaignLogs)
+		// Sending lives at POST /messages (comms.CommsService): one path that
+		// records every recipient before the provider is called. The former
+		// /sms/send and /sms/campaign routes wrote to columns that do not
+		// exist and were removed rather than repaired.
 		r.Get("/templates", h.listTemplates)
 		r.Post("/templates", h.createTemplate)
 		r.Get("/templates/{id}", h.getTemplate)
 		r.Patch("/templates/{id}", h.updateTemplate)
 		r.Delete("/templates/{id}", h.deleteTemplate)
 	})
-}
-
-func (h *Handler) sendSMS(w http.ResponseWriter, r *http.Request) {
-	tenantID, ok := middleware.GetTenantID(r)
-	if !ok {
-		httputil.RespondUnauthorized(w, "UNAUTHORIZED", "Tenant ID not found")
-		return
-	}
-
-	var req SendCampaignRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		httputil.RespondBadRequest(w, "INVALID_REQUEST", "Invalid request body: "+err.Error())
-		return
-	}
-
-	if req.AudienceType == "" || req.Content == "" {
-		httputil.RespondBadRequest(w, "INVALID_REQUEST", "audience_type and content are required")
-		return
-	}
-
-	campaign, err := h.service.SendCampaign(r.Context(), tenantID, req)
-	if err != nil {
-		httputil.RespondBadRequest(w, "SEND_FAILED", err.Error())
-		return
-	}
-	httputil.RespondCreated(w, campaign)
-}
-
-func (h *Handler) createCampaign(w http.ResponseWriter, r *http.Request) {
-	tenantID, ok := middleware.GetTenantID(r)
-	if !ok {
-		httputil.RespondUnauthorized(w, "UNAUTHORIZED", "Tenant ID not found")
-		return
-	}
-
-	var req SendCampaignRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		httputil.RespondBadRequest(w, "INVALID_REQUEST", "Invalid request body: "+err.Error())
-		return
-	}
-
-	if req.AudienceType == "" || req.Content == "" {
-		httputil.RespondBadRequest(w, "INVALID_REQUEST", "audience_type and content are required")
-		return
-	}
-
-	campaign, err := h.service.SendCampaign(r.Context(), tenantID, req)
-	if err != nil {
-		httputil.RespondBadRequest(w, "CREATE_FAILED", err.Error())
-		return
-	}
-	httputil.RespondCreated(w, campaign)
-}
-
-func (h *Handler) listCampaigns(w http.ResponseWriter, r *http.Request) {
-	tenantID, ok := middleware.GetTenantID(r)
-	if !ok {
-		httputil.RespondUnauthorized(w, "UNAUTHORIZED", "Tenant ID not found")
-		return
-	}
-
-	limit := parseIntDefault(r.URL.Query().Get("limit"), 50)
-	offset := parseIntDefault(r.URL.Query().Get("offset"), 0)
-
-	campaigns, err := h.service.ListCampaigns(r.Context(), tenantID, limit, offset)
-	if err != nil {
-		httputil.RespondInternalError(w, err)
-		return
-	}
-	httputil.RespondOK(w, campaigns)
-}
-
-func (h *Handler) getCampaign(w http.ResponseWriter, r *http.Request) {
-	tenantID, ok := middleware.GetTenantID(r)
-	if !ok {
-		httputil.RespondUnauthorized(w, "UNAUTHORIZED", "Tenant ID not found")
-		return
-	}
-
-	id, err := uuid.Parse(chi.URLParam(r, "id"))
-	if err != nil {
-		httputil.RespondBadRequest(w, "INVALID_ID", "Invalid campaign ID")
-		return
-	}
-
-	campaign, err := h.service.GetCampaign(r.Context(), tenantID, id)
-	if err != nil {
-		httputil.RespondNotFound(w, "NOT_FOUND", err.Error())
-		return
-	}
-	httputil.RespondOK(w, campaign)
-}
-
-func (h *Handler) getCampaignLogs(w http.ResponseWriter, r *http.Request) {
-	tenantID, ok := middleware.GetTenantID(r)
-	if !ok {
-		httputil.RespondUnauthorized(w, "UNAUTHORIZED", "Tenant ID not found")
-		return
-	}
-
-	id, err := uuid.Parse(chi.URLParam(r, "id"))
-	if err != nil {
-		httputil.RespondBadRequest(w, "INVALID_ID", "Invalid campaign ID")
-		return
-	}
-
-	limit := parseIntDefault(r.URL.Query().Get("limit"), 100)
-	offset := parseIntDefault(r.URL.Query().Get("offset"), 0)
-
-	logs, err := h.service.GetCampaignLogs(r.Context(), tenantID, id, limit, offset)
-	if err != nil {
-		httputil.RespondInternalError(w, err)
-		return
-	}
-	httputil.RespondOK(w, logs)
 }
 
 func (h *Handler) listTemplates(w http.ResponseWriter, r *http.Request) {
@@ -176,10 +61,12 @@ func (h *Handler) listTemplates(w http.ResponseWriter, r *http.Request) {
 		Content   string    `json:"content"`
 		Variables []string  `json:"variables"`
 		Category  string    `json:"category"`
-		CreatedAt string    `json:"created_at"`
+		CreatedAt time.Time `json:"created_at"`
 	}
 
-	var templates []Template
+	// created_at was scanned into a string, which pgx refuses for timestamptz:
+	// the list answered 500 as soon as the school saved its first template.
+	templates := []Template{}
 	for rows.Next() {
 		var t Template
 		if err := rows.Scan(&t.ID, &t.TenantID, &t.Name, &t.Content, &t.Variables, &t.Category, &t.CreatedAt); err != nil {
@@ -254,7 +141,7 @@ func (h *Handler) getTemplate(w http.ResponseWriter, r *http.Request) {
 		Content   string    `json:"content"`
 		Variables []string  `json:"variables"`
 		Category  string    `json:"category"`
-		CreatedAt string    `json:"created_at"`
+		CreatedAt time.Time `json:"created_at"`
 	}
 	err = h.service.pool.QueryRow(r.Context(), `
 		SELECT id, tenant_id, name, content, variables, category, created_at

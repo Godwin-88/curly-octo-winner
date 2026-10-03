@@ -1,86 +1,73 @@
 'use client';
 
-// Auth guard for the whole admin area: renders a loading state until the
+// Auth guard and frame for the admin screens that have not moved to the
+// list → view → edit workspace (/w/...) yet. Renders a loading state until the
 // session has been hydrated, then redirects anonymous visitors to sign-in.
 // (web/proxy.ts performs the same check on the edge via the session cookie.)
 //
-// Layout: fixed sidebar on desktop; off-canvas drawer + top bar below md.
+// These screens have no school in their address. School staff do not need one
+// (the API pins them to their school). A platform or group user works in the
+// school they last opened in this tab; with none chosen they are sent to pick one.
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
-import { Menu, X } from 'lucide-react';
-import { useAuth } from '@/lib/auth';
-import Sidebar from '@/components/layout/Sidebar';
+import { AdminChrome } from '@/components/layout/AdminChrome';
+import { setSchoolContext } from '@/lib/api';
+import { ALL, rememberSchool, rememberedSchool, resolveContext } from '@/shell/context';
+import { useShellSession } from '@/shell/session';
 
 export default function AdminLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const { token, ready, staff } = useAuth();
+  const { ready, session } = useShellSession();
   const router = useRouter();
-  const [mobileOpen, setMobileOpen] = useState(false);
 
   // Guard on the verified staff session (hydrated from the HttpOnly cookie),
-  // NOT on `token`: since the cookie migration the token only exists in memory
-  // after a sign-in, so guarding on it bounced every page to the sign-in form
-  // on any hard reload.
+  // NOT on a token: the token only exists in memory after a sign-in, so
+  // guarding on it bounced every page to the sign-in form on any hard reload.
   useEffect(() => {
-    if (ready && !staff) {
+    if (ready && !session) {
       router.replace('/auth/login');
     }
-  }, [ready, staff, router]);
+  }, [ready, session, router]);
 
-  if (!ready || !staff) {
+  const ctx = useMemo(
+    () => (session ? resolveContext(session, undefined, session.scope === 'school' ? undefined : rememberedSchool()) : null),
+    [session]
+  );
+  const mustChoose = Boolean(ctx && ctx.scope === 'portfolio');
+  useEffect(() => {
+    if (mustChoose) router.replace(`/w/${ALL}/${ALL}`);
+  }, [mustChoose, router]);
+
+  if (!ready || !session || !ctx || mustChoose) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-sm text-gray-600">
-          {ready ? 'Redirecting to sign in…' : 'Loading…'}
+          {ready && !session ? 'Redirecting to sign in…' : 'Loading…'}
         </div>
       </div>
     );
   }
 
+  setSchoolContext(session.scope === 'school' ? undefined : ctx.schoolId);
+
+  // These screens load their data once, so a switch reloads the page: nothing
+  // read for the previous school stays on screen.
+  const onSwitch = (group: string, school: string) => {
+    if (school === ALL) {
+      router.push(`/w/${group}/${ALL}`);
+      return;
+    }
+    rememberSchool(school);
+    window.location.reload();
+  };
+
   return (
-    <div className="flex min-h-screen">
-      <a
-        href="#main-content"
-        className="skip-link"
-      >
-        Skip to content
-      </a>
-
-      <Sidebar mobileOpen={mobileOpen} onClose={() => setMobileOpen(false)} />
-
-      {/* Backdrop for the mobile drawer */}
-      {mobileOpen && (
-        <div
-          className="fixed inset-0 bg-black/50 z-30 md:hidden"
-          aria-hidden="true"
-          onClick={() => setMobileOpen(false)}
-        />
-      )}
-
-      <div className="flex-1 min-w-0 flex flex-col">
-        {/* Mobile top bar (sidebar becomes a drawer below md) */}
-        <header className="md:hidden sticky top-0 z-20 bg-gray-900 text-white flex items-center gap-3 px-4 py-3">
-          <button
-            type="button"
-            className="p-2 -ml-2 rounded-md hover:bg-gray-800 transition-colors"
-            onClick={() => setMobileOpen((o) => !o)}
-            aria-expanded={mobileOpen}
-            aria-controls="sidebar"
-            aria-label={mobileOpen ? 'Close menu' : 'Open menu'}
-          >
-            {mobileOpen ? <X size={20} aria-hidden="true" /> : <Menu size={20} aria-hidden="true" />}
-          </button>
-          <span className="font-bold">Shule360</span>
-        </header>
-
-        <main id="main-content" tabIndex={-1} className="flex-1 p-4 sm:p-6 lg:p-8 md:ml-64 focus:outline-none">
-          {children}
-        </main>
-      </div>
-    </div>
+    <AdminChrome ctx={ctx} onSwitch={onSwitch}>
+      {children}
+    </AdminChrome>
   );
 }

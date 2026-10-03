@@ -31,10 +31,41 @@ type BulkSMSRequest struct {
 
 // SMSResult represents the result for a single phone number.
 type SMSResult struct {
-	Phone     string
-	Status    string // Success | Failed
-	MessageID string
-	Cost      string
+	Phone      string
+	Status     string // Success | Failed
+	StatusCode int    // Africa's Talking statusCode, e.g. 101 Sent, 405 InsufficientBalance
+	Detail     string // Africa's Talking status text, e.g. "InvalidPhoneNumber"
+	MessageID  string
+	Cost       string
+}
+
+// Accepted reports whether the provider took the message for delivery.
+func (r SMSResult) Accepted() bool { return r.Status == "Success" }
+
+// AccountLevel reports a refusal that applies to the whole account, not to
+// this one number: sending the rest of the audience would fail the same way.
+func (r SMSResult) AccountLevel() bool {
+	return r.StatusCode == 402 || r.StatusCode == 405
+}
+
+// CostCents parses the provider's cost string ("KES 0.8000") into cents.
+func (r SMSResult) CostCents() int {
+	return int(parseCost(r.Cost)*100 + 0.5)
+}
+
+// RejectedError is a send the provider answered and refused (bad credentials,
+// malformed request). Nothing was sent.
+//
+// Any other error from SendBulk — a timeout, a dropped connection, an
+// unreadable body — leaves the outcome unknown: the provider may have accepted
+// the batch before the failure.
+type RejectedError struct {
+	StatusCode int
+	Body       string
+}
+
+func (e *RejectedError) Error() string {
+	return fmt.Sprintf("Africa's Talking refused the request (HTTP %d): %s", e.StatusCode, e.Body)
 }
 
 // CostEstimate represents an estimated cost for a send operation.
@@ -46,9 +77,13 @@ type CostEstimate struct {
 
 // NewATClient creates a new Africa's Talking client.
 // isProduction switches between sandbox and production base URLs.
+//
+// The username "sandbox" always selects the sandbox host, whatever
+// isProduction says: that is how Africa's Talking itself tells the two apart,
+// and sandbox credentials are refused by the live host.
 func NewATClient(apiKey, username, senderID string, isProduction bool) *ATClient {
 	baseURL := "https://api.sandbox.africastalking.com"
-	if isProduction {
+	if isProduction && !strings.EqualFold(strings.TrimSpace(username), "sandbox") {
 		baseURL = "https://api.africastalking.com"
 	}
 
@@ -158,7 +193,7 @@ func (c *ATClient) SendBulk(ctx context.Context, req BulkSMSRequest) ([]SMSResul
 	}
 
 	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("AT API error (status %d): %s", resp.StatusCode, string(body))
+		return nil, &RejectedError{StatusCode: resp.StatusCode, Body: truncate(string(body), 300)}
 	}
 
 	var atResp ATBulkResponse
@@ -168,19 +203,49 @@ func (c *ATClient) SendBulk(ctx context.Context, req BulkSMSRequest) ([]SMSResul
 
 	results := make([]SMSResult, 0, len(atResp.SMSMessageData.Recipients))
 	for _, r := range atResp.SMSMessageData.Recipients {
+		// 100 Processed, 101 Sent and 102 Queued all mean the message was
+		// accepted; everything else is a per-number refusal.
 		status := "Failed"
-		if r.StatusCode == 101 || r.Status == "Success" {
+		if r.StatusCode == 100 || r.StatusCode == 101 || r.StatusCode == 102 || r.Status == "Success" {
 			status = "Success"
 		}
 		results = append(results, SMSResult{
-			Phone:     r.Number,
-			Status:    status,
-			MessageID: r.MessageID,
-			Cost:      r.Cost,
+			Phone:      r.Number,
+			Status:     status,
+			StatusCode: r.StatusCode,
+			Detail:     r.Status,
+			MessageID:  r.MessageID,
+			Cost:       r.Cost,
 		})
 	}
 
+	// A 2xx with no recipients is how Africa's Talking reports a refusal of the
+	// whole batch (e.g. "InvalidSenderId"); the reason is in Message.
+	if len(results) == 0 && len(req.To) > 0 {
+		return nil, &RejectedError{StatusCode: resp.StatusCode, Body: truncate(atResp.SMSMessageData.Message, 300)}
+	}
+
 	return results, nil
+}
+
+// WithBaseURL points the client at another host. It exists for local
+// development and tests (AT_BASE_URL → a stand-in that sends nothing); leave it
+// unset to use Africa's Talking.
+func (c *ATClient) WithBaseURL(baseURL string) *ATClient {
+	if trimmed := strings.TrimRight(strings.TrimSpace(baseURL), "/"); trimmed != "" {
+		c.baseURL = trimmed
+	}
+	return c
+}
+
+// SenderID returns the sender id this client sends from ("" = provider default).
+func (c *ATClient) SenderID() string { return c.senderID }
+
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "…"
 }
 
 // EstimateCost returns estimated KES cost without sending.
@@ -196,23 +261,14 @@ func (c *ATClient) EstimateCost(recipients int, messageUnits int) CostEstimate {
 	}
 }
 
-// CalculateSMSUnits returns the number of SMS units for a message.
-// 1 unit = 160 chars, 2 units = 320, 3 units = 480, etc.
-func CalculateSMSUnits(message string) int {
-	length := len([]rune(message))
-	if length == 0 {
-		return 0
-	}
-	units := (length + 159) / 160
-	if units > 3 {
-		units = 3 // Max 3 units per spec
-	}
-	return units
-}
-
 // parseCost parses a currency string like "KES 0.80" to a float.
 func parseCost(s string) float64 {
-	s = strings.TrimPrefix(strings.TrimSpace(s), "KES ")
+	s = strings.TrimSpace(s)
+	// "KES 0.8000", and other currencies on non-Kenyan accounts ("UGX 35").
+	if i := strings.LastIndex(s, " "); i >= 0 && !strings.HasSuffix(s, "/SMS") {
+		s = s[i+1:]
+	}
+	s = strings.TrimPrefix(s, "KES ")
 	s = strings.TrimSuffix(s, "/SMS")
 	if s == "" {
 		return 0

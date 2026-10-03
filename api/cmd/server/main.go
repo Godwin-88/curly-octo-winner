@@ -36,11 +36,13 @@ import (
 	appmiddleware "github.com/shule360/api/internal/middleware"
 	"github.com/shule360/api/internal/nemis"
 	"github.com/shule360/api/internal/parent"
+	"github.com/shule360/api/internal/platform"
 	"github.com/shule360/api/internal/procurement"
 	"github.com/shule360/api/internal/reports"
 	"github.com/shule360/api/internal/security"
 	"github.com/shule360/api/internal/settings"
 	"github.com/shule360/api/internal/teacher"
+	"github.com/shule360/api/internal/tenant"
 	"github.com/shule360/api/internal/transport"
 	"github.com/shule360/api/pkg/backblaze"
 	"github.com/shule360/api/pkg/groq"
@@ -119,10 +121,10 @@ func main() {
 	_ = b2Client
 
 	// Initialize Africa's Talking SMS client
-	atClient := sms.NewATClient(cfg.ATAPIKey, cfg.ATUsername, cfg.ATSenderID, cfg.IsProduction())
+	atClient := sms.NewATClient(cfg.ATAPIKey, cfg.ATUsername, cfg.ATSenderID, cfg.IsProduction()).WithBaseURL(cfg.ATBaseURL)
 
-	// Initialize SMS service
-	smsService := sms.NewSMSService(sb.Pool, atClient)
+	// Initialize SMS service (templates; sending is the dispatcher below)
+	smsService := sms.NewSMSService(sb.Pool)
 
 	// Initialize WhatsApp Cloud API client
 	waClient := whatsapp.NewWAClient(cfg.MetaWAToken, cfg.MetaWAPhoneNumberID)
@@ -133,8 +135,40 @@ func main() {
 	// Initialize chatbot
 	chatbot := whatsapp.NewChatbot()
 
+	// Tenant settings come first: the SMS dispatcher resolves each school's
+	// own Africa's Talking credentials through them. Credentials are sealed
+	// with a key derived from SETTINGS_ENCRYPTION_KEY, falling back to
+	// JWT_SECRET.
+	settingsSecret := cfg.SettingsEncryptionKey
+	if settingsSecret == "" {
+		settingsSecret = cfg.JWTSecret
+	}
+	settingsSealer, sealErr := settings.NewSealer(settingsSecret)
+	if sealErr != nil {
+		slog.Warn("credential encryption unavailable; settings can be read but not configured", "error", sealErr)
+	}
+	settingsService := settings.NewService(sb.Pool, settingsSealer)
+
+	// The SMS dispatcher sends every recorded message: at once when notified,
+	// on a 30s sweep for scheduled messages, and at startup for anything a
+	// restart interrupted.
+	smsDispatcher := comms.NewDispatcher(sb.Pool, comms.NewSenderFactory(sb.Pool, settingsService, comms.PlatformSMS{
+		APIKey:   cfg.ATAPIKey,
+		Username: cfg.ATUsername,
+		SenderID: cfg.ATSenderID,
+		BaseURL:  cfg.ATBaseURL,
+	}))
+	dispatchCtx, stopDispatch := context.WithCancel(context.Background())
+	defer stopDispatch()
+	go smsDispatcher.Run(dispatchCtx)
+
+	smsDLR := sms.NewDLRHandler(sb.Pool, cfg.ATDLRToken)
+	if cfg.ATDLRToken == "" {
+		slog.Warn("AT_DLR_TOKEN not set: SMS delivery reports are refused, so messages stay at 'sent' and never show 'delivered'")
+	}
+
 	// Initialize comms service
-	commsService := comms.NewCommsService(sb.Pool, redisClient, atClient, waClient)
+	commsService := comms.NewCommsService(sb.Pool, smsDispatcher)
 	commsHandler := comms.NewHandlerWithSMS(commsService, smsService)
 
 	// Initialize the contact book (Communications → Contacts). Staff curate
@@ -207,18 +241,7 @@ func main() {
 	// Initialize teacher PWA handler
 	teacherHandler := teacher.NewHandler(sb.Pool)
 
-	// Initialize tenant settings (school profile, operational config, and the
-	// per-school integration credentials). Credentials are sealed with a key
-	// derived from SETTINGS_ENCRYPTION_KEY, falling back to JWT_SECRET.
-	settingsSecret := cfg.SettingsEncryptionKey
-	if settingsSecret == "" {
-		settingsSecret = cfg.JWTSecret
-	}
-	settingsSealer, sealErr := settings.NewSealer(settingsSecret)
-	if sealErr != nil {
-		slog.Warn("credential encryption unavailable; settings can be read but not configured", "error", sealErr)
-	}
-	settingsService := settings.NewService(sb.Pool, settingsSealer)
+	// Tenant settings routes (the service is created above, with the SMS dispatcher).
 	settingsHandler := settings.NewHandler(settingsService, settings.PlatformCredentials{
 		MpesaConsumerKey:    cfg.MpesaConsumerKey,
 		MpesaConsumerSecret: cfg.MpesaConsumerSecret,
@@ -236,6 +259,8 @@ func main() {
 
 	// Initialize auth handler
 	authHandler := auth.NewHandler(sb, cfg, redisClient)
+	tenantService := tenant.NewService(sb.Pool)
+	platformHandler := platform.NewHandler(platform.NewService(sb.Pool, sb))
 
 	// Setup router
 	r := chi.NewRouter()
@@ -259,7 +284,7 @@ func main() {
 			"http://localhost:3001",
 		}, cfg.CORSAllowedOrigins...),
 		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-Requested-With"},
+		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-Requested-With", "X-School-ID", "Idempotency-Key"},
 		AllowCredentials: true,
 		MaxAge:           300,
 	}))
@@ -284,7 +309,7 @@ func main() {
 		// egress IPs when MPESA_ALLOWED_IPS is configured; an empty list
 		// allows all traffic (development only) and is called out at startup.
 		r.Handle("/webhooks/whatsapp", waWebhook)
-		r.Post("/webhooks/sms/dlr", handleSMSDLR)
+		smsDLR.Mount(r)
 		r.Group(func(r chi.Router) {
 			r.Use(appmiddleware.AllowIPs(cfg.MpesaAllowedIPs))
 			financeHandler.MountWebhooks(r)
@@ -293,15 +318,26 @@ func main() {
 			slog.Warn("MPESA_ALLOWED_IPS not set: M-Pesa webhook accepts any source IP (set it in production)")
 		}
 
-		// Authenticated routes
+		// Signed in, but not necessarily inside a school: a platform or group
+		// user asks these before (and in order to) choose one.
 		r.Group(func(r chi.Router) {
-			r.Use(appmiddleware.Auth(cfg.JWTSecret, cfg.IsProduction()))
+			r.Use(appmiddleware.Auth(cfg.JWTSecret, cfg.IsProduction(), tenantService))
+
+			// /auth/me returns the verified profile (identity from the JWT,
+			// profile re-read from the DB) and the session's scope.
+			authHandler.MountPrivate(r)
+			r.Get("/schools", auth.Schools(tenantService))
+
+			// Schools, groups and the users above a school: platform
+			// administrators only (enforced inside Mount).
+			platformHandler.Mount(r)
+		})
+
+		// Authenticated routes inside one school
+		r.Group(func(r chi.Router) {
+			r.Use(appmiddleware.Auth(cfg.JWTSecret, cfg.IsProduction(), tenantService))
 			r.Use(appmiddleware.TenantRequired)
 			r.Use(appmiddleware.RateLimit(redisClient, 100, 10))
-
-			// Authenticated auth routes: /auth/me returns the verified staff
-			// profile (identity from the JWT, profile re-read from the DB).
-			authHandler.MountPrivate(r)
 
 			// Reachable by any authenticated session: the web client asks it
 			// "is this a parent session?" while hydrating.
@@ -403,12 +439,4 @@ func RecoverMiddleware(next http.Handler) http.Handler {
 		}()
 		next.ServeHTTP(w, r)
 	})
-}
-
-// handleSMSDLR handles Africa's Talking delivery receipt callbacks.
-func handleSMSDLR(w http.ResponseWriter, r *http.Request) {
-	slog.Info("sms dlr callback received")
-	// TODO: Parse AT delivery receipt and update message_logs
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("{}"))
 }

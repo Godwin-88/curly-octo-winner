@@ -34,6 +34,8 @@ const STAFF_PREFIXES = [
   '/security',
   '/settings',
   '/teacher',
+  // The list → view → edit workspace: /w/{group}/{school}/{module}/...
+  '/w',
 ];
 
 export default function proxy(req: NextRequest) {
