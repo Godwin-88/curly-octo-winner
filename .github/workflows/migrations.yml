@@ -1,0 +1,116 @@
+name: Migrations
+
+# Schema changes are forward-only and are NOT part of the deploy pipeline
+# (DEPLOYMENT.md § 1: "Render deploys do not run migrations"). A migration that
+# half-applies against production is far more expensive than a forgotten one,
+# so this runs on demand, never automatically.
+#
+# Suggested order: land the migration file on a branch, open a PR, get it merged
+# and reviewed — then run this workflow against main BEFORE the deploy that needs
+# the new column. Deploying code that queries a missing column fails; applying
+# the migration early is harmless (the API simply ignores the new column).
+#
+# Run with confirm=report first: it prints applied / pending / drifted and
+# changes nothing, which is the safe way to see what is outstanding.
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "apply" to execute pending migrations against production. Anything else runs in read-only status mode.'
+        required: true
+        default: 'report'
+      dir:
+        description: 'Migration directory (default: migrations; use migrations/seed for demo data)'
+        required: false
+        default: 'migrations'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: migrations
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    environment: production
+    defaults:
+      run:
+        working-directory: ./api
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache-dependency-path: api/go.sum
+
+      - name: Check the runner can reach the database
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "::error::Secret DATABASE_URL is missing from the 'production' environment."
+            echo "::error::Use the Supabase transaction pooler URL (port 6543) — the migration runner takes many short-lived connections."
+            exit 1
+          fi
+          echo "DATABASE_URL is present (value not shown)."
+
+      # config.Load() runs before the migration runner, so the four required vars
+      # must be present even though only DATABASE_URL is actually used here.
+      - name: Report pending migrations (read-only)
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          DIR: ${{ inputs.dir }}
+        run: go run ./cmd/migrate -dir "$DIR" -status | tee migration-status.txt
+
+      - name: Apply pending migrations
+        if: inputs.confirm == 'apply'
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          DIR: ${{ inputs.dir }}
+        run: |
+          go run ./cmd/migrate -dir "$DIR"
+          {
+            echo "### Migrations applied"
+            echo ""
+            echo "- Directory: \`${DIR}\`"
+            echo "- Commit: \`${GITHUB_SHA::8}\`"
+            echo "- Triggered by: @${GITHUB_ACTOR}"
+            echo ""
+            echo '```'
+            cat migration-status.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Verify the schema is fully applied
+        if: inputs.confirm == 'apply'
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          DIR: ${{ inputs.dir }}
+        run: |
+          go run ./cmd/migrate -dir "$DIR" -status
+          if go run ./cmd/migrate -dir "$DIR" -status 2>&1 | grep -qi 'pending'; then
+            echo "::error::Migrations are still pending after the apply step."
+            exit 1
+          fi
+          echo "Schema is up to date."
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: migration-status
+          path: api/migration-status.txt
+          retention-days: 14
+          if-no-files-found: ignore

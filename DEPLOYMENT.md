@@ -5,6 +5,10 @@ app** — the API is backward compatible (bearer tokens *and* cookies are both
 accepted), and the web app's same-origin proxy expects the cookie endpoints
 added in Phase 2.
 
+From here on that ordering is enforced by `deploy.yml`: the `web` job declares
+`needs: api`, so a push to `main` cannot ship the frontend ahead of the API it
+proxies to. See **§ 3** for the pipeline and the one-time setup.
+
 > **One-time note (Phase 2 auth migration):** after the cookie-based session
 > deploy, existing users are signed out once (their old localStorage tokens
 > are no longer used and no cookie exists yet). They simply sign in again;
@@ -140,10 +144,133 @@ Africa's Talking, WhatsApp Cloud, Backblaze B2, Groq, Upstash).
 
 ---
 
-## 3. CI/observability
+## 3. CI/CD — a push to `main` ships both services
 
-- CI (GitHub Actions): gofmt → vet → build → tests (Go); lint → tsc → build →
-  npm audit → Playwright smoke + axe (web).
+Three workflows in `.github/workflows/`:
+
+| Workflow | Trigger | Role |
+| --- | --- | --- |
+| `ci.yml` | push + PR to `main`/`develop` | Gate only, never deploys: secret scan → Go fmt/vet/build/test → web lint/tsc/build/npm audit → Playwright smoke + axe. |
+| `deploy.yml` | **push to `main`** (+ manual) | Release: builds the API, triggers Render, waits for `/health`, then deploys the frontend to Vercel. |
+| `migrations.yml` | manual only | Applies forward-only SQL migrations to the production database. |
+
+### 3.1 Release order
+
+`deploy.yml` runs two jobs and **the frontend waits for the API**:
+
+```
+push main → CI (must be green) → api job → web job
+                              ↳ verify    ↳ verify + vercel pull/build/deploy
+                              ↳ POST Render deploy hook
+                              ↳ poll GET /health until 200
+```
+
+`web` declares `needs: api`, so a broken API build never ships a frontend that
+proxies `/api/v1/*` at it. The `/health` poll retries for 5 minutes because a
+free Render instance pays a cold-start penalty after spinning down.
+
+### 3.2 One-time GitHub setup
+
+Create an environment named **`production`**
+(Repo → Settings → Environments → New environment). Put everything there so
+deploy credentials are not reachable from pull-request-triggered workflows.
+Optionally add a required reviewer as an extra gate.
+
+**Environment secrets**
+
+| Secret | Where to get it |
+| --- | --- |
+| `RENDER_DEPLOY_HOOK_URL` | Render → the API service → **Settings → Deploy Hook → Generate deploy hook**. Copy the whole URL. |
+| `VERCEL_TOKEN` | Vercel → Account Settings → Tokens → **Generate**. Scope: your team. |
+| `VERCEL_ORG_ID` | Vercel → Project Settings → General → *API Reference / IDs*, or the `orgId` in `web/.vercel/project.json`. |
+| `VERCEL_PROJECT_ID` | Same place, or the `projectId` in `web/.vercel/project.json`. |
+| `DATABASE_URL` | Supabase **transaction pooler** URL (port 6543). Only used by `migrations.yml`. |
+| `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `JWT_SECRET` | Only used by `migrations.yml` — `cmd/migrate` calls `config.Load()` before it opens the pool, so all four are required even though only `DATABASE_URL` is read. |
+
+**Environment variables** (not secret)
+
+| Variable | Purpose |
+| --- | --- |
+| `API_BASE_URL` | The Render origin, e.g. `https://shule360-api.onrender.com`. Enables the post-deploy `/health` check; if unset the step logs a warning and skips. |
+
+### 3.3 Platform setup (once per service)
+
+**Render (API).** Create the service from `render.yaml` (Dashboard → New →
+Blueprint → this repo → Apply). `rootDir: api` builds `./cmd/server` on Render's
+native Go runtime; the deploy hook created in 3.2 is what `deploy.yml` calls, so
+Render rebuilds the current `main` and restarts the service. Copy the production
+values from `api/.env` into the service's **Environment** tab — Render is the
+only place they should live.
+
+**Vercel (frontend).** The project must have **Root Directory = `web`**
+(monorepo). `deploy.yml` uses the `vercel pull` → `vercel build --prebuilt` →
+`vercel deploy --prod` flow, so:
+
+- set `NEXT_PUBLIC_API_URL` in the Vercel project's **Production** variables to
+  the Render origin. `vercel pull` downloads it, and `next.config.js` bakes it
+  into the `/api/v1/*` rewrite target at build time. It is not inlined into
+  client JavaScript, so it is not a secret — but it *is* build-time, so a change
+  to the API hostname needs a redeploy, not just a restart.
+- no application secret is passed through GitHub Actions; the Vercel project
+  environment is the single source of truth for the frontend.
+
+### 3.4 Running migrations
+
+Schema changes are **not** automatic — see 3.5. Use the `migrations.yml` workflow
+(Repo → Actions → Migrations → Run workflow):
+
+- `confirm=report` (default): runs `cmd/migrate -status` only. Safe, read-only,
+  prints applied / pending / drifted.
+- `confirm=apply`: applies everything pending, then re-checks `-status` and fails
+  the run if anything is still pending.
+
+`dir=migrations/seed` targets the demo data instead.
+
+Run it **after** the migration file is merged and **before** the deploy that
+needs the new column. Migrations are forward-only and each runs in one
+transaction with its bookkeeping row, so a failure leaves the database untouched
+and the workflow can simply be re-run.
+
+### 3.5 Why migrations are not in the deploy pipeline
+
+A migration that half-applies against a production database is far more
+expensive than a forgotten one, so `deploy.yml` never runs SQL. Render's
+`preDeployCommand` would need a paid instance and would still run migrations
+unattended on every deploy. The manual workflow keeps the decision with a human
+and is the only place a `production` database is written to.
+
+### 3.6 Handling credentials
+
+`api/.env` holds live Supabase, Upstash, Backblaze, Africa's Talking, Groq and
+M-Pesa credentials; `web/.env.local` holds the frontend configuration. Both are
+covered by the root `.gitignore` and neither has ever been committed.
+
+- **Never** copy a value from `api/.env` into a workflow file, a `render.yaml`
+  entry, or a commit. CI reads deploy credentials from the `production`
+  environment; the services read application credentials from Render/Vercel.
+- `scripts/secret-scan.sh` is the CI backstop (`ci.yml` → `secret-scan`). It
+  fails if a `.env` file is ever tracked, and if any provider key format (Groq
+  `gsk_`, Africa's Talking `atsk_`, Supabase `sb_secret_` / service-role JWT,
+  Upstash `gAAAA`/`AB0F`/`ABcF` tokens, a `postgres://user:password@` connection
+  string) or a secret-shaped `KEY=value` assignment appears in a tracked file.
+  Template markers (`your_...`, `change_this`, `${...}`, `=...`) and the dummy
+  credentials the Go test suite uses are allowlisted. Run it locally before
+  pushing: `./scripts/secret-scan.sh`.
+- A key that is committed must be **rotated at the provider**, not just deleted —
+  it stays readable in history.
+- Two values in the current `api/.env` are still template placeholders and must
+  be replaced before that file is used as the source for production secrets:
+  `JWT_SECRET` (the example value would let anyone forge a valid token) and
+  `MPESA_PASSKEY`. `MPESA_ALLOWED_IPS` must also be set, because `config.Load()`
+  refuses to boot in production with M-Pesa credentials and no IP allowlist.
+
+### 3.7 Observability
+
+- Metrics: `GET /metrics` exposes request counters + duration histograms with
+  bounded cardinality (chi route patterns). Point any Prometheus-compatible
+  scraper at it.
+- Errors: Sentry (Go + web), both fully DSN-gated no-ops when unset.
+
 - Metrics: `GET /metrics` exposes request counters + duration histograms with
   bounded cardinality (chi route patterns). Point any Prometheus-compatible
   scraper at it.

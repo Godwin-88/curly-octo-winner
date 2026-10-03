@@ -1,1 +1,8 @@
+# Vercel CLI state: project link, the settings/env pulled by `vercel pull`, and
+# the .vercel/output/ build directory produced by `vercel build --prebuilt`.
 .vercel
+
+# Environment files written by `vercel pull` (e.g. .env.production.local). The
+# repo root ignores .env and .env.local, but those names alone do not match.
+.env*.local
+
