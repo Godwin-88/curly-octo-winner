@@ -3,6 +3,7 @@ package comms
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 
@@ -52,9 +53,11 @@ func (h *Handler) Mount(r chi.Router) {
 		// for older clients.
 		r.Post("/estimate", h.estimateReach)
 		r.Get("/estimate", h.estimateReach)
+		r.Get("/audience-options", h.audienceOptions)
 		r.Get("/{id}", h.getMessage)
 		r.Get("/{id}/logs", h.getMessageLogs)
 		r.Delete("/{id}", h.cancelMessage)
+		r.Post("/{id}/resend-failed", h.resendFailed)
 	})
 
 	r.Route("/conversations", func(r chi.Router) {
@@ -77,6 +80,32 @@ func (h *Handler) Mount(r chi.Router) {
 	}
 }
 
+// respondError maps a service error to the response the caller can act on.
+func respondError(w http.ResponseWriter, err error, code string) {
+	var validation *ValidationError
+	switch {
+	case errors.Is(err, ErrNotFound):
+		httputil.RespondNotFound(w, "NOT_FOUND", "Message not found")
+	case errors.As(err, &validation):
+		httputil.RespondBadRequest(w, code, validation.Message)
+	default:
+		httputil.RespondInternalError(w, err)
+	}
+}
+
+// actor returns who is making the request: a member of the school's staff, or
+// a platform/group user (who has no row in the school's staff table).
+func actor(r *http.Request) Actor {
+	var a Actor
+	if id, ok := middleware.GetStaffID(r); ok && id != uuid.Nil {
+		a.StaffID = &id
+	}
+	if session := middleware.GetSession(r); session.OperatorID != uuid.Nil {
+		a.OperatorID = &session.OperatorID
+	}
+	return a
+}
+
 // createMessage handles POST /messages
 func (h *Handler) createMessage(w http.ResponseWriter, r *http.Request) {
 	tenantID, ok := middleware.GetTenantID(r)
@@ -90,10 +119,15 @@ func (h *Handler) createMessage(w http.ResponseWriter, r *http.Request) {
 		httputil.RespondBadRequest(w, "INVALID_REQUEST", "Invalid request body: "+err.Error())
 		return
 	}
+	// The header form is what generic HTTP clients send; the body field is
+	// what the web app sends.
+	if req.IdempotencyKey == "" {
+		req.IdempotencyKey = r.Header.Get("Idempotency-Key")
+	}
 
-	msg, err := h.service.CreateAndSend(r.Context(), tenantID, req)
+	msg, err := h.service.CreateAndSend(r.Context(), tenantID, actor(r), req)
 	if err != nil {
-		httputil.RespondBadRequest(w, "CREATE_FAILED", err.Error())
+		respondError(w, err, "CREATE_FAILED")
 		return
 	}
 
@@ -138,24 +172,53 @@ func (h *Handler) estimateReach(w http.ResponseWriter, r *http.Request) {
 
 	estimate, err := h.service.EstimateReach(r.Context(), tenantID, req)
 	if err != nil {
-		httputil.RespondBadRequest(w, "ESTIMATE_FAILED", err.Error())
+		respondError(w, err, "ESTIMATE_FAILED")
 		return
 	}
 
 	httputil.RespondOK(w, estimate)
 }
 
-// getMessage handles GET /messages/{id}
-func (h *Handler) getMessage(w http.ResponseWriter, r *http.Request) {
+// audienceOptions handles GET /messages/audience-options
+func (h *Handler) audienceOptions(w http.ResponseWriter, r *http.Request) {
+	tenantID, ok := middleware.GetTenantID(r)
+	if !ok {
+		httputil.RespondUnauthorized(w, "UNAUTHORIZED", "Tenant ID not found")
+		return
+	}
+	options, err := h.service.GetAudienceOptions(r.Context(), tenantID)
+	if err != nil {
+		httputil.RespondInternalError(w, err)
+		return
+	}
+	httputil.RespondOK(w, options)
+}
+
+// messageRef reads the school and message id of a /messages/{id} request.
+func messageRef(w http.ResponseWriter, r *http.Request) (tenantID, id uuid.UUID, ok bool) {
+	tenantID, ok = middleware.GetTenantID(r)
+	if !ok {
+		httputil.RespondUnauthorized(w, "UNAUTHORIZED", "Tenant ID not found")
+		return uuid.Nil, uuid.Nil, false
+	}
 	id, err := uuid.Parse(chi.URLParam(r, "id"))
 	if err != nil {
 		httputil.RespondBadRequest(w, "INVALID_ID", "Invalid message ID")
+		return uuid.Nil, uuid.Nil, false
+	}
+	return tenantID, id, true
+}
+
+// getMessage handles GET /messages/{id}
+func (h *Handler) getMessage(w http.ResponseWriter, r *http.Request) {
+	tenantID, id, ok := messageRef(w, r)
+	if !ok {
 		return
 	}
 
-	msg, stats, err := h.service.GetMessage(r.Context(), id)
+	msg, stats, err := h.service.GetMessage(r.Context(), tenantID, id)
 	if err != nil {
-		httputil.RespondNotFound(w, "NOT_FOUND", err.Error())
+		respondError(w, err, "GET_FAILED")
 		return
 	}
 
@@ -167,18 +230,17 @@ func (h *Handler) getMessage(w http.ResponseWriter, r *http.Request) {
 
 // getMessageLogs handles GET /messages/{id}/logs
 func (h *Handler) getMessageLogs(w http.ResponseWriter, r *http.Request) {
-	id, err := uuid.Parse(chi.URLParam(r, "id"))
-	if err != nil {
-		httputil.RespondBadRequest(w, "INVALID_ID", "Invalid message ID")
+	tenantID, id, ok := messageRef(w, r)
+	if !ok {
 		return
 	}
 
 	limit := parseIntDefault(r.URL.Query().Get("limit"), 100)
 	offset := parseIntDefault(r.URL.Query().Get("offset"), 0)
 
-	logs, err := h.service.GetMessageLogs(r.Context(), id, limit, offset)
+	logs, err := h.service.GetMessageLogs(r.Context(), tenantID, id, r.URL.Query().Get("status"), limit, offset)
 	if err != nil {
-		httputil.RespondNotFound(w, "NOT_FOUND", err.Error())
+		respondError(w, err, "GET_FAILED")
 		return
 	}
 
@@ -187,18 +249,47 @@ func (h *Handler) getMessageLogs(w http.ResponseWriter, r *http.Request) {
 
 // cancelMessage handles DELETE /messages/{id}
 func (h *Handler) cancelMessage(w http.ResponseWriter, r *http.Request) {
-	id, err := uuid.Parse(chi.URLParam(r, "id"))
-	if err != nil {
-		httputil.RespondBadRequest(w, "INVALID_ID", "Invalid message ID")
+	tenantID, id, ok := messageRef(w, r)
+	if !ok {
 		return
 	}
 
-	if err := h.service.CancelScheduled(r.Context(), id); err != nil {
-		httputil.RespondBadRequest(w, "CANCEL_FAILED", err.Error())
+	if err := h.service.CancelScheduled(r.Context(), tenantID, id); err != nil {
+		respondError(w, err, "CANCEL_FAILED")
 		return
 	}
 
 	httputil.RespondNoContent(w)
+}
+
+// resendFailed handles POST /messages/{id}/resend-failed
+func (h *Handler) resendFailed(w http.ResponseWriter, r *http.Request) {
+	tenantID, id, ok := messageRef(w, r)
+	if !ok {
+		return
+	}
+
+	var req struct {
+		IncludeUncertain bool   `json:"include_uncertain"`
+		IdempotencyKey   string `json:"idempotency_key"`
+	}
+	if r.ContentLength != 0 {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			httputil.RespondBadRequest(w, "INVALID_REQUEST", "Invalid request body: "+err.Error())
+			return
+		}
+	}
+	if req.IdempotencyKey == "" {
+		req.IdempotencyKey = r.Header.Get("Idempotency-Key")
+	}
+
+	msg, err := h.service.ResendFailed(r.Context(), tenantID, actor(r), id, req.IncludeUncertain, req.IdempotencyKey)
+	if err != nil {
+		respondError(w, err, "RESEND_FAILED")
+		return
+	}
+
+	httputil.RespondCreated(w, msg)
 }
 
 // listConversations handles GET /conversations

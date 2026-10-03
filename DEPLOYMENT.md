@@ -60,7 +60,7 @@ go run ./cmd/migrate            # apply every pending migration
 go run ./cmd/migrate -baseline  # mark all as applied WITHOUT running them
 ```
 
-- **Fresh database:** `make migrate-up` creates the whole schema (001 → 036).
+- **Fresh database:** `make migrate-up` creates the whole schema (001 → 041).
 - **Render deploys do not run migrations** (that needs a paid instance's
   pre-deploy command — see `render.yaml`): run `make migrate-up` from a machine
   that can reach the database before deploying API code that depends on new
@@ -159,3 +159,83 @@ Africa's Talking, WhatsApp Cloud, Backblaze B2, Groq, Upstash).
   stays valid until the 24h expiry. Guardian sessions ARE revocable
   (`guardian_sessions` table). Rolling renewal keeps active sessions alive and
   hard-stops sessions after 24h of inactivity.
+
+
+## SMS (Africa's Talking)
+
+Sending is `POST /api/v1/messages`. Every recipient is recorded before the
+provider is called; an in-process dispatcher sends them, picks up scheduled
+messages every 30 seconds, and resumes after a restart without re-sending to
+anyone already attempted.
+
+Before a school sends its first live SMS:
+
+| Step | Where |
+|---|---|
+| Live **username** and **API key** (not `sandbox`), with credit | `AT_USERNAME`, `AT_API_KEY`, or per school under Settings → Integrations |
+| Sender name approved for the account, or left empty | `AT_SENDER_ID`, `tenants.at_sender_id`, or the school's integration setting |
+| A long random `AT_DLR_TOKEN` | API environment |
+| Delivery-report callback `https://<api host>/api/v1/webhooks/sms/dlr/<AT_DLR_TOKEN>` | Africa's Talking dashboard → SMS → Callback URLs |
+| Migrations 039, 040 and 041 applied | `make migrate-up` |
+
+Statuses mean exactly this: **sent** — Africa's Talking accepted it;
+**delivered** — a delivery report confirmed it; **failed** — refused, or the
+report said so. Without the callback, messages stay at *sent*.
+
+`AT_BASE_URL` must never be set in production; the server refuses to start.
+
+## Running everything locally
+
+```bash
+docker compose up --build
+```
+
+starts Postgres, applies the migrations and demo data, and runs the API
+(`localhost:8090`) and the web app (`localhost:3100`). It reads no `.env` file
+and reaches no hosted service: a stand-in (`api/cmd/devstub`) plays Supabase
+Auth and Africa's Talking, prints each SMS instead of sending it
+(`docker compose logs -f devstub`) and posts delivery reports back. Sign-in
+details are at the top of `docker-compose.yml`.
+
+Browser tests against that stack:
+
+```bash
+cd web && E2E_STACK=1 npx playwright test e2e/communications.spec.ts
+```
+
+## School context (platform, group, school)
+
+A staff member belongs to one school and always works in it. Two further kinds
+of user live in `platform_users`:
+
+- `scope = 'group'` with a `group_id`: may open the schools of that group
+  (`tenants.group_id`).
+- `scope = 'platform'`: may open any school.
+
+A platform administrator manages all of this in the web app under
+**Platform**: *Schools* (which group a school belongs to), *School groups*, and
+*Users* (create a platform or group user, reset a password, deactivate). A new
+user's password is generated and shown once, on the screen that created it.
+The last active platform administrator cannot be deactivated, and an email that
+already belongs to a school's staff is refused.
+
+The first platform administrator has nobody to create them, so it is made from
+a machine holding the production `DATABASE_URL` and Supabase service key:
+
+```bash
+cd api
+go run ./cmd/platformuser -email you@example.com -name "Your Name"
+```
+
+It prints the generated password once. Everyone after that is created on the
+Users screen.
+
+When a platform or group user opens a school, the API gives them a staff row in
+that school the first time (`staff.platform_user_id`), so screens that record
+"who did this" work for them as for staff. That row is hidden from the school's
+staff list and cannot sign in by itself; its role is read from `platform_users`
+on every request, and deactivating the user ends their access at once.
+
+They choose the school per request with the `X-School-ID` header; a school
+outside their reach answers 404. The web app keeps the choice in the address:
+`/w/{group}/{school}/{module}/{section}/{record}`.

@@ -338,7 +338,7 @@ func (s *Service) ListTenantGuardians(ctx context.Context, tenantID uuid.UUID, s
 	rows, err := s.pool.Query(ctx, `
 		SELECT g.id,
 		       g.full_name,
-		       COALESCE(g.phone_wa, g.phone_primary) AS phone,
+		       g.phone_primary AS phone,
 		       COALESCE((
 		           SELECT COUNT(DISTINCT l.id)
 		           FROM learners l
@@ -348,7 +348,7 @@ func (s *Service) ListTenantGuardians(ctx context.Context, tenantID uuid.UUID, s
 		FROM guardians g
 		WHERE g.tenant_id = $1
 		  AND ($2 = '%%' OR LOWER(g.full_name) LIKE $2
-		       OR LOWER(COALESCE(g.phone_wa, g.phone_primary)) LIKE $2)
+		       OR g.phone_primary LIKE $2)
 		ORDER BY g.full_name
 		LIMIT 500
 	`, tenantID, pattern)

@@ -12,6 +12,27 @@ jobs:
     defaults:
       run:
         working-directory: ./api
+    # A real Postgres: the SMS dispatch tests check what is committed before the
+    # provider is called and what a restart finds, which only a database shows.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: shule360_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d shule360_test"
+          --health-interval 3s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/shule360_test?sslmode=disable
+      SUPABASE_URL: http://localhost
+      SUPABASE_SERVICE_ROLE_KEY: test
+      JWT_SECRET: test_secret
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -30,13 +51,12 @@ jobs:
         run: go vet ./...
       - name: Build
         run: go build ./...
+      - name: Apply migrations
+        run: go run ./cmd/migrate
       - name: Run tests
         run: go test ./...
         env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/shule360_test
-          SUPABASE_URL: http://localhost
-          SUPABASE_SERVICE_ROLE_KEY: test
-          JWT_SECRET: test_secret
+          TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/shule360_test?sslmode=disable
 
   frontend:
     runs-on: ubuntu-latest

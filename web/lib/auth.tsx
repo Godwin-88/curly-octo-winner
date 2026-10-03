@@ -40,6 +40,13 @@ export interface StaffUser {
   phone?: string;
 }
 
+/** How far the signed-in staff user may reach (see api/internal/middleware/auth.go). */
+export interface StaffSession {
+  scope: 'school' | 'group' | 'platform';
+  school_id?: string;
+  group_id?: string;
+}
+
 export interface GuardianUser {
   id: string;
   tenant_id: string;
@@ -52,6 +59,8 @@ interface AuthContextValue {
   /** Staff JWT (admin + teacher portals). Held in memory only, when available. */
   token: string;
   staff: StaffUser | null;
+  /** The staff session's reach. Null until hydrated, or when signed out. */
+  session: StaffSession | null;
   /** Guardian JWT (parent portal). Held in memory only, when available. */
   guardianToken: string;
   guardian: GuardianUser | null;
@@ -118,6 +127,7 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [token, setToken] = useState('');
   const [staff, setStaff] = useState<StaffUser | null>(null);
+  const [session, setSession] = useState<StaffSession | null>(null);
   const [guardianToken, setGuardianToken] = useState('');
   const [guardian, setGuardian] = useState<GuardianUser | null>(null);
   const [ready, setReady] = useState(false);
@@ -144,13 +154,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!alive) return;
 
       if (staffRes.ok) {
-        const data = (await staffRes.json().catch(() => null)) as { staff?: StaffUser } | null;
+        const data = (await staffRes.json().catch(() => null)) as { staff?: StaffUser; session?: StaffSession } | null;
         if (data?.staff) {
           setStaff(data.staff);
+          setSession(data.session ?? { scope: 'school', school_id: data.staff.tenant_id });
           cacheProfile(STAFF_PROFILE_KEY, data.staff);
         }
       } else {
         setStaff(null);
+        setSession(null);
         cacheProfile(STAFF_PROFILE_KEY, null);
       }
 
@@ -195,6 +207,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // stays in memory only (never persisted to JS-accessible storage).
       setToken(data.token);
       setStaff(user);
+      setSession((data.session as StaffSession | undefined) ?? { scope: 'school', school_id: user.tenant_id });
       cacheProfile(STAFF_PROFILE_KEY, user);
       return user;
     },
@@ -207,6 +220,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       postAndIgnore('/auth/logout');
       setToken('');
       setStaff(null);
+      setSession(null);
       cacheProfile(STAFF_PROFILE_KEY, null);
       router.push(redirectTo);
     },
@@ -248,6 +262,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     () => ({
       token,
       staff,
+      session,
       guardianToken,
       guardian,
       ready,
@@ -256,7 +271,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       loginGuardian,
       logoutGuardian,
     }),
-    [token, staff, guardianToken, guardian, ready, loginStaff, logoutStaff, loginGuardian, logoutGuardian]
+    [token, staff, session, guardianToken, guardian, ready, loginStaff, logoutStaff, loginGuardian, logoutGuardian]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

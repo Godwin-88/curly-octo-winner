@@ -28,6 +28,11 @@ type Config struct {
 	ATAPIKey   string
 	ATUsername string
 	ATSenderID string
+	// ATDLRToken is the secret path segment of the delivery-report callback
+	// (/api/v1/webhooks/sms/dlr/{token}). Without it reports are refused.
+	ATDLRToken string
+	// ATBaseURL replaces the Africa's Talking host. Local development only.
+	ATBaseURL string
 
 	GroqAPIKey string
 
@@ -80,6 +85,8 @@ func Load() (*Config, error) {
 		ATAPIKey:                 os.Getenv("AT_API_KEY"),
 		ATUsername:               os.Getenv("AT_USERNAME"),
 		ATSenderID:               os.Getenv("AT_SENDER_ID"),
+		ATDLRToken:               os.Getenv("AT_DLR_TOKEN"),
+		ATBaseURL:                os.Getenv("AT_BASE_URL"),
 		GroqAPIKey:               os.Getenv("GROQ_API_KEY"),
 		MetaWAToken:              os.Getenv("META_WA_TOKEN"),
 		MetaWAPhoneNumberID:      os.Getenv("META_WA_PHONE_NUMBER_ID"),
@@ -133,6 +140,12 @@ func Load() (*Config, error) {
 	// Validate APP_ENV
 	if cfg.AppEnv != "development" && cfg.AppEnv != "production" {
 		return nil, fmt.Errorf("APP_ENV must be 'development' or 'production', got %q", cfg.AppEnv)
+	}
+
+	// Production safety: AT_BASE_URL redirects every school's SMS to another
+	// host. It is a development switch and must never be set on a live server.
+	if cfg.IsProduction() && cfg.ATBaseURL != "" {
+		return nil, fmt.Errorf("AT_BASE_URL must not be set in production (it redirects all SMS away from Africa's Talking)")
 	}
 
 	// Production safety: never boot with live M-Pesa credentials and an

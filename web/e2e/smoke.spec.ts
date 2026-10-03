@@ -8,6 +8,12 @@ test('landing page renders the product', async ({ page }) => {
   await expect(page).toHaveTitle(/Shule360/);
 });
 
+test('unauthenticated workspace address is bounced to staff sign-in (edge guard)', async ({ page }) => {
+  await page.goto('/w/all/a0000000-0000-0000-0000-000000000001/communications/messages');
+  await expect(page).toHaveURL(/\/auth\/login/);
+  await expect(page.getByRole('button', { name: /sign in/i })).toBeVisible();
+});
+
 test('unauthenticated /dashboard is bounced to staff sign-in (edge guard)', async ({ page }) => {
   await page.goto('/dashboard');
   await expect(page).toHaveURL(/\/auth\/login/);

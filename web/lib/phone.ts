@@ -22,7 +22,8 @@ export function normalizePhone(raw: string): string | null {
 
   if (digits.length !== 9) return null;
   if (!/^\d+$/.test(digits)) return null;
-  if (digits[0] !== '7') return null;
+  // 07xx, plus the newer 010x (Airtel) and 011x (Safaricom) mobile ranges.
+  if (digits[0] !== '7' && digits[0] !== '1') return null;
 
   return `+254${digits}`;
 }

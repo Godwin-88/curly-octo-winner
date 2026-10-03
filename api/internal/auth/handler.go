@@ -12,9 +12,11 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 
 	"github.com/shule360/api/internal/config"
 	appmiddleware "github.com/shule360/api/internal/middleware"
+	"github.com/shule360/api/internal/tenant"
 	"github.com/shule360/api/pkg/httputil"
 	supabaseclient "github.com/shule360/api/pkg/supabase"
 	"github.com/shule360/api/pkg/upstash"
@@ -28,8 +30,21 @@ type LoginRequest struct {
 
 // LoginResponse represents the login response body.
 type LoginResponse struct {
-	Token string     `json:"token"`
-	Staff StaffBrief `json:"staff"`
+	Token   string       `json:"token"`
+	Staff   StaffBrief   `json:"staff"`
+	Session SessionBrief `json:"session"`
+}
+
+// SessionBrief tells the web app how far the signed-in user may reach, so the
+// context bar knows which levels are a choice and which are fixed.
+//
+//	school   — one school (SchoolID); nothing to switch.
+//	group    — the schools of one group (GroupID).
+//	platform — every school.
+type SessionBrief struct {
+	Scope    string `json:"scope"`
+	SchoolID string `json:"school_id,omitempty"`
+	GroupID  string `json:"group_id,omitempty"`
 }
 
 // StaffBrief is a minimal staff representation returned on login.
@@ -100,15 +115,26 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Step 2: Look up the staff record by email
+	// Step 2: Look up the staff record by email; failing that, a platform or
+	// group user (someone who is not staff of any one school).
 	staff, err := h.findStaffByEmail(r.Context(), req.Email)
-	if err != nil {
-		httputil.RespondUnauthorized(w, "INVALID_CREDENTIALS", "Invalid email or password")
-		return
+	var token string
+	session := SessionBrief{Scope: appmiddleware.ScopeSchool}
+	if err == nil {
+		session.SchoolID = staff.TenantID
+		// Step 3: Generate JWT
+		token, err = h.generateToken(staff)
+	} else {
+		var operator *operatorRow
+		operator, err = h.findOperatorByEmail(r.Context(), req.Email)
+		if err != nil {
+			httputil.RespondUnauthorized(w, "INVALID_CREDENTIALS", "Invalid email or password")
+			return
+		}
+		staff = operator.brief()
+		session = operator.session()
+		token, err = h.generateOperatorToken(operator)
 	}
-
-	// Step 3: Generate JWT
-	token, err := h.generateToken(staff)
 	if err != nil {
 		httputil.RespondInternalError(w, fmt.Errorf("failed to generate token: %w", err))
 		return
@@ -131,6 +157,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 			Role:     staff.Role,
 			Phone:    staff.Phone,
 		},
+		Session: session,
 	})
 }
 
@@ -188,7 +215,9 @@ type staffRow struct {
 // findStaffByEmail looks up the staff record by email.
 func (h *Handler) findStaffByEmail(ctx context.Context, email string) (*staffRow, error) {
 	row := h.supabase.Pool.QueryRow(ctx,
-		"SELECT id, tenant_id, full_name, email, role::text, COALESCE(phone, '') FROM staff WHERE email = $1 AND is_active = true",
+		// platform_user_id IS NULL: the staff rows that stand for platform users
+		// inside a school (041_platform_admin.sql) are not accounts to sign in to.
+		"SELECT id, tenant_id, full_name, email, role::text, COALESCE(phone, '') FROM staff WHERE email = $1 AND is_active = true AND platform_user_id IS NULL",
 		email,
 	)
 
@@ -197,6 +226,58 @@ func (h *Handler) findStaffByEmail(ctx context.Context, email string) (*staffRow
 		return nil, err
 	}
 	return &s, nil
+}
+
+// operatorRow is a platform or group user (platform_users).
+type operatorRow struct {
+	ID       string
+	FullName string
+	Email    string
+	Scope    string
+	GroupID  string
+	Role     string
+}
+
+// brief presents an operator in the shape the web app already uses for the
+// signed-in user. TenantID is empty: an operator belongs to no single school.
+func (o *operatorRow) brief() *staffRow {
+	return &staffRow{ID: o.ID, FullName: o.FullName, Email: o.Email, Role: o.Role}
+}
+
+func (o *operatorRow) session() SessionBrief {
+	return SessionBrief{Scope: o.Scope, GroupID: o.GroupID}
+}
+
+const operatorColumns = `id, full_name, email, scope, COALESCE(group_id::text, ''), role`
+
+func (h *Handler) findOperatorByEmail(ctx context.Context, email string) (*operatorRow, error) {
+	var o operatorRow
+	err := h.supabase.Pool.QueryRow(ctx,
+		`SELECT `+operatorColumns+` FROM platform_users WHERE lower(email) = lower($1) AND is_active = true`,
+		email,
+	).Scan(&o.ID, &o.FullName, &o.Email, &o.Scope, &o.GroupID, &o.Role)
+	if err != nil {
+		return nil, err
+	}
+	return &o, nil
+}
+
+// generateOperatorToken creates a signed JWT for a platform or group user. It
+// carries no tenant_id: the school is chosen per request (X-School-ID) and
+// checked against the scope by the Auth middleware.
+func (h *Handler) generateOperatorToken(o *operatorRow) (string, error) {
+	claims := jwt.MapClaims{
+		"operator_id": o.ID,
+		"scope":       o.Scope,
+		"role":        o.Role,
+		"exp":         time.Now().Add(24 * time.Hour).Unix(),
+		"iat":         time.Now().Unix(),
+	}
+	if o.GroupID != "" {
+		claims["group_id"] = o.GroupID
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString([]byte(h.cfg.JWTSecret))
 }
 
 // generateToken creates a signed JWT for the staff user.
@@ -232,6 +313,24 @@ func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 // the profile is re-read from the database so role/name changes take effect
 // without waiting for token expiry.
 func (h *Handler) Me(w http.ResponseWriter, r *http.Request) {
+	if session := appmiddleware.GetSession(r); session.Scope != appmiddleware.ScopeSchool {
+		var o operatorRow
+		err := h.supabase.Pool.QueryRow(r.Context(),
+			`SELECT `+operatorColumns+` FROM platform_users WHERE id = $1 AND is_active = true`,
+			session.OperatorID,
+		).Scan(&o.ID, &o.FullName, &o.Email, &o.Scope, &o.GroupID, &o.Role)
+		if err != nil {
+			httputil.RespondUnauthorized(w, "UNAUTHORIZED", "Account not found or deactivated")
+			return
+		}
+		b := o.brief()
+		httputil.RespondOK(w, map[string]any{
+			"staff":   StaffBrief{ID: b.ID, FullName: b.FullName, Email: b.Email, Role: b.Role},
+			"session": o.session(),
+		})
+		return
+	}
+
 	staffID, ok := appmiddleware.GetStaffID(r)
 	if !ok {
 		httputil.RespondUnauthorized(w, "UNAUTHORIZED", "Not a staff session")
@@ -248,12 +347,47 @@ func (h *Handler) Me(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	httputil.RespondOK(w, map[string]any{"staff": StaffBrief{
-		ID:       s.ID,
-		TenantID: s.TenantID,
-		FullName: s.FullName,
-		Email:    s.Email,
-		Role:     s.Role,
-		Phone:    s.Phone,
-	}})
+	httputil.RespondOK(w, map[string]any{
+		"staff": StaffBrief{
+			ID:       s.ID,
+			TenantID: s.TenantID,
+			FullName: s.FullName,
+			Email:    s.Email,
+			Role:     s.Role,
+			Phone:    s.Phone,
+		},
+		"session": SessionBrief{Scope: appmiddleware.ScopeSchool, SchoolID: s.TenantID},
+	})
+}
+
+// SchoolLister lists the schools a session may open.
+type SchoolLister interface {
+	ListSchools(ctx context.Context, schoolID, groupID *uuid.UUID) ([]tenant.School, error)
+}
+
+// Schools handles GET /api/v1/schools: what the context bar offers. A school
+// session gets its own school, a group session its group's schools, a platform
+// session all of them.
+func Schools(lister SchoolLister) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var schoolID, groupID *uuid.UUID
+		switch session := appmiddleware.GetSession(r); session.Scope {
+		case appmiddleware.ScopePlatform:
+		case appmiddleware.ScopeGroup:
+			groupID = &session.GroupID
+		default:
+			id, ok := appmiddleware.GetTenantID(r)
+			if !ok {
+				httputil.RespondUnauthorized(w, "UNAUTHORIZED", "Tenant ID not found")
+				return
+			}
+			schoolID = &id
+		}
+		schools, err := lister.ListSchools(r.Context(), schoolID, groupID)
+		if err != nil {
+			httputil.RespondInternalError(w, err)
+			return
+		}
+		httputil.RespondOK(w, schools)
+	}
 }

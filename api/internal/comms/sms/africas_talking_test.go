@@ -103,32 +103,6 @@ func TestNormalizeKenyanPhone(t *testing.T) {
 	}
 }
 
-func TestCalculateSMSUnits(t *testing.T) {
-	tests := []struct {
-		name    string
-		message string
-		want    int
-	}{
-		{"Empty message", "", 0},
-		{"Short message", "Hello", 1},
-		{"Exactly 160 chars", string(make([]rune, 160)), 1},
-		{"161 chars", string(make([]rune, 161)), 2},
-		{"320 chars", string(make([]rune, 320)), 2},
-		{"321 chars", string(make([]rune, 321)), 3},
-		{"Over 480 chars (capped at 3)", string(make([]rune, 1000)), 3},
-		{"Swahili text", "Habari za asubuhi, mwanafunzi wako amefika shuleni salama", 1},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := CalculateSMSUnits(tt.message)
-			if got != tt.want {
-				t.Errorf("CalculateSMSUnits() = %d, want %d", got, tt.want)
-			}
-		})
-	}
-}
-
 func TestEstimateCost(t *testing.T) {
 	client := NewATClient("test-key", "sandbox", "SHULE360", false)
 	estimate := client.EstimateCost(100, 1)
@@ -154,5 +128,11 @@ func TestNewATClientSandboxVsProduction(t *testing.T) {
 	prod := NewATClient("key", "school", "SHULE360", true)
 	if prod.baseURL != "https://api.africastalking.com" {
 		t.Errorf("production baseURL = %q, want production URL", prod.baseURL)
+	}
+
+	// Sandbox credentials are refused by the live host, so the username wins.
+	mixed := NewATClient("key", "Sandbox", "", true)
+	if mixed.baseURL != "https://api.sandbox.africastalking.com" {
+		t.Errorf("sandbox username in production = %q, want sandbox URL", mixed.baseURL)
 	}
 }

@@ -58,7 +58,9 @@ func scanStaff(row pgx.Row) (*StaffProfile, error) {
 
 // ListStaff returns staff profiles optionally filtered by role/department/employment type.
 func (s *Service) ListStaff(ctx context.Context, tenantID uuid.UUID, role, department, employmentType string, includeInactive bool) ([]StaffProfile, error) {
-	query := fmt.Sprintf(`SELECT %s FROM staff s WHERE s.tenant_id = $1`, staffColumns)
+	// platform_user_id IS NULL: platform users who have opened this school are
+	// not its staff (041_platform_admin.sql) and do not belong in its directory.
+	query := fmt.Sprintf(`SELECT %s FROM staff s WHERE s.tenant_id = $1 AND s.platform_user_id IS NULL`, staffColumns)
 	args := []any{tenantID}
 	argIdx := 2
 

@@ -583,7 +583,7 @@ func (s *Service) GetSummary(ctx context.Context, tenantID uuid.UUID) (*Security
 	var sum SecuritySummary
 	err := s.pool.QueryRow(ctx, `
 		SELECT
-			(SELECT COUNT(*) FROM staff WHERE tenant_id = $1),
+			(SELECT COUNT(*) FROM staff WHERE tenant_id = $1 AND platform_user_id IS NULL),
 			(SELECT COUNT(*) FROM refresh_tokens WHERE tenant_id = $1 AND revoked_at IS NULL AND expires_at > now()),
 			(SELECT COUNT(*) FROM audit_logs WHERE tenant_id = $1 AND created_at > now() - interval '24 hours'),
 			(SELECT COUNT(*) FROM consent_agreements WHERE tenant_id = $1 AND granted = true),

@@ -1,0 +1,134 @@
+# Shule360 on one machine: database, migrations + demo data, API, web.
+#
+#   docker compose up --build        start everything
+#   docker compose logs -f devstub   read the SMS that "went out"
+#   docker compose down -v           stop and delete the local database
+#
+# Then open http://localhost:3100 and sign in (password123 for all) as
+#   principal@juakali.sch.ke   school staff: one school, nothing to switch
+#   trust@juakali.test         school group: the schools of one group
+#   ops@shule360.test          platform: every school
+#
+# This stack is self-contained and safe to experiment with:
+#   - it does NOT read api/.env, so it never touches the hosted database,
+#     Supabase, Upstash or any real credential;
+#   - no SMS is ever sent. `devstub` plays Africa's Talking: it prints each
+#     message and posts a delivery report back, like the real service. A number
+#     ending in 00 is refused, one ending in 99 is reported Failed, and a
+#     message containing NOCREDIT is refused for lack of credit;
+#   - `devstub` also plays Supabase Auth: any staff email signs in with
+#     password123. Roles and permissions still come from the staff table.
+#
+# Ports are chosen to sit beside the centiwise-gateway stack (3000, 8080, 5432).
+
+name: shule360
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: shule360
+    ports:
+      - "127.0.0.1:5544:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d shule360"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  # Upstash Redis is reached over REST; this pair speaks the same protocol.
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  redis-rest:
+    image: hiett/serverless-redis-http:latest
+    environment:
+      SRH_MODE: env
+      SRH_TOKEN: local-dev-token
+      SRH_CONNECTION_STRING: redis://redis:6379
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  devstub:
+    build:
+      context: .
+      dockerfile: api/Dockerfile.dev
+    command: ["./devstub"]
+    environment:
+      PORT: "9090"
+      DEV_PASSWORD: password123
+      DLR_CALLBACK_URL: http://api:8080/api/v1/webhooks/sms/dlr/local-dlr-token
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9090/health"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  # Applies every migration, then the demo school. Runs once and exits.
+  migrate:
+    build:
+      context: .
+      dockerfile: api/Dockerfile.dev
+    command: ["sh", "-c", "./migrate && ./migrate -dir migrations/seed && ./migrate -dir migrations/dev"]
+    environment: &api-env
+      APP_ENV: development
+      PORT: "8080"
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/shule360?sslmode=disable
+      JWT_SECRET: local-development-secret-not-for-production-0123456789
+      SUPABASE_URL: http://devstub:9090
+      SUPABASE_SERVICE_ROLE_KEY: local-dev-service-role
+      UPSTASH_REDIS_REST_URL: http://redis-rest:80
+      UPSTASH_REDIS_REST_TOKEN: local-dev-token
+      AT_BASE_URL: http://devstub:9090
+      AT_API_KEY: local-dev-key
+      AT_USERNAME: sandbox
+      AT_SENDER_ID: ""
+      AT_DLR_TOKEN: local-dlr-token
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    build:
+      context: .
+      dockerfile: api/Dockerfile.dev
+    command: ["./server"]
+    environment: *api-env
+    ports:
+      - "127.0.0.1:8090:8080"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis-rest:
+        condition: service_started
+      devstub:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/health"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+  web:
+    build:
+      context: ./web
+      args:
+        NEXT_PUBLIC_API_URL: http://api:8080
+    ports:
+      - "127.0.0.1:3100:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  pgdata:
