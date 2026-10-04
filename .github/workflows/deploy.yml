@@ -86,17 +86,31 @@ jobs:
         env:
           API_BASE_URL: ${{ vars.API_BASE_URL }}
         run: |
+          # Mandatory, not optional. An earlier revision skipped this check when
+          # API_BASE_URL was unset, which let a crash-looping API (missing
+          # JWT_SECRET) ship a frontend whose every /api/v1/* call returned 502.
+          # If this variable is absent we cannot prove the API works, so we stop.
           if [ -z "$API_BASE_URL" ]; then
-            echo "::warning::API_BASE_URL is not set on the 'production' environment — skipping the post-deploy health check."
-            echo "::warning::Set it to the Render service origin (e.g. https://shule360-api.onrender.com) to turn this on."
-            exit 0
+            echo "::error::Variable API_BASE_URL is not set on the 'production' environment."
+            echo "::error::It must be the Render origin that the frontend proxies to, e.g. https://shule360-api.onrender.com"
+            echo "::error::Environment 'production' → Variables → API_BASE_URL. See DEPLOYMENT.md section 3."
+            echo "::error::The frontend is not deployed because the API cannot be verified."
+            exit 1
           fi
 
           base="${API_BASE_URL%/}"
-          # Free Render instances spin down after ~15 min idle, so the first
-          # request pays a cold-start penalty — allow a generous window.
+
+          # A free instance sleeping off answers 000 until it wakes, which is
+          # expected. A process that booted and then exited also answers 000
+          # forever, so record the distinct failures and let the operator tell
+          # "still waking" apart from "crash-looping" without re-running CI.
+          last="000 (no response)"
           for attempt in $(seq 1 30); do
-            if body=$(curl --fail --silent --show-error --max-time 10 "${base}/health" 2>/dev/null); then
+            code=$(curl --silent --output /dev/null --write-out '%{http_code}' \
+                        --max-time 10 "${base}/health" 2>/dev/null) || code="000"
+
+            if [ "$code" = "200" ]; then
+              body=$(curl --fail --silent --max-time 10 "${base}/health" 2>/dev/null || true)
               echo "Healthy after ${attempt} attempt(s): ${body}"
               {
                 echo "### API deployed to Render"
@@ -108,12 +122,30 @@ jobs:
               } >> "$GITHUB_STEP_SUMMARY"
               exit 0
             fi
-            echo "Attempt ${attempt}/30 — ${base}/health not ready yet, retrying in 10s..."
+
+            case "$code" in
+              000) last="no response (DNS, TLS, connection refused, or timeout)" ;;
+              5*)  last="HTTP ${code} from the service" ;;
+              *)   last="HTTP ${code}" ;;
+            esac
+
+            echo "Attempt ${attempt}/30 — ${base}/health returned: ${last}"
             sleep 10
           done
 
-          echo "::error::${base}/health did not answer within 5 minutes — the hook fired but the service is not serving."
-          echo "::error::Check the Render deploy log before shipping the frontend."
+          echo "::error::${base}/health never returned 200 within 5 minutes. Last result: ${last}."
+          echo "::error::The deploy hook fired but the API is not serving, so the frontend is NOT deployed."
+          echo "::error::Read the Render log for this deploy first — a boot that exits is the usual cause:"
+          echo "::error::  failed to load config error=\"missing required environment variables: [...]\""
+          echo "::error::means DATABASE_URL / SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY / JWT_SECRET are not all set"
+          echo "::error::in Render → Environment. See DEPLOYMENT.md section 1."
+          {
+            echo "### API deploy FAILED — frontend not deployed"
+            echo ""
+            echo "- Endpoint: \`${base}\`"
+            echo "- Last probe result: \`${last}\`"
+            echo "- Commit: \`${GITHUB_SHA::8}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
           exit 1
 
   web:

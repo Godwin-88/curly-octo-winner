@@ -101,6 +101,71 @@ curl https://shule360-api.onrender.com/health    # {"status":"ok","version":"...
 curl https://shule360-api.onrender.com/metrics   # Prometheus exposition (wire to Grafana/uptime tooling)
 ```
 
+#### Diagnosing "live but every API call returns 502"
+
+Render reports a service **live** from its health check, and it keeps completing
+TLS for *any* `*.onrender.com` name — wildcard DNS and a wildcard certificate,
+so both of these resolve and present a valid cert whether or not the service
+exists:
+
+```bash
+getent hosts nonexistent-service.onrender.com   # resolves anyway
+```
+
+So neither DNS nor a successful TLS handshake tells you the API is running. The
+distinguishing test is whether an **HTTP response** ever arrives:
+
+```bash
+curl -m 20 -o /dev/null -w '%{http_code} in %{time_total}s\n' \
+  https://shule360-api.onrender.com/health
+```
+
+| Result | Meaning |
+| --- | --- |
+| `200` in a few seconds | Serving normally. |
+| `000` after ~20s, no response headers | **Nothing is listening.** Read the Render log — this is a crash-loop, not a cold start. |
+| `000` for ~1 min, then `200` | Free plan cold start. Expected after ~15 min idle. |
+
+A cold start eventually succeeds; a crash-loop never does. If the probe hangs,
+open the Render log and look for the process exiting immediately after it starts.
+
+#### The crash-loop: `failed to load config`
+
+The most common cause is a variable that the Blueprint prompts for but was never
+filled in. The build still succeeds, Render still reports *live*, and then the
+binary exits on every start:
+
+```
+==> Build successful 🎉
+==> Running './server'
+ERROR failed to load config error="missing required environment variables: [JWT_SECRET]"
+==> Exited with status 1
+```
+
+Fix it in the service's **Environment** tab, then **Deploy** again. The variables
+that stop a production boot, in the order `config.Load()` checks them:
+
+| Error | Fix |
+| --- | --- |
+| `missing required environment variables: [DATABASE_URL, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, JWT_SECRET]` | Set the listed ones. Only `JWT_SECRET` needs a value you invent: `openssl rand -base64 48`. Never paste the `your_jwt_secret_here_change_this_in_production` placeholder — anyone could then forge session tokens signed with it. |
+| `MPESA_ALLOWED_IPS must be set in production when M-Pesa is configured` | Set the Safaricom CIDR allowlist, **or** clear `MPESA_CONSUMER_KEY` and `MPESA_PASSKEY` together. Note a *placeholder* `MPESA_PASSKEY` counts as set, so an unfilled M-Pesa secret trips this guard too. |
+| `AT_BASE_URL must not be set in production` | Delete it. It is a development switch that would redirect every school's SMS to another host. |
+| `MPESA_BASE_URL must be https://api.safaricom.co.ke or https://sandbox.safaricom.co.ke in production` | Use one of those two hosts. `sandbox` is allowed but payments will not be real. |
+
+#### School registration returns 403 `SIGNUP_CLOSED`
+
+A healthy API will still refuse self-registration if `SIGNUP_MODE` is `closed`,
+which is what `render.yaml` sets. The response is `403` with
+`SIGNUP_CLOSED`: "Schools are set up by the Shule360 team."
+
+To allow schools to register themselves, set `SIGNUP_MODE` in Render to:
+
+- `open` — anyone may register
+- `code` — requires a matching `SIGNUP_CODE` of at least 8 characters
+- `closed` — nobody; a platform administrator creates schools
+
+Note `SIGNUP_MODE` is read at **boot**, so changing it requires a redeploy.
+
 ### Settings (per-school configuration)
 
 A school principal configures their own school at **Settings** in the admin UI
