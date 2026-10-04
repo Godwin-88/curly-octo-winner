@@ -319,12 +319,18 @@ func main() {
 		// allows all traffic (development only) and is called out at startup.
 		r.Handle("/webhooks/whatsapp", waWebhook)
 		smsDLR.Mount(r)
-		r.Group(func(r chi.Router) {
-			r.Use(appmiddleware.AllowIPs(cfg.MpesaAllowedIPs))
-			financeHandler.MountWebhooks(r)
-		})
-		if len(cfg.MpesaAllowedIPs) == 0 {
-			slog.Warn("MPESA_ALLOWED_IPS not set: M-Pesa webhook accepts any source IP (set it in production)")
+		// The M-Pesa routes accept an unauthenticated POST unless
+		// MPESA_WEBHOOK_TOKEN is set, so they are only mounted while M-Pesa is
+		// on. With it off there is no endpoint to forge a payment against at
+		// all, which is safer than mounting it behind an empty allowlist.
+		if cfg.IsMpesaEnabled() {
+			r.Group(func(r chi.Router) {
+				r.Use(appmiddleware.AllowIPs(cfg.MpesaAllowedIPs))
+				financeHandler.MountWebhooks(r)
+			})
+			if len(cfg.MpesaAllowedIPs) == 0 {
+				slog.Warn("MPESA_ALLOWED_IPS not set: M-Pesa webhook accepts any source IP (set it in production)")
+			}
 		}
 
 		// Signed in, but not necessarily inside a school: a platform or group

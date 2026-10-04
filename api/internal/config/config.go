@@ -46,6 +46,12 @@ type Config struct {
 	MpesaShortCode      string
 	MpesaCallbackURL    string
 	MpesaBaseURL        string
+	// MpesaEnabled states whether M-Pesa is switched on (MPESA_ENABLED). It is
+	// kept as the raw string so "unset" is distinguishable from an explicit
+	// "false": when unset the setting is inferred from the credentials, but an
+	// operator who is not taking payments yet can say so outright and boot
+	// without a Daraja allowlist.
+	MpesaEnabled string
 	// MpesaAllowedIPs restricts the M-Pesa webhook to these IPs/CIDRs
 	// (MPESA_ALLOWED_IPS, comma separated). Empty = allow all (dev only).
 	MpesaAllowedIPs []string
@@ -77,44 +83,52 @@ type Config struct {
 // Load reads and validates all required environment variables.
 // It fails fast with a descriptive error if any required var is missing.
 func Load() (*Config, error) {
+	return LoadFrom(os.Getenv)
+}
+
+// LoadFrom is Load with an injectable environment reader, so the production
+// guards below can be exercised in tests without mutating the process
+// environment (which is not safe to do in parallel).
+func LoadFrom(getenv func(string) string) (*Config, error) {
 	cfg := &Config{
-		DatabaseURL:              os.Getenv("DATABASE_URL"),
-		SupabaseURL:              os.Getenv("SUPABASE_URL"),
-		SupabaseServiceRoleKey:   os.Getenv("SUPABASE_SERVICE_ROLE_KEY"),
-		UpstashRedisURL:          os.Getenv("UPSTASH_REDIS_REST_URL"),
-		UpstashRedisToken:        os.Getenv("UPSTASH_REDIS_REST_TOKEN"),
-		UpstashVectorURL:         os.Getenv("UPSTASH_VECTOR_REST_URL"),
-		UpstashVectorToken:       os.Getenv("UPSTASH_VECTOR_REST_TOKEN"),
-		UpstashSearchURL:         os.Getenv("UPSTASH_SEARCH_REST_URL"),
-		UpstashSearchToken:       os.Getenv("UPSTASH_SEARCH_REST_TOKEN"),
-		B2AccountID:              os.Getenv("B2_ACCOUNT_ID"),
-		B2ApplicationKey:         os.Getenv("B2_APPLICATION_KEY"),
-		B2BucketName:             os.Getenv("B2_BUCKET_NAME"),
-		B2Endpoint:               os.Getenv("B2_ENDPOINT"),
-		ATAPIKey:                 os.Getenv("AT_API_KEY"),
-		ATUsername:               os.Getenv("AT_USERNAME"),
-		ATSenderID:               os.Getenv("AT_SENDER_ID"),
-		ATDLRToken:               os.Getenv("AT_DLR_TOKEN"),
-		ATBaseURL:                os.Getenv("AT_BASE_URL"),
-		GroqAPIKey:               os.Getenv("GROQ_API_KEY"),
-		MetaWAToken:              os.Getenv("META_WA_TOKEN"),
-		MetaWAPhoneNumberID:      os.Getenv("META_WA_PHONE_NUMBER_ID"),
-		MetaWAWebhookVerifyToken: os.Getenv("META_WA_WEBHOOK_VERIFY_TOKEN"),
-		MpesaConsumerKey:         os.Getenv("MPESA_CONSUMER_KEY"),
-		MpesaConsumerSecret:      os.Getenv("MPESA_CONSUMER_SECRET"),
-		MpesaPasskey:             os.Getenv("MPESA_PASSKEY"),
-		MpesaShortCode:           os.Getenv("MPESA_SHORT_CODE"),
-		MpesaCallbackURL:         os.Getenv("MPESA_CALLBACK_URL"),
-		MpesaBaseURL:             os.Getenv("MPESA_BASE_URL"),
-		MpesaAllowedIPs:          splitCSV(os.Getenv("MPESA_ALLOWED_IPS")),
-		MpesaWebhookToken:        os.Getenv("MPESA_WEBHOOK_TOKEN"),
-		SignupMode:               strings.ToLower(strings.TrimSpace(os.Getenv("SIGNUP_MODE"))),
-		SignupCode:               os.Getenv("SIGNUP_CODE"),
-		CORSAllowedOrigins:       splitCSV(os.Getenv("CORS_ALLOWED_ORIGINS")),
-		JWTSecret:                os.Getenv("JWT_SECRET"),
-		SettingsEncryptionKey:    os.Getenv("SETTINGS_ENCRYPTION_KEY"),
-		Port:                     os.Getenv("PORT"),
-		AppEnv:                   os.Getenv("APP_ENV"),
+		DatabaseURL:              getenv("DATABASE_URL"),
+		SupabaseURL:              getenv("SUPABASE_URL"),
+		SupabaseServiceRoleKey:   getenv("SUPABASE_SERVICE_ROLE_KEY"),
+		UpstashRedisURL:          getenv("UPSTASH_REDIS_REST_URL"),
+		UpstashRedisToken:        getenv("UPSTASH_REDIS_REST_TOKEN"),
+		UpstashVectorURL:         getenv("UPSTASH_VECTOR_REST_URL"),
+		UpstashVectorToken:       getenv("UPSTASH_VECTOR_REST_TOKEN"),
+		UpstashSearchURL:         getenv("UPSTASH_SEARCH_REST_URL"),
+		UpstashSearchToken:       getenv("UPSTASH_SEARCH_REST_TOKEN"),
+		B2AccountID:              getenv("B2_ACCOUNT_ID"),
+		B2ApplicationKey:         getenv("B2_APPLICATION_KEY"),
+		B2BucketName:             getenv("B2_BUCKET_NAME"),
+		B2Endpoint:               getenv("B2_ENDPOINT"),
+		ATAPIKey:                 getenv("AT_API_KEY"),
+		ATUsername:               getenv("AT_USERNAME"),
+		ATSenderID:               getenv("AT_SENDER_ID"),
+		ATDLRToken:               getenv("AT_DLR_TOKEN"),
+		ATBaseURL:                getenv("AT_BASE_URL"),
+		GroqAPIKey:               getenv("GROQ_API_KEY"),
+		MetaWAToken:              getenv("META_WA_TOKEN"),
+		MetaWAPhoneNumberID:      getenv("META_WA_PHONE_NUMBER_ID"),
+		MetaWAWebhookVerifyToken: getenv("META_WA_WEBHOOK_VERIFY_TOKEN"),
+		MpesaConsumerKey:         getenv("MPESA_CONSUMER_KEY"),
+		MpesaConsumerSecret:      getenv("MPESA_CONSUMER_SECRET"),
+		MpesaPasskey:             getenv("MPESA_PASSKEY"),
+		MpesaShortCode:           getenv("MPESA_SHORT_CODE"),
+		MpesaCallbackURL:         getenv("MPESA_CALLBACK_URL"),
+		MpesaBaseURL:             getenv("MPESA_BASE_URL"),
+		MpesaEnabled:             getenv("MPESA_ENABLED"),
+		MpesaAllowedIPs:          splitCSV(getenv("MPESA_ALLOWED_IPS")),
+		MpesaWebhookToken:        getenv("MPESA_WEBHOOK_TOKEN"),
+		SignupMode:               strings.ToLower(strings.TrimSpace(getenv("SIGNUP_MODE"))),
+		SignupCode:               getenv("SIGNUP_CODE"),
+		CORSAllowedOrigins:       splitCSV(getenv("CORS_ALLOWED_ORIGINS")),
+		JWTSecret:                getenv("JWT_SECRET"),
+		SettingsEncryptionKey:    getenv("SETTINGS_ENCRYPTION_KEY"),
+		Port:                     getenv("PORT"),
+		AppEnv:                   getenv("APP_ENV"),
 	}
 
 	if cfg.Port == "" {
@@ -185,14 +199,60 @@ func Load() (*Config, error) {
 		}
 	}
 
-	// Production safety: never boot with live M-Pesa credentials and an
-	// unauthenticated, allowlist-free callback endpoint. Sandbox/dev stays
-	// frictionless.
-	if cfg.IsProduction() && cfg.MpesaConsumerKey != "" && cfg.MpesaPasskey != "" && len(cfg.MpesaAllowedIPs) == 0 {
-		return nil, fmt.Errorf("MPESA_ALLOWED_IPS must be set in production when M-Pesa is configured (MPESA_CONSUMER_KEY/MPESA_PASSKEY present)")
+	// Production safety: never boot with M-Pesa switched on and an
+	// unauthenticated, allowlist-free callback endpoint. /webhooks/mpesa/stk
+	// takes an unauthenticated POST unless MPESA_WEBHOOK_TOKEN is set
+	// (handler.webhookAllowed), so with M-Pesa live the allowlist is the only
+	// thing standing between the internet and a forged payment confirmation.
+	//
+	// This only applies when M-Pesa is actually on. An operator still filling
+	// in Daraja credentials has no reason to block the whole API — and SMS,
+	// which does not depend on any of this, should not go down waiting for a
+	// paybill that is not live yet.
+	if cfg.IsProduction() && cfg.IsMpesaEnabled() && len(cfg.MpesaAllowedIPs) == 0 {
+		return nil, fmt.Errorf("MPESA_ALLOWED_IPS must be set in production while M-Pesa is enabled (set MPESA_ENABLED=false to run without M-Pesa)")
 	}
 
 	return cfg, nil
+}
+
+// IsMpesaEnabled reports whether M-Pesa should be treated as switched on.
+//
+// MPESA_ENABLED decides outright when it is set. When it is unset the setting
+// is inferred from the credentials, as before — except that the example values
+// shipped in .env.example no longer count as configured. They used to: an
+// unfilled MPESA_PASSKEY placeholder is a non-empty string, so a service that
+// had never taken a payment looked configured and refused to boot.
+func (c *Config) IsMpesaEnabled() bool {
+	switch strings.ToLower(strings.TrimSpace(c.MpesaEnabled)) {
+	case "true", "1", "yes", "on":
+		return true
+	case "false", "0", "no", "off":
+		return false
+	}
+	return c.MpesaConsumerKey != "" && c.MpesaPasskey != "" &&
+		!looksPlaceholder(c.MpesaConsumerKey) && !looksPlaceholder(c.MpesaPasskey)
+}
+
+// looksPlaceholder reports whether v is one of the markers .env.example uses
+// for a value the operator still has to fill in.
+//
+// Only unmistakable markers are matched. Guessing wrong in the permissive
+// direction would treat a real Daraja credential as absent and quietly disable
+// the allowlist guard, so ambiguous markers are deliberately excluded: a real
+// consumer key is a base64url blob that could legitimately contain "xxx".
+func looksPlaceholder(v string) bool {
+	v = strings.ToLower(strings.TrimSpace(v))
+	for _, marker := range []string{
+		"your_", "your-", "changeme", "change-me", "change_me",
+		"placeholder", "replaceme", "replace-me", "replace_me",
+		"todo", "<", ">",
+	} {
+		if strings.Contains(v, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 // IsProduction returns true when running in production mode.

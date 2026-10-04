@@ -84,6 +84,15 @@ services:
         sync: false
       - key: META_WA_WEBHOOK_VERIFY_TOKEN
         sync: false
+      # --- M-Pesa (Daraja) ---
+      # M-Pesa is not live yet. MPESA_ENABLED=false keeps the whole module off
+      # without having to delete the credentials below: while it is off the
+      # payment webhook routes are not mounted at all, so there is no endpoint
+      # to forge a confirmation against, and the service does not need
+      # MPESA_ALLOWED_IPS to boot. Flip this to true only when Daraja is live,
+      # at which point MPESA_ALLOWED_IPS becomes mandatory in production.
+      - key: MPESA_ENABLED
+        value: "false"
       - key: MPESA_CONSUMER_KEY
         sync: false
       - key: MPESA_CONSUMER_SECRET

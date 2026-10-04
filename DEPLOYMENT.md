@@ -45,11 +45,23 @@ The Blueprint prompts for each secret (`sync: false`); set them in the service's
 
 ### Strongly recommended before enabling real M-Pesa
 
+M-Pesa is **off by default** and switched on explicitly with `MPESA_ENABLED`
+(`render.yaml` sets `false`). While it is off the payment webhook routes are not
+mounted at all, and the service does not need `MPESA_ALLOWED_IPS` to boot — so a
+service can run on SMS while the paybill is still being set up.
+
 | Secret | Why |
 | --- | --- |
-| `MPESA_ALLOWED_IPS` | CIDR allowlist for Daraja callbacks, e.g. `196.201.214.0/24,...`. **Startup fails in production if M-Pesa credentials are set without it** (config guard). |
+| `MPESA_ENABLED` | `true` to switch M-Pesa on. The moment it is on, the rest of this section applies. |
+| `MPESA_ALLOWED_IPS` | CIDR allowlist for Daraja callbacks, e.g. `196.201.214.0/24,...`. **Startup fails in production when M-Pesa is enabled without it** (config guard) — `/webhooks/mpesa/stk` accepts an unauthenticated POST, so the allowlist is the only thing stopping a forged payment confirmation. |
+| `MPESA_WEBHOOK_TOKEN` | Secret path segment for the tokenised callback routes. Strongly recommended alongside the allowlist. |
 | `CORS_ALLOWED_ORIGINS` | Extra CORS origins beyond the defaults (`*.vercel.app`, production frontend, localhost dev). |
 | `SENTRY_DSN` | Server-side error tracking. Without it the API runs fine, just reports nowhere. |
+
+> The `your_mpesa_..._here` placeholders from `.env.example` no longer count as
+> configured credentials, so leaving them in place will not block a boot. That is
+> a safety net for the inferred mode only — set `MPESA_ENABLED` explicitly
+> rather than relying on it.
 
 ### Migrations
 
@@ -148,7 +160,7 @@ that stop a production boot, in the order `config.Load()` checks them:
 | Error | Fix |
 | --- | --- |
 | `missing required environment variables: [DATABASE_URL, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, JWT_SECRET]` | Set the listed ones. Only `JWT_SECRET` needs a value you invent: `openssl rand -base64 48`. Never paste the `your_jwt_secret_here_change_this_in_production` placeholder — anyone could then forge session tokens signed with it. |
-| `MPESA_ALLOWED_IPS must be set in production when M-Pesa is configured` | Set the Safaricom CIDR allowlist, **or** clear `MPESA_CONSUMER_KEY` and `MPESA_PASSKEY` together. Note a *placeholder* `MPESA_PASSKEY` counts as set, so an unfilled M-Pesa secret trips this guard too. |
+| `MPESA_ALLOWED_IPS must be set in production while M-Pesa is enabled` | M-Pesa is switched on without an IP allowlist. Either set the Safaricom CIDRs, or — if the paybill is not live yet — set `MPESA_ENABLED=false` so the module (and its webhook routes) stay off while SMS runs. |
 | `AT_BASE_URL must not be set in production` | Delete it. It is a development switch that would redirect every school's SMS to another host. |
 | `MPESA_BASE_URL must be https://api.safaricom.co.ke or https://sandbox.safaricom.co.ke in production` | Use one of those two hosts. `sandbox` is allowed but payments will not be real. |
 
