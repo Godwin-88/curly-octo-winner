@@ -824,3 +824,54 @@ func TestKES(t *testing.T) {
 		}
 	}
 }
+
+// What a school charges for is its own list: it adds to it, renames and
+// retires entries, and a fee structure can charge anything on it.
+func TestFeeItemsAreTheSchoolsOwn(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+
+	uniform, err := f.svc.CreateFeeCategory(ctx, f.tenantID, FeeCategoryInput{Name: "  School   uniform "})
+	if err != nil || uniform.Name != "School uniform" || !uniform.IsActive {
+		t.Fatalf("create = %+v, %v", uniform, err)
+	}
+	_, err = f.svc.CreateFeeCategory(ctx, f.tenantID, FeeCategoryInput{Name: "school UNIFORM"})
+	wantConflict(t, err, "already has a fee item called")
+	_, err = f.svc.CreateFeeCategory(ctx, f.tenantID, FeeCategoryInput{Name: " "})
+	wantInvalid(t, err, "Give the fee item a name")
+
+	// A fee structure charges it, with a kind nobody built in.
+	fs, err := f.svc.CreateFeeStructure(ctx, f.tenantID, &f.staffID, CreateFeeStructureRequest{
+		Name: "PP1 Term 1", Grade: "PP1", Term: 1, Year: 2026,
+		Items: []FeeItemInput{{Name: "School uniform", AmountCents: 450000, ItemType: "uniform"}},
+	})
+	if err != nil || fs.TotalCents != 450000 {
+		t.Fatalf("fee structure with a school-defined item: %+v, %v", fs, err)
+	}
+	if got, _ := f.svc.GetFeeCategory(ctx, f.tenantID, uniform.ID); got.InUse != 1 {
+		t.Errorf("in_use = %d, want 1", got.InUse)
+	}
+
+	// Retired items leave the list but stay on what was already made.
+	off := false
+	if _, err := f.svc.UpdateFeeCategory(ctx, f.tenantID, uniform.ID, FeeCategoryInput{IsActive: &off}); err != nil {
+		t.Fatal(err)
+	}
+	if active, _ := f.svc.ListFeeCategories(ctx, f.tenantID, ""); len(active) != 0 {
+		t.Errorf("a retired item is still offered: %+v", active)
+	}
+	if all, _ := f.svc.ListFeeCategories(ctx, f.tenantID, "all"); len(all) != 1 {
+		t.Errorf("a retired item disappeared: %+v", all)
+	}
+	if again, _ := f.svc.GetFeeStructure(ctx, f.tenantID, fs.ID); len(again.Items) != 1 {
+		t.Errorf("retiring an item changed an existing fee structure")
+	}
+
+	other := f.newTenant()
+	if _, err := f.svc.GetFeeCategory(ctx, other, uniform.ID); !errors.Is(err, ErrNotFound) {
+		t.Errorf("another school read the fee item: %v", err)
+	}
+	if _, err := f.svc.UpdateFeeCategory(ctx, other, uniform.ID, FeeCategoryInput{Name: "x"}); !errors.Is(err, ErrNotFound) {
+		t.Errorf("another school changed the fee item: %v", err)
+	}
+}

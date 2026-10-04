@@ -42,6 +42,13 @@ func (h *Handler) Mount(r chi.Router) {
 		r.Delete("/items/{itemId}", h.deleteFeeItem)
 	})
 
+	r.Route("/fee-categories", func(r chi.Router) {
+		r.Get("/", h.listFeeCategories)
+		r.Post("/", h.createFeeCategory)
+		r.Get("/{id}", h.getFeeCategory)
+		r.Patch("/{id}", h.updateFeeCategory)
+	})
+
 	r.Route("/invoices", func(r chi.Router) {
 		r.Get("/", h.listInvoices)
 		r.Post("/", h.createInvoice)
@@ -282,6 +289,76 @@ func (h *Handler) deleteFeeItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httputil.RespondNoContent(w)
+}
+
+// --- Fee item handlers ---
+
+func (h *Handler) listFeeCategories(w http.ResponseWriter, r *http.Request) {
+	tenantID, ok := school(w, r)
+	if !ok {
+		return
+	}
+	items, err := h.service.ListFeeCategories(r.Context(), tenantID, r.URL.Query().Get("status"))
+	if err != nil {
+		respond(w, err, "Fee item")
+		return
+	}
+	httputil.RespondOK(w, items)
+}
+
+func (h *Handler) getFeeCategory(w http.ResponseWriter, r *http.Request) {
+	tenantID, ok := school(w, r)
+	if !ok {
+		return
+	}
+	id, ok := pathID(w, r, "id", "Fee item")
+	if !ok {
+		return
+	}
+	item, err := h.service.GetFeeCategory(r.Context(), tenantID, id)
+	if err != nil {
+		respond(w, err, "Fee item")
+		return
+	}
+	httputil.RespondOK(w, item)
+}
+
+func (h *Handler) createFeeCategory(w http.ResponseWriter, r *http.Request) {
+	tenantID, ok := school(w, r)
+	if !ok {
+		return
+	}
+	var req FeeCategoryInput
+	if !decode(w, r, &req) {
+		return
+	}
+	item, err := h.service.CreateFeeCategory(r.Context(), tenantID, req)
+	if err != nil {
+		respond(w, err, "Fee item")
+		return
+	}
+	httputil.RespondCreated(w, item)
+}
+
+func (h *Handler) updateFeeCategory(w http.ResponseWriter, r *http.Request) {
+	tenantID, ok := school(w, r)
+	if !ok {
+		return
+	}
+	id, ok := pathID(w, r, "id", "Fee item")
+	if !ok {
+		return
+	}
+	var req FeeCategoryInput
+	if !decode(w, r, &req) {
+		return
+	}
+	item, err := h.service.UpdateFeeCategory(r.Context(), tenantID, id, req)
+	if err != nil {
+		respond(w, err, "Fee item")
+		return
+	}
+	httputil.RespondOK(w, item)
 }
 
 // --- Invoice handlers ---

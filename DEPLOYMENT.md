@@ -60,7 +60,7 @@ go run ./cmd/migrate            # apply every pending migration
 go run ./cmd/migrate -baseline  # mark all as applied WITHOUT running them
 ```
 
-- **Fresh database:** `make migrate-up` creates the whole schema (001 → 043).
+- **Fresh database:** `make migrate-up` creates the whole schema (001 → 044).
 - **Render deploys do not run migrations** (that needs a paid instance's
   pre-deploy command — see `render.yaml`): run `make migrate-up` from a machine
   that can reach the database before deploying API code that depends on new
@@ -184,6 +184,37 @@ report said so. Without the callback, messages stay at *sent*.
 
 `AT_BASE_URL` must never be set in production; the server refuses to start.
 
+## Getting a school started
+
+A school and its first administrator are created together, so there is never a
+school nobody can sign in to. There are two ways in:
+
+- **The school registers itself** at `/auth/register`: three steps (the school
+  and whether it is public or private, the person registering, the current
+  term), one request. That person becomes the school's principal and is signed
+  in to a checklist of what to set up.
+- **A platform administrator creates it** under Platform → Schools → Add
+  school, naming the principal. The principal's password is generated and shown
+  once, to hand over.
+
+`SIGNUP_MODE` decides whether the first way is available: `open`, `code`
+(the form asks for `SIGNUP_CODE`) or `closed`. Unset, it is closed in
+production. Registration creates accounts without confirming the email
+address, so `open` lets anyone create a school under any unused email: prefer
+`code` or `closed` on a live server. Registration shares the sign-in limit of
+5 attempts per address per 15 minutes.
+
+Inside a school, a principal manages who can sign in under School setup →
+Users: add a person (their password is shown once), change their role, reset a
+password, deactivate or reactivate. One email is one person across every
+school. A change of role or a deactivation applies at that person's next
+request, not when their session expires. A school always keeps one active
+principal, and nobody can deactivate themselves.
+
+School setup → Getting started is worked out from what is recorded (users,
+learners, learning areas, fee structures and invoices, the paybill, messages),
+so it cannot show a step as done that is not.
+
 ## Fees and M-Pesa
 
 Finance bills learners from fee structures, records what is paid and shows
@@ -209,6 +240,15 @@ number: the learner's UPI or the invoice number. The payment goes against that
 learner's oldest unpaid invoices. Money that matches nobody, or exceeds what
 is owed, waits under Finance → Paybill payments until someone allocates it.
 
+**What a school charges is its own list.** Finance → Fee items holds everything
+a school charges for; the school adds, renames and retires entries, and fee
+structures are built from the list. Nothing is built in. A new school starts
+with the usual items for its kind: a private school with tuition, activity
+fee, lunch, transport, boarding and caution money; a public school, which
+charges no tuition, with lunch programme, activity, assessment and development
+levies, remedial teaching, transport and boarding. Whether a school is public
+or private is chosen at registration and changed under Platform → Schools.
+
 Before a school collects real money:
 
 | Step | Where |
@@ -220,7 +260,7 @@ Before a school collects real money:
 | Confirmation URL `https://<api host>/api/v1/webhooks/mpesa/<token>/c2b/confirmation` and validation URL `…/c2b/validation` registered for the paybill | Safaricom (Daraja "Register URL"); done once per paybill, outside this app |
 | `MPESA_ALLOWED_IPS` set to Safaricom's addresses | API environment |
 | `MPESA_BASE_URL` = `https://api.safaricom.co.ke` | API environment; production refuses any other host than Safaricom's two |
-| Migrations 042 and 043 applied | `make migrate-up` |
+| Migrations 042 to 044 applied | `make migrate-up` |
 
 Migration 042 adds "one live invoice per learner per term". It stops, changing
 nothing, if a learner is already billed twice for a term: void one of the two
@@ -267,6 +307,7 @@ exceed the sign-in limit of 5 per 15 minutes):
 ```bash
 cd web && E2E_STACK=1 npx playwright test e2e/communications.spec.ts
 cd web && E2E_STACK=1 npx playwright test e2e/finance.spec.ts
+cd web && E2E_STACK=1 npx playwright test e2e/onboarding.spec.ts
 ```
 
 ## School context (platform, group, school)

@@ -34,6 +34,7 @@ func (h *Handler) Mount(r chi.Router) {
 		r.Post("/schools", h.createSchool)
 		r.Patch("/schools/{id}", h.updateSchool)
 		r.Put("/schools/{id}/modules", h.setModules)
+		r.Put("/schools/{id}/ownership", h.setOwnership)
 
 		r.Get("/users", h.listUsers)
 		r.Post("/users", h.createUser)
@@ -179,6 +180,25 @@ func (h *Handler) setModules(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	school, err := h.service.SetModules(r.Context(), id, req.Modules)
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+	httputil.RespondOK(w, school)
+}
+
+func (h *Handler) setOwnership(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	var req struct {
+		Ownership string `json:"ownership"`
+	}
+	if !decode(w, r, &req) {
+		return
+	}
+	school, err := h.service.SetOwnership(r.Context(), id, req.Ownership)
 	if err != nil {
 		respondError(w, err)
 		return

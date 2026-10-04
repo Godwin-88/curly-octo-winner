@@ -152,6 +152,8 @@ type School struct {
 	Slug      string     `json:"slug"`
 	GroupID   *uuid.UUID `json:"group_id,omitempty"`
 	GroupName *string    `json:"group_name,omitempty"`
+	// Ownership: "public" or "private".
+	Ownership string `json:"ownership"`
 	// Modules the school has. Always the full list: a school with no list of
 	// its own has every module.
 	Modules []string `json:"modules"`
@@ -185,7 +187,7 @@ func (s *Service) ModuleEnabled(ctx context.Context, schoolID uuid.UUID, module 
 // the schools of a group (groupID), or every school (both nil).
 func (s *Service) ListSchools(ctx context.Context, schoolID, groupID *uuid.UUID) ([]School, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT t.id, t.name, t.slug, t.group_id, g.name, t.modules
+		SELECT t.id, t.name, t.slug, t.group_id, g.name, t.modules, t.ownership
 		FROM tenants t
 		LEFT JOIN school_groups g ON g.id = t.group_id
 		WHERE ($1::uuid IS NULL OR t.id = $1)
@@ -201,13 +203,26 @@ func (s *Service) ListSchools(ctx context.Context, schoolID, groupID *uuid.UUID)
 	for rows.Next() {
 		var sc School
 		var stored []string
-		if err := rows.Scan(&sc.ID, &sc.Name, &sc.Slug, &sc.GroupID, &sc.GroupName, &stored); err != nil {
+		if err := rows.Scan(&sc.ID, &sc.Name, &sc.Slug, &sc.GroupID, &sc.GroupName, &stored, &sc.Ownership); err != nil {
 			return nil, fmt.Errorf("scan school: %w", err)
 		}
 		sc.Modules = effectiveModules(stored)
 		schools = append(schools, sc)
 	}
 	return schools, rows.Err()
+}
+
+// StaffAccess implements middleware.SchoolLookup: the role a staff member
+// holds now, and whether they may still sign in.
+func (s *Service) StaffAccess(ctx context.Context, schoolID, staffID uuid.UUID) (string, bool, error) {
+	var role string
+	var active bool
+	err := s.pool.QueryRow(ctx,
+		`SELECT role::text, is_active FROM staff WHERE tenant_id = $1 AND id = $2`, schoolID, staffID).Scan(&role, &active)
+	if err == pgx.ErrNoRows {
+		return "", false, nil
+	}
+	return role, active, err
 }
 
 // SchoolGroup implements middleware.SchoolLookup.

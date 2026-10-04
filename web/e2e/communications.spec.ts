@@ -326,8 +326,17 @@ test.describe('platform administration', () => {
     await page.getByRole('link', { name: 'Add school' }).click();
     await page.getByRole('textbox', { name: 'School name', exact: true }).fill(schoolName);
     await page.getByLabel('Group').selectOption({ label: groupName });
-    await page.getByRole('button', { name: 'Add school' }).click();
-    await expect(page.getByRole('region', { name: 'school detail' })).toContainText(groupName);
+    // A school is created with the person who will run it, so it can be signed in to.
+    const newSchool = page.getByRole('region', { name: 'school detail' });
+    await newSchool.getByLabel('Kind of school').selectOption('public');
+    await newSchool.getByLabel('County').selectOption('Kisumu');
+    await newSchool.getByRole('textbox', { name: 'Principal’s full name' }).fill('Peter Otieno');
+    await newSchool.getByRole('textbox', { name: 'Principal’s email' }).fill(`head-${Date.now()}@example.test`);
+    await newSchool.getByRole('button', { name: 'Add school' }).click();
+    await expect(newSchool.getByRole('status').filter({ hasText: `${schoolName} is ready` })).toBeVisible();
+    await newSchool.getByRole('button', { name: 'I have saved it' }).click();
+    await expect(newSchool).toContainText(groupName);
+    await expect(newSchool).toContainText('Public');
 
     await page.getByRole('navigation', { name: 'Platform sections' }).getByRole('link', { name: 'Users' }).click();
     await page.getByRole('link', { name: 'Add user' }).click();

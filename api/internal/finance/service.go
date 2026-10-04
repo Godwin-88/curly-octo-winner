@@ -226,21 +226,23 @@ func getFeeStructure(ctx context.Context, q querier, tenantID, id uuid.UUID) (*F
 	return fs, nil
 }
 
-var itemTypes = map[string]bool{"tuition": true, "caution": true, "transport": true, "activity": true, "boarding": true, "other": true}
-
+// checkItem validates one line of a fee structure. What it is called is up to
+// the school: there is no fixed list of things a school may charge for.
 func checkItem(item *FeeItemInput) error {
-	item.Name = strings.TrimSpace(item.Name)
+	item.Name = strings.Join(strings.Fields(item.Name), " ")
 	if item.Name == "" {
 		return invalid("Every fee item needs a name.")
+	}
+	if len(item.Name) > 100 {
+		return invalid("%s… is too long a name for a fee item.", item.Name[:40])
 	}
 	if item.AmountCents <= 0 {
 		return invalid("%s needs an amount above zero.", item.Name)
 	}
-	if item.ItemType == "" {
+	// item_type is kept for records made before schools named their own
+	// items; new ones carry the name alone.
+	if item.ItemType = strings.TrimSpace(item.ItemType); item.ItemType == "" || len(item.ItemType) > 100 {
 		item.ItemType = "other"
-	}
-	if !itemTypes[item.ItemType] {
-		return invalid("%s is not a kind of fee item.", item.ItemType)
 	}
 	return nil
 }
@@ -260,7 +262,7 @@ func (s *Service) CreateFeeStructure(ctx context.Context, tenantID uuid.UUID, ac
 		return nil, invalid("Enter the year in full, for example 2026.")
 	}
 	if len(req.Items) == 0 {
-		return nil, invalid("Add at least one fee item, such as Tuition.")
+		return nil, invalid("Add at least one fee item.")
 	}
 
 	var total int64

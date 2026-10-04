@@ -74,6 +74,25 @@ test('the old Finance address opens the overview in the workspace', async ({ pag
   await expect(page.getByText('Still owed', { exact: true })).toBeVisible();
 });
 
+const SWIMMING = `Swimming ${YEAR}`;
+
+test('the school adds its own fee item, and a duplicate is refused', async ({ page }) => {
+  await page.goto('/finance/fee-items');
+  await expect(page.getByRole('link', { name: 'Tuition', exact: true })).toBeVisible();
+
+  await page.getByRole('link', { name: 'Add fee item' }).click();
+  const panel = detail(page, 'fee item');
+  await panel.getByRole('textbox', { name: 'Name' }).fill(SWIMMING);
+  await panel.getByRole('button', { name: 'Add fee item' }).click();
+  await expect(page).toHaveURL(/\/finance\/fee-items\/[0-9a-f-]{36}$/);
+  await expect(panel.getByText('To every learner in the grade')).toBeVisible();
+
+  await page.getByRole('link', { name: 'Add fee item' }).click();
+  await panel.getByRole('textbox', { name: 'Name' }).fill(SWIMMING.toUpperCase());
+  await panel.getByRole('button', { name: 'Add fee item' }).click();
+  await expect(panel.getByRole('alert')).toContainText('already has a fee item called');
+});
+
 test('a fee structure is created, given an item, and bills a grade once', async ({ page }) => {
   await page.goto('/finance/fees');
   await page.getByRole('link', { name: 'New fee structure' }).click();
@@ -81,14 +100,16 @@ test('a fee structure is created, given an item, and bills a grade once', async 
   await panel.getByLabel('Grade').selectOption('Grade 6');
   await panel.getByLabel('Term').selectOption('2');
   await panel.getByLabel('Year').fill(YEAR);
-  await panel.getByLabel('Tuition (KES)').fill('12,000');
+  await panel.getByLabel('First fee item').selectOption('Tuition');
+  await panel.getByLabel('Amount (KES)').fill('12,000');
   await panel.getByRole('button', { name: 'New fee structure' }).click();
   await expect(page).toHaveURL(/\/finance\/fees\/[0-9a-f-]{36}$/);
 
   await expect(panel.getByText('KES 12,000.00').first()).toBeVisible();
 
   await panel.getByRole('button', { name: 'Add an item' }).click();
-  await panel.getByRole('textbox', { name: 'Item', exact: true }).fill('Activity');
+  // The item comes from the school's own list, which it has just added to.
+  await panel.getByLabel('Fee item').selectOption(SWIMMING);
   await panel.getByLabel('Amount (KES)').fill('2500');
   await panel.getByRole('button', { name: 'Add an item' }).click();
   await expect(panel.getByText('KES 14,500.00').first()).toBeVisible();

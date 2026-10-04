@@ -184,6 +184,23 @@ type School struct {
 	GroupID   *uuid.UUID `json:"group_id,omitempty"`
 	GroupName *string    `json:"group_name,omitempty"`
 	Modules   []string   `json:"modules"`
+	Ownership string     `json:"ownership"`
+}
+
+// SetOwnership records whether a school is public or private.
+func (s *Service) SetOwnership(ctx context.Context, id uuid.UUID, ownership string) (*School, error) {
+	ownership = strings.ToLower(strings.TrimSpace(ownership))
+	if ownership != "public" && ownership != "private" {
+		return nil, invalid("Say whether the school is public or private.")
+	}
+	tag, err := s.pool.Exec(ctx, `UPDATE tenants SET ownership = $2 WHERE id = $1`, id, ownership)
+	if err != nil {
+		return nil, fmt.Errorf("set ownership: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return nil, ErrNotFound
+	}
+	return s.getSchool(ctx, id)
 }
 
 // SetModules sets exactly which modules a school has.
@@ -216,9 +233,9 @@ func (s *Service) SetModules(ctx context.Context, id uuid.UUID, modules []string
 func (s *Service) getSchool(ctx context.Context, id uuid.UUID) (*School, error) {
 	var sc School
 	err := s.pool.QueryRow(ctx, `
-		SELECT t.id, t.name, t.slug, t.group_id, g.name, COALESCE(t.modules, $2::text[])
+		SELECT t.id, t.name, t.slug, t.group_id, g.name, COALESCE(t.modules, $2::text[]), t.ownership
 		FROM tenants t LEFT JOIN school_groups g ON g.id = t.group_id
-		WHERE t.id = $1`, id, tenant.Modules).Scan(&sc.ID, &sc.Name, &sc.Slug, &sc.GroupID, &sc.GroupName, &sc.Modules)
+		WHERE t.id = $1`, id, tenant.Modules).Scan(&sc.ID, &sc.Name, &sc.Slug, &sc.GroupID, &sc.GroupName, &sc.Modules, &sc.Ownership)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}

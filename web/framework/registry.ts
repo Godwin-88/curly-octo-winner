@@ -1,6 +1,7 @@
 import { communications } from '@/modules/communications';
 import { finance } from '@/modules/finance';
 import { platform } from '@/modules/platform';
+import { school } from '@/modules/school';
 import { sectionVisible, type Ctx, type ModuleManifest, type SectionDef } from './types';
 
 /**
@@ -8,7 +9,7 @@ import { sectionVisible, type Ctx, type ModuleManifest, type SectionDef } from '
  * import and one entry here. The modules not listed yet still live under
  * app/(admin) and are reached from the sidebar.
  */
-export const MODULES: ModuleManifest[] = [platform, communications, finance];
+export const MODULES: ModuleManifest[] = [platform, communications, finance, school];
 
 export function visibleSections(ctx: Ctx, module: ModuleManifest): SectionDef[] {
   return module.sections.filter((section) => sectionVisible(ctx, section));

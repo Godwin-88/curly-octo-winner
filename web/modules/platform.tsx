@@ -57,6 +57,18 @@ function OpenSchool({ row, ctx }: { row: School; ctx: Ctx }) {
   );
 }
 
+interface Onboarded {
+  school_id: string;
+  school_name: string;
+  admin_email: string;
+  temp_password?: string;
+}
+
+const OWNERSHIP: Option[] = [
+  { value: 'public', label: 'Public (government school)' },
+  { value: 'private', label: 'Private' },
+];
+
 /** The modules a school can have or not have. */
 const SOLD: Option[] = [
   { value: 'communications', label: 'Communications', hint: 'SMS to parents and contacts, with delivery reports.' },
@@ -87,6 +99,7 @@ const schools = resource<School>({
   fields: [
     { label: 'Group', value: (row) => row.group_name ?? 'Not in a group' },
     { label: 'Short name', value: (row) => row.slug },
+    { label: 'Kind of school', value: (row) => (row.ownership === 'public' ? 'Public' : 'Private') },
     {
       label: 'Modules',
       value: (row) => SOLD.filter((module) => row.modules?.includes(module.value)).map((module) => module.label).join(', ') || 'None',
@@ -99,11 +112,34 @@ const schools = resource<School>({
     when: isPlatform,
     fields: [
       ...schoolFields,
-      { name: 'slug', label: 'Short name', type: 'text', placeholder: 'juakali-primary', help: 'Lowercase letters, numbers and dashes. Leave empty to make one from the name. It cannot be changed later.' },
+      { name: 'ownership', label: 'Kind of school', type: 'select', required: true, options: OWNERSHIP, help: 'Sets the fee items the school starts with; the school changes them afterwards.' },
+      {
+        name: 'county', label: 'County', type: 'select', required: true,
+        options: async () => (await apiRequest<{ counties: string[] }>('/signup')).counties.map((county) => ({ value: county, label: county })),
+      },
+      { name: 'admin_name', label: 'Principal’s full name', type: 'text', required: true, help: 'The first person who can sign in to the school. They add everyone else.' },
+      { name: 'admin_email', label: 'Principal’s email', type: 'text', required: true, placeholder: 'principal@school.ac.ke' },
+      { name: 'admin_phone', label: 'Principal’s phone', type: 'text', placeholder: '0712 345 678' },
     ],
     initial: (_row, ctx) => ({ group_id: ctx.groupId ?? '' }),
-    run: (_ctx, _row, values) => apiRequest<School>('/platform/schools', { method: 'POST', body: schoolBody(values) }),
-    createdId: (school: School) => school.id,
+    confirm: 'The school is created together with its principal’s account. Their password is shown to you once, to hand over.',
+    run: (_ctx, _row, values) =>
+      apiRequest<Onboarded>('/platform/onboard-school', {
+        method: 'POST',
+        body: {
+          school_name: values.name, county: values.county, ownership: values.ownership, group_id: values.group_id || null,
+          admin_name: values.admin_name, admin_email: values.admin_email, admin_phone: values.admin_phone ?? '',
+        },
+      }),
+    createdId: (created: Onboarded) => created.school_id,
+    reveal: (created: Onboarded): Reveal => ({
+      title: `${created.school_name} is ready`,
+      note: 'Give these sign-in details to the principal. The password is shown this once and cannot be shown again.',
+      items: [
+        { label: 'Email', value: created.admin_email },
+        { label: 'Password', value: created.temp_password ?? '' },
+      ],
+    }),
   },
   actions: [
     {
@@ -115,6 +151,16 @@ const schools = resource<School>({
       confirm: 'Moving a school changes which group users can open it, from their next request.',
       submitLabel: 'Save changes',
       run: (_ctx, row, values) => apiRequest<School>(`/platform/schools/${row.id}`, { method: 'PATCH', body: schoolBody(values) }),
+    },
+    {
+      id: 'ownership',
+      label: 'Public or private',
+      when: isPlatform,
+      fields: [{ name: 'ownership', label: 'Kind of school', type: 'select', required: true, options: OWNERSHIP }],
+      initial: (row) => ({ ownership: row.ownership ?? 'private' }),
+      confirm: 'This records what kind of school it is. The fee items the school has already set up are not changed.',
+      submitLabel: 'Save',
+      run: (_ctx, row, values) => apiRequest<School>(`/platform/schools/${row.id}/ownership`, { method: 'PUT', body: { ownership: values.ownership } }),
     },
     {
       id: 'modules',

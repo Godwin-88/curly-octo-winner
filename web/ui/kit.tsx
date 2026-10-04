@@ -10,7 +10,7 @@ const STATUS_TONE: Record<string, Tone> = {
   sent: 'progress', sending: 'progress', pending: 'progress', scheduled: 'progress',
   draft: 'neutral', cancelled: 'neutral', archived: 'neutral', deactivated: 'neutral',
   'opted out': 'warning', partial: 'warning', unpaid: 'warning', partially_paid: 'warning', unmatched: 'warning', part_allocated: 'warning',
-  void: 'neutral', reversed: 'neutral', 'switched off': 'neutral',
+  void: 'neutral', reversed: 'neutral', 'switched off': 'neutral', retired: 'neutral',
   failed: 'critical', rejected: 'critical', overdue: 'critical',
 };
 

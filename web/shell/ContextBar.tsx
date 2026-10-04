@@ -13,6 +13,7 @@ export interface School {
   slug: string;
   group_id?: string;
   group_name?: string;
+  ownership?: 'public' | 'private';
   /** The modules this school has. */
   modules?: string[];
 }

@@ -62,6 +62,14 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  {
+    label: 'School setup',
+    icon: ClipboardList,
+    children: [
+      { href: '/school/setup', label: 'Getting Started', icon: ClipboardList },
+      { href: '/school/users', label: 'Users', icon: Users },
+    ],
+  },
     {
       label: 'Communications',
       icon: MessageSquare,
@@ -110,6 +118,7 @@ const navItems: NavItem[] = [
       { href: '/finance/paybill', label: 'Paybill Payments', icon: Smartphone },
       { href: '/finance/balances', label: 'Balances', icon: FileText },
       { href: '/finance/fees', label: 'Fee Structures', icon: FileText },
+      { href: '/finance/fee-items', label: 'Fee Items', icon: FileText },
     ],
   },
   {
@@ -172,10 +181,10 @@ const navItems: NavItem[] = [
 // Nav restriction map — mirrors api/internal/middleware role groups in main.go.
 // super_admin sees everything; listed roles see only their modules.
 const ROLE_NAV: Record<string, string[]> = {
-  teacher: ['/dashboard', '/learners', '/academic'],
-  bursar: ['/dashboard', '/learners', '/finance', '/reports', '/analytics'],
-  hr: ['/dashboard', '/learners', '/hr'],
-  transport_manager: ['/dashboard', '/learners', '/vehicles', '/routes', '/trips'],
+  teacher: ['/dashboard', '/school/setup', '/learners', '/academic'],
+  bursar: ['/dashboard', '/school/setup', '/learners', '/finance', '/reports', '/analytics'],
+  hr: ['/dashboard', '/school/setup', '/learners', '/hr'],
+  transport_manager: ['/dashboard', '/school/setup', '/learners', '/vehicles', '/routes', '/trips'],
   // principal: undefined -> sees all modules
 };
 

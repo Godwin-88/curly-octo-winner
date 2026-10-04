@@ -35,6 +35,7 @@ import (
 	"github.com/shule360/api/internal/learnerimport"
 	appmiddleware "github.com/shule360/api/internal/middleware"
 	"github.com/shule360/api/internal/nemis"
+	"github.com/shule360/api/internal/onboarding"
 	"github.com/shule360/api/internal/parent"
 	"github.com/shule360/api/internal/platform"
 	"github.com/shule360/api/internal/procurement"
@@ -265,6 +266,10 @@ func main() {
 
 	// Initialize auth handler
 	authHandler := auth.NewHandler(sb, cfg, redisClient)
+
+	// Registering a school with its first administrator, the setup checklist
+	// and a school's own users.
+	onboardingHandler := onboarding.NewHandler(onboarding.NewService(sb.Pool, sb), redisClient, cfg.SignupMode, cfg.SignupCode)
 	tenantService := tenant.NewService(sb.Pool)
 	platformHandler := platform.NewHandler(platform.NewService(sb.Pool, sb))
 
@@ -310,6 +315,7 @@ func main() {
 		// IP / per account per 15-minute window, fail-closed.
 		authHandler.Mount(r)
 		guardianAuthHandler.Mount(r)
+		onboardingHandler.MountPublic(r)
 
 		// Webhooks (no auth). The M-Pesa callback is restricted to Daraja
 		// egress IPs when MPESA_ALLOWED_IPS is configured; an empty list
@@ -337,6 +343,10 @@ func main() {
 			// Schools, groups and the users above a school: platform
 			// administrators only (enforced inside Mount).
 			platformHandler.Mount(r)
+			r.Group(func(r chi.Router) {
+				r.Use(appmiddleware.RequirePlatform)
+				onboardingHandler.MountPlatform(r)
+			})
 		})
 
 		// Authenticated routes inside one school
@@ -380,6 +390,7 @@ func main() {
 					r.Use(appmiddleware.RequireModule(tenantService, "communications", "Communications"))
 					commsHandler.Mount(r)
 				})
+				onboardingHandler.MountSchool(r)
 				academicHandler.Mount(r)
 				learnerHandler.Mount(r)
 				learnerImportHandler.Mount(r)

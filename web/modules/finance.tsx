@@ -183,14 +183,26 @@ const GRADE_OPTIONS: Option[] = GRADES.map((grade) => ({ value: grade, label: gr
 const TERM_OPTIONS: Option[] = [1, 2, 3].map((term) => ({ value: String(term), label: `Term ${term}` }));
 
 const CHANNEL: Record<string, string> = { mpesa: 'M-Pesa', cash: 'Cash', bank: 'Bank', cheque: 'Cheque' };
-const ITEM_TYPES: Option[] = [
-  { value: 'tuition', label: 'Tuition' },
-  { value: 'activity', label: 'Activity' },
-  { value: 'transport', label: 'Transport' },
-  { value: 'boarding', label: 'Boarding' },
-  { value: 'caution', label: 'Caution money' },
-  { value: 'other', label: 'Other' },
-];
+interface FeeCategory {
+  id: string;
+  name: string;
+  description?: string;
+  is_optional: boolean;
+  is_active: boolean;
+  in_use: number;
+  created_at: string;
+}
+
+/** What this school charges for: its own list, never a built-in one. */
+const feeCategories = async () => (await apiRequest<FeeCategory[] | null>('/fee-categories')) ?? [];
+
+const feeItemOptions = async (): Promise<Option[]> =>
+  (await feeCategories()).map((category) => ({
+    value: category.name,
+    label: category.is_optional ? `${category.name} (billed only when chosen)` : category.name,
+  }));
+
+const NO_FEE_ITEMS = 'Anything missing? Add it under Finance → Fee items first.';
 
 /** Why an M-Pesa request did not end in a payment, in the bursar's words. */
 const FAILURE: Record<string, string> = {
@@ -307,7 +319,6 @@ function FeeItems({ row }: { row: FeeStructure; ctx: Ctx }) {
         empty="No items yet."
         columns={[
           { header: 'Item', cell: (item) => item.name },
-          { header: 'Kind', cell: (item) => ITEM_TYPES.find((type) => type.value === item.item_type)?.label ?? item.item_type },
           { header: 'Billed', cell: (item) => (item.is_optional ? 'Only when chosen' : 'To every learner') },
           { header: 'Amount', align: 'right', cell: (item) => <Money cents={item.amount_cents} /> },
         ]}
@@ -366,11 +377,13 @@ const feeStructures = resource<FeeStructure>({
       { name: 'term', label: 'Term', type: 'select', required: true, options: TERM_OPTIONS },
       { name: 'year', label: 'Year', type: 'number', required: true },
       { name: 'name', label: 'Name', type: 'text', placeholder: 'Grade 4 Term 1 Fees', help: 'Leave empty to name it after the grade and term.' },
-      { name: 'tuition', label: 'Tuition (KES)', type: 'money', required: true, help: 'Other items, such as activity or transport, are added once it is created.' },
+      { name: 'first_item', label: 'First fee item', type: 'select', required: true, options: feeItemOptions, help: `More items are added once it is created. ${NO_FEE_ITEMS}` },
+      { name: 'first_amount', label: 'Amount (KES)', type: 'money', required: true },
       { name: 'notes', label: 'Notes', type: 'textarea' },
     ],
-    run: (_ctx, _row, values) =>
-      apiRequest<FeeStructure>('/fee-structures', {
+    run: async (_ctx, _row, values) => {
+      const category = (await feeCategories()).find((candidate) => candidate.name === values.first_item);
+      return apiRequest<FeeStructure>('/fee-structures', {
         method: 'POST',
         body: {
           name: values.name || `${values.grade} Term ${values.term} Fees`,
@@ -378,9 +391,10 @@ const feeStructures = resource<FeeStructure>({
           term: Number(values.term),
           year: values.year,
           notes: values.notes,
-          items: [{ name: 'Tuition', amount_cents: values.tuition, item_type: 'tuition' }],
+          items: [{ name: values.first_item, amount_cents: values.first_amount, is_optional: category?.is_optional ?? false }],
         },
-      }),
+      });
+    },
     createdId: (created: FeeStructure) => created.id,
   },
   actions: [
@@ -408,18 +422,17 @@ const feeStructures = resource<FeeStructure>({
       id: 'add-item',
       label: 'Add an item',
       fields: [
-        { name: 'name', label: 'Item', type: 'text', required: true, placeholder: 'Activity fee' },
+        { name: 'name', label: 'Fee item', type: 'select', required: true, options: feeItemOptions, help: NO_FEE_ITEMS },
         { name: 'amount_cents', label: 'Amount (KES)', type: 'money', required: true },
-        { name: 'item_type', label: 'Kind', type: 'select', required: true, options: ITEM_TYPES },
-        { name: 'is_optional', label: 'Billed only when chosen (for example transport)', type: 'checkbox' },
       ],
-      initial: () => ({ item_type: 'other' }),
       confirm: 'Invoices already created keep the items they were created with.',
-      run: (_ctx, row, values) =>
-        apiRequest<FeeStructure>(`/fee-structures/${row.id}/items`, {
+      run: async (_ctx, row, values) => {
+        const category = (await feeCategories()).find((candidate) => candidate.name === values.name);
+        return apiRequest<FeeStructure>(`/fee-structures/${row.id}/items`, {
           method: 'POST',
-          body: { name: values.name, amount_cents: values.amount_cents, item_type: values.item_type, is_optional: Boolean(values.is_optional) },
-        }),
+          body: { name: values.name, amount_cents: values.amount_cents, is_optional: category?.is_optional ?? false },
+        });
+      },
     },
     {
       id: 'remove-item',
@@ -1058,9 +1071,96 @@ const arrears = resource<ArrearsRow>({
   extra: StatementPanel,
 });
 
+// --- Fee items --------------------------------------------------------------
+
+const feeItems = resource<FeeCategory>({
+  id: 'fee-items',
+  label: 'Fee items',
+  noun: 'fee item',
+  scopes: ['school'],
+  roles: FINANCE_ROLES,
+  purpose: 'Everything this school charges for. The list is yours: add what you charge, rename it, retire what you no longer charge. Fee structures are built from it.',
+  list: async (_ctx, filters) => ({
+    items: (await apiRequest<FeeCategory[] | null>(`/fee-categories${filters.status ? `?status=${filters.status}` : ''}`)) ?? [],
+  }),
+  get: (_ctx, id) => apiRequest<FeeCategory>(`/fee-categories/${id}`),
+  rowId: (row) => row.id,
+  title: (row) => row.name,
+  status: (row) => (row.is_active ? 'active' : 'retired'),
+  filters: [
+    {
+      name: 'status', label: 'Show', type: 'select',
+      options: [{ value: 'retired', label: 'Retired' }, { value: 'all', label: 'Everything' }],
+      help: '"Any" shows what is charged now.',
+    },
+  ],
+  columns: [
+    { header: 'Fee item', cell: (row) => row.name },
+    { header: 'Billed', cell: (row) => (row.is_optional ? 'Only when chosen' : 'To every learner') },
+    { header: 'Status', cell: (row) => <Status value={row.is_active ? 'active' : 'retired'} /> },
+  ],
+  fields: [
+    { label: 'Billed', value: (row) => (row.is_optional ? 'Only to the learners who take it up' : 'To every learner in the grade') },
+    { label: 'Used in', value: (row) => `${row.in_use} fee structure${row.in_use === 1 ? '' : 's'}` },
+    { label: 'What it covers', value: (row) => row.description || '—' },
+  ],
+  create: {
+    id: 'create',
+    label: 'Add fee item',
+    fields: [
+      { name: 'name', label: 'Name', type: 'text', required: true, placeholder: 'Uniform, Swimming, Trip…' },
+      { name: 'is_optional', label: 'Billed only to the learners who take it up', type: 'checkbox', help: 'For example transport, boarding or lunch. Leave unticked for a fee every learner pays.' },
+      { name: 'description', label: 'What it covers', type: 'textarea' },
+    ],
+    run: (_ctx, _row, values) =>
+      apiRequest<FeeCategory>('/fee-categories', {
+        method: 'POST',
+        body: { name: values.name, is_optional: Boolean(values.is_optional), description: values.description },
+      }),
+    createdId: (created: FeeCategory) => created.id,
+  },
+  actions: [
+    {
+      id: 'edit',
+      label: 'Edit',
+      when: (row) => row.is_active,
+      fields: [
+        { name: 'name', label: 'Name', type: 'text', required: true },
+        { name: 'is_optional', label: 'Billed only to the learners who take it up', type: 'checkbox' },
+        { name: 'description', label: 'What it covers', type: 'textarea' },
+      ],
+      initial: (row) => ({ name: row.name, is_optional: row.is_optional, description: row.description ?? '' }),
+      confirm: 'Fee structures and invoices already made keep the name they were made with.',
+      submitLabel: 'Save',
+      run: (_ctx, row, values) =>
+        apiRequest<FeeCategory>(`/fee-categories/${row.id}`, {
+          method: 'PATCH',
+          body: { name: values.name, is_optional: Boolean(values.is_optional), description: values.description ?? '' },
+        }),
+    },
+    {
+      id: 'retire',
+      label: 'Retire',
+      tone: 'danger',
+      when: (row) => row.is_active,
+      confirm: 'It is no longer offered when building a fee structure. Fee structures and invoices that already charge it are not changed, and it can be brought back.',
+      submitLabel: 'Retire this fee item',
+      run: (_ctx, row) => apiRequest<FeeCategory>(`/fee-categories/${row.id}`, { method: 'PATCH', body: { is_active: false } }),
+    },
+    {
+      id: 'restore',
+      label: 'Bring back',
+      when: (row) => !row.is_active,
+      submitLabel: 'Bring this fee item back',
+      confirm: 'It is offered again when building a fee structure.',
+      run: (_ctx, row) => apiRequest<FeeCategory>(`/fee-categories/${row.id}`, { method: 'PATCH', body: { is_active: true } }),
+    },
+  ],
+});
+
 export const finance: ModuleManifest = {
   id: 'finance',
   label: 'Finance',
-  sections: [overview, invoices, payments, paybill, arrears, feeStructures],
+  sections: [overview, invoices, payments, paybill, arrears, feeStructures, feeItems],
 };
 
