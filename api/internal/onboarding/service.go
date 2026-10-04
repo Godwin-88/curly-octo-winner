@@ -18,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/shule360/api/internal/academic/curriculum"
 	"github.com/shule360/api/internal/comms/sms"
 	"github.com/shule360/api/internal/finance"
 )
@@ -177,8 +178,6 @@ type Registration struct {
 	// (a platform administrator creating a school for someone), one is
 	// generated and returned once.
 	Password string `json:"password"`
-
-	GroupID *uuid.UUID `json:"group_id,omitempty"`
 }
 
 // Registered is the outcome of a registration.
@@ -272,16 +271,6 @@ func (s *Service) RegisterSchool(ctx context.Context, in Registration) (*Registe
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck // no-op after commit
 
-	if in.GroupID != nil {
-		var exists bool
-		if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM school_groups WHERE id = $1)`, *in.GroupID).Scan(&exists); err != nil {
-			return nil, err
-		}
-		if !exists {
-			return nil, invalid("group_id", "That group does not exist.")
-		}
-	}
-
 	var schoolID uuid.UUID
 	base := slugify(in.SchoolName)
 	for attempt := 0; ; attempt++ {
@@ -292,9 +281,9 @@ func (s *Service) RegisterSchool(ctx context.Context, in Registration) (*Registe
 		// A savepoint, so a taken short name does not abort the transaction.
 		err = pgx.BeginFunc(ctx, tx, func(sp pgx.Tx) error {
 			return sp.QueryRow(ctx, `
-				INSERT INTO tenants (name, slug, county, phone, email, address, group_id, ownership)
-				VALUES ($1, $2, $3, $4, $5, NULLIF($6, ''), $7, $8) RETURNING id`,
-				in.SchoolName, slug, county, schoolPhone, schoolEmail, strings.TrimSpace(in.Address), in.GroupID, in.Ownership).Scan(&schoolID)
+				INSERT INTO tenants (name, slug, county, phone, email, address, ownership)
+				VALUES ($1, $2, $3, $4, $5, NULLIF($6, ''), $7) RETURNING id`,
+				in.SchoolName, slug, county, schoolPhone, schoolEmail, strings.TrimSpace(in.Address), in.Ownership).Scan(&schoolID)
 		})
 		if err == nil {
 			break
@@ -320,6 +309,12 @@ func (s *Service) RegisterSchool(ctx context.Context, in Registration) (*Registe
 	// What it charges for starts from the usual list for its kind of school;
 	// the school changes it freely afterwards.
 	if err := finance.SeedFeeCategories(ctx, tx, schoolID, in.Ownership); err != nil {
+		return nil, err
+	}
+	// The core competencies and values of the curriculum are the same in every
+	// school. Learning areas depend on the grades it teaches, so the school
+	// adds those itself.
+	if err := curriculum.SeedDefaults(ctx, tx, schoolID); err != nil {
 		return nil, err
 	}
 	if err := tx.Commit(ctx); err != nil {

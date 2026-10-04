@@ -39,6 +39,9 @@ const TABS: { id: CurriculumKind; blurb: string }[] = [
  * level with its parent chosen above it. This replaced a placeholder page whose
  * "Add Item" button did nothing and which listed nothing at all.
  */
+/** Grades there is a standard list of learning areas for. */
+const DEFAULT_GRADES = ['PP1', 'PP2', ...Array.from({ length: 9 }, (_, i) => `Grade ${i + 1}`)];
+
 export default function CurriculumPage() {
   const { token } = useAuth();
 
@@ -62,6 +65,7 @@ export default function CurriculumPage() {
   const [editing, setEditing] = useState<AnyCurriculumItem | null>(null);
   const [pendingDelete, setPendingDelete] = useState<AnyCurriculumItem | null>(null);
   const [busy, setBusy] = useState(false);
+  const [defaultsGrade, setDefaultsGrade] = useState('');
 
   // The top level is needed by every tab (it names the strands), so it loads
   // once here instead of being refetched on each tab change.
@@ -232,6 +236,52 @@ export default function CurriculumPage() {
           <h1 className="text-2xl font-bold">CBC Curriculum Structure</h1>
           <p className="text-sm text-gray-500 mt-1">{activeBlurb}</p>
         </div>
+        {tab === 'learning-area' && (
+          <form
+            className="flex items-end gap-2 ml-auto"
+            onSubmit={async (e) => {
+              e.preventDefault();
+              if (!defaultsGrade || busy) return;
+              setBusy(true);
+              setError(null);
+              try {
+                const r = await api.addDefaultLearningAreas(defaultsGrade, token);
+                setNotice(
+                  r.added > 0
+                    ? `${r.added} learning area${r.added === 1 ? '' : 's'} added for ${defaultsGrade}. Add the strands and sub-strands you teach under each.`
+                    : `${defaultsGrade} already has the usual learning areas.`
+                );
+                await loadTopLevel();
+              } catch (err) {
+                setError(err instanceof APIError ? err.message : 'Could not add the learning areas.');
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            <div>
+              <label htmlFor="defaults-grade" className="block text-xs text-gray-600 mb-1">
+                Add the usual learning areas for
+              </label>
+              <select
+                id="defaults-grade"
+                className="input text-sm"
+                value={defaultsGrade}
+                onChange={(e) => setDefaultsGrade(e.target.value)}
+              >
+                <option value="">Choose a grade…</option>
+                {DEFAULT_GRADES.map((g) => (
+                  <option key={g} value={g}>
+                    {g}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <button type="submit" className="btn-secondary whitespace-nowrap" disabled={!defaultsGrade || busy}>
+              Add them
+            </button>
+          </form>
+        )}
         <button
           type="button"
           className="btn-primary flex items-center gap-2 whitespace-nowrap"

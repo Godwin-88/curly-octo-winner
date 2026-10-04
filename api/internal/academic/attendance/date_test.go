@@ -2,6 +2,7 @@ package attendance
 
 import (
 	"encoding/json"
+	"github.com/google/uuid"
 	"testing"
 	"time"
 )
@@ -58,7 +59,7 @@ func TestCreateAttendanceRequestDecodesSnakeCase(t *testing.T) {
 		"date": "2026-09-26",
 		"status": "absent",
 		"reason": "Sick",
-		"sms_notified": true
+		"marked_by": "22222222-2222-2222-2222-222222222222"
 	}`
 
 	var req CreateAttendanceRequest
@@ -74,8 +75,9 @@ func TestCreateAttendanceRequestDecodesSnakeCase(t *testing.T) {
 	if req.Reason != "Sick" {
 		t.Errorf("reason = %q", req.Reason)
 	}
-	if !req.SMSNotified {
-		t.Error("sms_notified did not bind")
+	// Who marked the register is the session's, never the request's.
+	if req.MarkedBy != uuid.Nil {
+		t.Errorf("marked_by was read from the request: %v", req.MarkedBy)
 	}
 	if req.Date.IsZero() {
 		t.Error("date did not bind")

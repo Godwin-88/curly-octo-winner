@@ -326,6 +326,10 @@ export interface AttendanceRecord {
 export interface BulkMarkResult {
   saved: number;
   date: string;
+  /** Present when the register asked for parents to be texted. */
+  alerts?: { sent: number; skipped: { learner_id: string; learner_name: string; reason: string }[] };
+  /** Why parents could not be texted although the register was saved. */
+  alert_error?: string;
 }
 
 export interface AttendanceSummaryCounts {
@@ -1003,26 +1007,29 @@ export interface ReportCard {
   core_competency_remarks?: Record<string, string>;
   teacher_comments?: Record<string, string>;
   attendance_summary?: Record<string, any>;
+  overall_label?: string;
   generated_by?: string;
   generated_at: string;
+  published_by?: string;
+  published_at?: string;
   created_at: string;
   updated_at: string;
   items?: ReportCardItem[];
 }
 
+/** What a teacher writes on a card. Who made or published it is the session's. */
 export interface GenerateReportCardRequest {
-  status?: string;
   overall_rating?: number;
   core_competency_remarks?: Record<string, string>;
   teacher_comments?: Record<string, string>;
-  generated_by?: string;
 }
 
-export interface UpdateReportCardRequest {
-  status?: string;
-  overall_rating?: number;
-  core_competency_remarks?: Record<string, string>;
-  teacher_comments?: Record<string, string>;
+export type UpdateReportCardRequest = GenerateReportCardRequest;
+
+export interface ClassReportCardsResult {
+  generated: number;
+  skipped_published: number;
+  no_observations: string[];
 }
 
 export interface SchoolOverview {
@@ -2097,6 +2104,11 @@ export const api = {
   deleteValue: (id: string, token: string) =>
     request<void>(`/curriculum/values/${id}`, { method: 'DELETE', token }),
 
+  addDefaultLearningAreas: (gradeLevel: string, token: string) =>
+    request<{ added: number; grade_level: string }>('/curriculum/learning-areas/defaults', {
+      method: 'POST', body: { grade_level: gradeLevel }, token,
+    }),
+
   // Assessments
   createAssessment: (data: CreateAssessmentRequest, token: string) =>
     request<Assessment>('/assessments', { method: 'POST', body: data, token }),
@@ -2552,9 +2564,11 @@ export const api = {
     request<Payment>('/payments/mpesa/stk', { method: 'POST', body: data, token }),
 
   // Report cards
-  listReportCards: (params: { learner_id?: string; term?: number; year?: number }, token: string) => {
+  listReportCards: (params: { learner_id?: string; grade?: string; status?: string; term?: number; year?: number }, token: string) => {
     const qs = new URLSearchParams();
     if (params.learner_id) qs.set('learner_id', params.learner_id);
+    if (params.grade) qs.set('grade', params.grade);
+    if (params.status) qs.set('status', params.status);
     if (params.term) qs.set('term', String(params.term));
     if (params.year) qs.set('year', String(params.year));
     return request<ReportCard[]>(`/reports?${qs.toString()}`, { token });
@@ -2564,7 +2578,23 @@ export const api = {
     request<ReportCard>(`/reports/${id}`, { token }),
 
   generateReportCard: (params: { learner_id: string; term: number; year: number }, data: GenerateReportCardRequest, token: string) =>
-    request<ReportCard>(`/reports/generate?learner_id=${params.learner_id}&term=${params.term}&year=${params.year}`, { method: 'POST', body: data, token }),
+    request<ReportCard>('/reports/generate', { method: 'POST', body: { ...params, ...data }, token }),
+
+  generateClassReportCards: (data: { grade: string; stream?: string; term: number; year: number }, token: string) =>
+    request<ClassReportCardsResult>('/reports/generate-class', { method: 'POST', body: data, token }),
+
+  publishReportCard: (id: string, token: string) =>
+    request<ReportCard>(`/reports/${id}/publish`, { method: 'POST', token }),
+
+  reopenReportCard: (id: string, token: string) =>
+    request<ReportCard>(`/reports/${id}/reopen`, { method: 'POST', token }),
+
+  /** The report card as a PDF, with the file name the server gave it. */
+  downloadReportCardPDF: async (id: string, token: string): Promise<{ blob: Blob; name: string }> => {
+    const res = await requestRaw(`/reports/${id}/pdf`, { token });
+    const name = /filename="([^"]+)"/.exec(res.headers.get('Content-Disposition') || '')?.[1] || 'report-card.pdf';
+    return { blob: await res.blob(), name };
+  },
 
   updateReportCard: (id: string, data: UpdateReportCardRequest, token: string) =>
     request<ReportCard>(`/reports/${id}`, { method: 'PATCH', body: data, token }),
@@ -3024,13 +3054,6 @@ export const api = {
 
   deleteSMSTemplate: (id: string, token: string) =>
     request<void>(`/sms/templates/${id}`, { method: 'DELETE', token }),
-
-  // Report card PDFs
-  generateReportCardPDF: (reportCardId: string, token: string) =>
-    request<ReportCardPDF>(`/reports/${reportCardId}/pdf`, { method: 'POST', token }),
-
-  getReportCardPDF: (reportCardId: string, token: string) =>
-    request<ReportCardPDF>(`/reports/${reportCardId}/pdf`, { token }),
 };
 
 // --- Settings (school profile, operations, integrations) ---

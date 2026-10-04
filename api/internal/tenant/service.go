@@ -161,7 +161,7 @@ type School struct {
 
 // Modules that can be switched on or off per school. Anything not listed here
 // is part of every school.
-var Modules = []string{"communications", "finance"}
+var Modules = []string{"communications", "finance", "academic"}
 
 // effectiveModules turns the stored list (nil = everything) into the list
 // that applies.

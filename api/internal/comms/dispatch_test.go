@@ -107,7 +107,15 @@ func newFixture(t *testing.T) *fixture {
 		t.Fatalf("insert staff: %v", err)
 	}
 
-	f.disp = NewDispatcher(pool, func(context.Context, uuid.UUID) (Sender, error) { return f.sender, nil })
+	// A sweep takes every pending message in the database, and other packages'
+	// tests run against the same one at the same time. Only this test's school
+	// reaches the sender whose calls are counted.
+	f.disp = NewDispatcher(pool, func(_ context.Context, tenantID uuid.UUID) (Sender, error) {
+		if tenantID != f.tenantID {
+			return &fakeSender{refuse: map[string]int{}, omit: map[string]bool{}}, nil
+		}
+		return f.sender, nil
+	})
 	f.svc = NewCommsService(pool, nil) // tests call Sweep themselves
 	return f
 }

@@ -66,13 +66,28 @@ func newFixture(t *testing.T) *fixture {
 		ctx := context.Background()
 		_, _ = pool.Exec(ctx, `DELETE FROM platform_users WHERE email LIKE '%' || $1 || '%'`, f.tag)
 		_, _ = pool.Exec(ctx, `DELETE FROM tenants WHERE slug LIKE '%' || $1 || '%'`, f.tag)
-		_, _ = pool.Exec(ctx, `DELETE FROM school_groups WHERE slug LIKE '%' || $1 || '%'`, f.tag)
 		pool.Close()
 	})
 	return f
 }
 
 func (f *fixture) email(name string) string { return name + "-" + f.tag + "@example.test" }
+
+// group returns one of the two groups.
+func (f *fixture) group(ownership string) *Group {
+	f.t.Helper()
+	groups, err := f.svc.ListGroups(context.Background())
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	for i := range groups {
+		if groups[i].Ownership == ownership {
+			return &groups[i]
+		}
+	}
+	f.t.Fatalf("there is no %s group", ownership)
+	return nil
+}
 
 func wantValidation(t *testing.T, err error, contains string) {
 	t.Helper()
@@ -86,41 +101,71 @@ func TestGroupsAndSchools(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
 
-	group, err := f.svc.CreateGroup(ctx, "St. Mary's Trust "+f.tag, "")
+	// There are two groups, public first, and the database refuses a third.
+	groups, err := f.svc.ListGroups(ctx)
+	if err != nil || len(groups) != 2 || groups[0].Ownership != "public" || groups[1].Ownership != "private" {
+		t.Fatalf("groups = %+v, %v", groups, err)
+	}
+	if _, err := f.pool.Exec(ctx, `INSERT INTO school_groups (name, slug, ownership) VALUES ('Third', $1, 'private')`, "third-"+f.tag); err == nil {
+		t.Fatal("a third group was accepted")
+	}
+	if _, err := f.pool.Exec(ctx, `INSERT INTO school_groups (name, slug) VALUES ('Third', $1)`, "third-"+f.tag); err == nil {
+		t.Fatal("a group that is neither public nor private was accepted")
+	}
+	public, private := f.group("public"), f.group("private")
+
+	// A school is in the group for its kind, and nowhere else.
+	school, err := f.svc.CreateSchool(ctx, "Hilltop Primary "+f.tag, "", "public")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if group.Slug != "st-marys-trust-"+f.tag {
-		t.Errorf("slug = %q, want it derived from the name", group.Slug)
+	if school.Slug != "hilltop-primary-"+f.tag {
+		t.Errorf("slug = %q, want it derived from the name", school.Slug)
 	}
-	_, err = f.svc.CreateGroup(ctx, "Another name", group.Slug)
+	if school.GroupID == nil || *school.GroupID != public.ID {
+		t.Fatalf("a public school is in group %v, want the public group", school.GroupID)
+	}
+	_, err = f.svc.CreateSchool(ctx, "Another "+f.tag, school.Slug, "")
 	wantValidation(t, err, "already uses the short name")
-	_, err = f.svc.CreateGroup(ctx, "  ", "")
-	wantValidation(t, err, "Give the group a name")
-	_, err = f.svc.CreateGroup(ctx, "Bad slug", "Has Spaces")
-	wantValidation(t, err, "lowercase letters")
-
-	school, err := f.svc.CreateSchool(ctx, "Hilltop Primary "+f.tag, "", &group.ID)
-	if err != nil {
+	_, err = f.svc.CreateSchool(ctx, "Odd "+f.tag, "", "charter")
+	wantValidation(t, err, "public or private")
+	// Writing the group directly does not put a school in the wrong one.
+	if _, err := f.pool.Exec(ctx, `UPDATE tenants SET group_id = $2 WHERE id = $1`, school.ID, private.ID); err != nil {
 		t.Fatal(err)
 	}
-	if school.GroupName == nil || *school.GroupName != group.Name {
-		t.Errorf("school group = %v, want %q", school.GroupName, group.Name)
+	if again, _ := f.svc.getSchool(ctx, school.ID); *again.GroupID != public.ID {
+		t.Fatal("a public school was moved into the private group by hand")
 	}
-	missing := uuid.New()
-	_, err = f.svc.CreateSchool(ctx, "Orphan "+f.tag, "", &missing)
-	wantValidation(t, err, "group does not exist")
 
-	// Moving a school out of its group.
-	moved, err := f.svc.UpdateSchool(ctx, school.ID, "Hilltop Academy "+f.tag, nil)
-	if err != nil {
-		t.Fatal(err)
+	// Changing its kind moves it.
+	moved, err := f.svc.SetOwnership(ctx, school.ID, "private")
+	if err != nil || moved.GroupID == nil || *moved.GroupID != private.ID {
+		t.Fatalf("after becoming private: %+v, %v", moved, err)
 	}
-	if moved.GroupID != nil || !strings.HasPrefix(moved.Name, "Hilltop Academy") {
-		t.Errorf("after update: %+v", moved)
+	_, err = f.svc.SetOwnership(ctx, school.ID, "charter")
+	wantValidation(t, err, "public or private")
+
+	// Renaming a school leaves it where it is.
+	moved, err = f.svc.UpdateSchool(ctx, school.ID, "Hilltop Academy "+f.tag)
+	if err != nil || *moved.GroupID != private.ID || !strings.HasPrefix(moved.Name, "Hilltop Academy") {
+		t.Fatalf("after rename: %+v, %v", moved, err)
 	}
-	if _, err := f.svc.UpdateSchool(ctx, uuid.New(), "Nobody", nil); !errors.Is(err, ErrNotFound) {
+	if _, err := f.svc.UpdateSchool(ctx, uuid.New(), "Nobody"); !errors.Is(err, ErrNotFound) {
 		t.Errorf("updating a missing school = %v, want ErrNotFound", err)
+	}
+
+	// A group can be renamed and described; its kind is not editable.
+	t.Cleanup(func() {
+		_, _ = f.pool.Exec(context.Background(), `UPDATE school_groups SET name = $2, description = NULLIF($3, '') WHERE id = $1`, public.ID, public.Name, public.Description)
+	})
+	renamed, err := f.svc.UpdateGroup(ctx, public.ID, "Government schools", "Funded by the state.")
+	if err != nil || renamed.Name != "Government schools" || renamed.Description != "Funded by the state." || renamed.Ownership != "public" {
+		t.Fatalf("UpdateGroup = %+v, %v", renamed, err)
+	}
+	_, err = f.svc.UpdateGroup(ctx, public.ID, "  ", "")
+	wantValidation(t, err, "Give the group a name")
+	if _, err := f.svc.UpdateGroup(ctx, uuid.New(), "Nobody", ""); !errors.Is(err, ErrNotFound) {
+		t.Errorf("updating a missing group = %v, want ErrNotFound", err)
 	}
 
 	// A new school has every module; the platform can narrow it to exactly
@@ -144,20 +189,12 @@ func TestGroupsAndSchools(t *testing.T) {
 	if _, err := f.svc.SetModules(ctx, uuid.New(), nil); !errors.Is(err, ErrNotFound) {
 		t.Errorf("setting modules on a missing school = %v, want ErrNotFound", err)
 	}
-
-	got, err := f.svc.GetGroup(ctx, group.ID)
-	if err != nil || got.SchoolCount != 0 {
-		t.Errorf("group school count = %d (err %v), want 0 after the school left", got.SchoolCount, err)
-	}
 }
 
 func TestCreateUser(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
-	group, err := f.svc.CreateGroup(ctx, "Trust "+f.tag, "")
-	if err != nil {
-		t.Fatal(err)
-	}
+	group := f.group("private")
 
 	user, err := f.svc.CreateUser(ctx, UserInput{Email: "  " + strings.ToUpper(f.email("jane")) + " ", FullName: "Jane Doe", Scope: "group", GroupID: &group.ID})
 	if err != nil {
@@ -181,6 +218,9 @@ func TestCreateUser(t *testing.T) {
 	wantValidation(t, err, "valid email")
 	_, err = f.svc.CreateUser(ctx, UserInput{Email: f.email("a"), FullName: "X", Scope: "group"})
 	wantValidation(t, err, "Choose the group")
+	missing := uuid.New()
+	_, err = f.svc.CreateUser(ctx, UserInput{Email: f.email("a2"), FullName: "X", Scope: "group", GroupID: &missing})
+	wantValidation(t, err, "public schools or private schools")
 	_, err = f.svc.CreateUser(ctx, UserInput{Email: f.email("b"), FullName: "X", Scope: "platform", GroupID: &group.ID})
 	wantValidation(t, err, "not tied to a group")
 	_, err = f.svc.CreateUser(ctx, UserInput{Email: f.email("c"), FullName: "X", Scope: "galaxy"})
@@ -189,7 +229,7 @@ func TestCreateUser(t *testing.T) {
 	wantValidation(t, err, "is not a role")
 
 	// An email that is school staff would sign in as that staff member.
-	school, err := f.svc.CreateSchool(ctx, "School "+f.tag, "", nil)
+	school, err := f.svc.CreateSchool(ctx, "School "+f.tag, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -245,7 +285,7 @@ func TestAPlatformAdministratorIsAlwaysLeft(t *testing.T) {
 		_, _ = f.pool.Exec(context.Background(), `UPDATE platform_users SET is_active = true WHERE scope = 'platform' AND email NOT LIKE '%' || $1 || '%'`, f.tag)
 	})
 
-	group, _ := f.svc.CreateGroup(ctx, "Trust "+f.tag, "")
+	group := f.group("private")
 	first, err := f.svc.CreateUser(ctx, UserInput{Email: f.email("first"), FullName: "First", Scope: "platform"})
 	if err != nil {
 		t.Fatal(err)
@@ -284,7 +324,7 @@ func TestOperatorStaffRow(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
 	schools := tenant.NewService(f.pool)
-	school, err := f.svc.CreateSchool(ctx, "School "+f.tag, "", nil)
+	school, err := f.svc.CreateSchool(ctx, "School "+f.tag, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}

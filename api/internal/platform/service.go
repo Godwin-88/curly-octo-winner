@@ -89,18 +89,22 @@ func uniqueViolation(err error) bool {
 
 // --- Groups -----------------------------------------------------------------
 
-// Group is a school group with the number of schools in it.
+// Group is one of the two school groups — public schools and private schools
+// — with the number of schools in it. The groups are fixed: none is added or
+// removed, and a school is in the one for its kind.
 type Group struct {
 	ID          uuid.UUID `json:"id"`
 	Name        string    `json:"name"`
 	Slug        string    `json:"slug"`
+	Ownership   string    `json:"ownership"`
+	Description string    `json:"description"`
 	SchoolCount int       `json:"school_count"`
 	UserCount   int       `json:"user_count"`
 	CreatedAt   time.Time `json:"created_at"`
 }
 
 const groupSelect = `
-	SELECT g.id, g.name, g.slug,
+	SELECT g.id, g.name, g.slug, g.ownership, COALESCE(g.description, ''),
 	       (SELECT COUNT(*) FROM tenants t WHERE t.group_id = g.id),
 	       (SELECT COUNT(*) FROM platform_users u WHERE u.group_id = g.id AND u.is_active),
 	       g.created_at
@@ -108,14 +112,15 @@ const groupSelect = `
 
 func scanGroup(row pgx.Row) (*Group, error) {
 	var g Group
-	if err := row.Scan(&g.ID, &g.Name, &g.Slug, &g.SchoolCount, &g.UserCount, &g.CreatedAt); err != nil {
+	if err := row.Scan(&g.ID, &g.Name, &g.Slug, &g.Ownership, &g.Description, &g.SchoolCount, &g.UserCount, &g.CreatedAt); err != nil {
 		return nil, err
 	}
 	return &g, nil
 }
 
 func (s *Service) ListGroups(ctx context.Context) ([]Group, error) {
-	rows, err := s.pool.Query(ctx, groupSelect+` ORDER BY g.name`)
+	// Public first.
+	rows, err := s.pool.Query(ctx, groupSelect+` ORDER BY g.ownership DESC`)
 	if err != nil {
 		return nil, fmt.Errorf("query groups: %w", err)
 	}
@@ -139,32 +144,20 @@ func (s *Service) GetGroup(ctx context.Context, id uuid.UUID) (*Group, error) {
 	return g, err
 }
 
-func (s *Service) CreateGroup(ctx context.Context, name, slug string) (*Group, error) {
-	name = strings.TrimSpace(name)
+// UpdateGroup changes what a group is called and how it is described. Which
+// kind of school it holds does not change.
+func (s *Service) UpdateGroup(ctx context.Context, id uuid.UUID, name, description string) (*Group, error) {
+	name, description = strings.TrimSpace(name), strings.TrimSpace(description)
 	if name == "" {
 		return nil, invalid("Give the group a name.")
 	}
-	slug, err := cleanSlug(slug, name)
-	if err != nil {
-		return nil, err
+	if len([]rune(name)) > 255 {
+		return nil, invalid("Keep the name under 255 characters.")
 	}
-	var id uuid.UUID
-	err = s.pool.QueryRow(ctx, `INSERT INTO school_groups (name, slug) VALUES ($1, $2) RETURNING id`, name, slug).Scan(&id)
-	if uniqueViolation(err) {
-		return nil, invalid("Another group already uses the short name %q.", slug)
+	if len([]rune(description)) > 1000 {
+		return nil, invalid("Keep the description under 1,000 characters.")
 	}
-	if err != nil {
-		return nil, fmt.Errorf("insert group: %w", err)
-	}
-	return s.GetGroup(ctx, id)
-}
-
-func (s *Service) RenameGroup(ctx context.Context, id uuid.UUID, name string) (*Group, error) {
-	name = strings.TrimSpace(name)
-	if name == "" {
-		return nil, invalid("Give the group a name.")
-	}
-	tag, err := s.pool.Exec(ctx, `UPDATE school_groups SET name = $2 WHERE id = $1`, id, name)
+	tag, err := s.pool.Exec(ctx, `UPDATE school_groups SET name = $2, description = NULLIF($3, '') WHERE id = $1`, id, name, description)
 	if err != nil {
 		return nil, fmt.Errorf("update group: %w", err)
 	}
@@ -187,7 +180,8 @@ type School struct {
 	Ownership string     `json:"ownership"`
 }
 
-// SetOwnership records whether a school is public or private.
+// SetOwnership records whether a school is public or private, which is also
+// which group it is in: the database moves it.
 func (s *Service) SetOwnership(ctx context.Context, id uuid.UUID, ownership string) (*School, error) {
 	ownership = strings.ToLower(strings.TrimSpace(ownership))
 	if ownership != "public" && ownership != "private" {
@@ -245,21 +239,9 @@ func (s *Service) getSchool(ctx context.Context, id uuid.UUID) (*School, error) 
 	return &sc, nil
 }
 
-func (s *Service) checkGroup(ctx context.Context, groupID *uuid.UUID) error {
-	if groupID == nil {
-		return nil
-	}
-	var exists bool
-	if err := s.pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM school_groups WHERE id = $1)`, *groupID).Scan(&exists); err != nil {
-		return fmt.Errorf("query group: %w", err)
-	}
-	if !exists {
-		return invalid("That group does not exist.")
-	}
-	return nil
-}
-
-func (s *Service) CreateSchool(ctx context.Context, name, slug string, groupID *uuid.UUID) (*School, error) {
+// CreateSchool adds a bare school of the given kind. A school with its first
+// administrator is made by onboarding; this is the school alone.
+func (s *Service) CreateSchool(ctx context.Context, name, slug, ownership string) (*School, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return nil, invalid("Give the school a name.")
@@ -268,11 +250,15 @@ func (s *Service) CreateSchool(ctx context.Context, name, slug string, groupID *
 	if err != nil {
 		return nil, err
 	}
-	if err := s.checkGroup(ctx, groupID); err != nil {
-		return nil, err
+	ownership = strings.ToLower(strings.TrimSpace(ownership))
+	if ownership == "" {
+		ownership = "private"
+	}
+	if ownership != "public" && ownership != "private" {
+		return nil, invalid("Say whether the school is public or private.")
 	}
 	var id uuid.UUID
-	err = s.pool.QueryRow(ctx, `INSERT INTO tenants (name, slug, group_id) VALUES ($1, $2, $3) RETURNING id`, name, slug, groupID).Scan(&id)
+	err = s.pool.QueryRow(ctx, `INSERT INTO tenants (name, slug, ownership) VALUES ($1, $2, $3) RETURNING id`, name, slug, ownership).Scan(&id)
 	if uniqueViolation(err) {
 		return nil, invalid("Another school already uses the short name %q.", slug)
 	}
@@ -282,16 +268,14 @@ func (s *Service) CreateSchool(ctx context.Context, name, slug string, groupID *
 	return s.getSchool(ctx, id)
 }
 
-// UpdateSchool renames a school and moves it between groups (nil = no group).
-func (s *Service) UpdateSchool(ctx context.Context, id uuid.UUID, name string, groupID *uuid.UUID) (*School, error) {
+// UpdateSchool renames a school. Its group is not set here: it follows from
+// whether the school is public or private (SetOwnership).
+func (s *Service) UpdateSchool(ctx context.Context, id uuid.UUID, name string) (*School, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return nil, invalid("Give the school a name.")
 	}
-	if err := s.checkGroup(ctx, groupID); err != nil {
-		return nil, err
-	}
-	tag, err := s.pool.Exec(ctx, `UPDATE tenants SET name = $2, group_id = $3 WHERE id = $1`, id, name, groupID)
+	tag, err := s.pool.Exec(ctx, `UPDATE tenants SET name = $2 WHERE id = $1`, id, name)
 	if err != nil {
 		return nil, fmt.Errorf("update school: %w", err)
 	}
@@ -390,7 +374,9 @@ func (s *Service) normalise(ctx context.Context, in *UserInput) error {
 		if in.GroupID == nil {
 			return invalid("Choose the group this person belongs to.")
 		}
-		if err := s.checkGroup(ctx, in.GroupID); err != nil {
+		if _, err := s.GetGroup(ctx, *in.GroupID); errors.Is(err, ErrNotFound) {
+			return invalid("Choose public schools or private schools.")
+		} else if err != nil {
 			return err
 		}
 		if in.Role == "" {

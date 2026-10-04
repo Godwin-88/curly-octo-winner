@@ -16,7 +16,7 @@ export function visibleSections(ctx: Ctx, module: ModuleManifest): SectionDef[] 
 }
 
 /** Modules sold separately: a school has them or it does not. The API enforces it; this hides the menu. */
-export const SOLD_MODULES = ['communications', 'finance'];
+export const SOLD_MODULES = ['communications', 'finance', 'academic'];
 
 export function moduleEnabled(id: string, enabled: string[] | undefined): boolean {
   return !enabled || !SOLD_MODULES.includes(id) || enabled.includes(id);

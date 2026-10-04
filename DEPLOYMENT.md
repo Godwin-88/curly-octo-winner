@@ -60,7 +60,7 @@ go run ./cmd/migrate            # apply every pending migration
 go run ./cmd/migrate -baseline  # mark all as applied WITHOUT running them
 ```
 
-- **Fresh database:** `make migrate-up` creates the whole schema (001 → 044).
+- **Fresh database:** `make migrate-up` creates the whole schema (001 → 046).
 - **Render deploys do not run migrations** (that needs a paid instance's
   pre-deploy command — see `render.yaml`): run `make migrate-up` from a machine
   that can reach the database before deploying API code that depends on new
@@ -183,6 +183,34 @@ Statuses mean exactly this: **sent** — Africa's Talking accepted it;
 report said so. Without the callback, messages stay at *sent*.
 
 `AT_BASE_URL` must never be set in production; the server refuses to start.
+
+## Academic: observations, registers and report cards
+
+Academic is a module a school has or does not have (Platform → Schools →
+Choose modules); it covers the curriculum, observations, attendance and report
+cards. Migration 045 gives it to every school that already had an explicit
+list of modules.
+
+- **Observations** are recorded by the member of staff who is signed in; only
+  that teacher or a principal can remove one.
+- **The register** is marked one class at a time and never for a day that has
+  not happened (the date is Kenya's). "Text the parents of absent learners" is
+  off unless ticked, applies to today's register only, and sends one ordinary
+  message per absent learner: it appears under Communications with its
+  delivery, respects a parent's opt-out, and is sent once per learner per day
+  however often the register is saved. It needs the Communications module.
+- **Report cards** are drafts until published. A draft is built from the
+  term's observations (the latest level per sub-strand) and can be rebuilt,
+  commented on or deleted. A published card is what the parent portal shows; it
+  is not edited, rebuilt or deleted until a principal reopens it. The PDF is
+  produced when asked for and is not stored; `report_card_pdfs` is no longer
+  used.
+- **Curriculum.** A new school starts with the seven core competencies and
+  eight values. Learning areas are added per grade from Academic → Curriculum
+  ("Add the usual learning areas for…"), then edited. **Check that list against
+  the current KICD curriculum designs before relying on it**, and note that
+  strands and sub-strands are not supplied: the school enters the ones it
+  teaches, and observations are recorded against sub-strands.
 
 ## Getting a school started
 
@@ -317,10 +345,25 @@ of user live in `platform_users`:
 
 - `scope = 'group'` with a `group_id`: may open the schools of that group
   (`tenants.group_id`).
-- `scope = 'platform'`: may open any school.
+- `scope = 'platform'`: may open any school. With the role `super_admin` this
+  is the platform's own administrator.
+
+There are exactly two groups, **Public schools** and **Private schools**
+(migration 046). Every school is in the one for its kind: a school is created
+as public or private, and "Move to public or private" on the school is the
+only way it changes group. The database enforces both, so a group cannot be
+added or removed and a school cannot be put in the wrong one. A group's name
+and description can be edited. A group user therefore opens every public
+school, or every private one.
+
+Migration 046 removes any group that existed before. A user who was limited to
+one of those is moved to the public or private group and **deactivated**,
+because that group holds more schools than they were given; reactivate them
+under Platform → Users if that is intended.
 
 A platform administrator manages all of this in the web app under
-**Platform**: *Schools* (which group a school belongs to), *School groups*, and
+**Platform**: *Schools* (add a school with its principal, rename it, move it
+between public and private, choose its modules), *Groups*, and
 *Users* (create a platform or group user, reset a password, deactivate). A new
 user's password is generated and shown once, on the screen that created it.
 The last active platform administrator cannot be deactivated, and an email that

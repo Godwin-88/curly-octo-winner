@@ -2,6 +2,8 @@ package reports
 
 import (
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 	"strconv"
 
@@ -9,6 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/shule360/api/internal/middleware"
+	"github.com/shule360/api/pkg/apperr"
 	"github.com/shule360/api/pkg/httputil"
 )
 
@@ -26,12 +29,15 @@ func NewHandler(service *Service) *Handler {
 func (h *Handler) Mount(r chi.Router) {
 	r.Route("/reports", func(r chi.Router) {
 		r.Get("/", h.listReportCards)
+		r.Post("/generate", h.generateReportCard)
+		r.Post("/generate-class", h.generateForClass)
 		r.Get("/{id}", h.getReportCard)
 		r.Patch("/{id}", h.updateReportCard)
 		r.Delete("/{id}", h.deleteReportCard)
-		r.Post("/generate", h.generateReportCard)
-		r.Get("/{id}/pdf", h.getReportCardPDF)
-		r.Post("/{id}/pdf", h.generateReportCardPDF)
+		r.Get("/{id}/pdf", h.reportCardPDF)
+		r.Post("/{id}/publish", h.publishReportCard)
+		// Undoing a publication is for whoever runs the school.
+		r.With(middleware.RequireRole("principal", "super_admin")).Post("/{id}/reopen", h.reopenReportCard)
 	})
 
 	r.Route("/analytics", func(r chi.Router) {
@@ -47,166 +53,225 @@ func (h *Handler) Mount(r chi.Router) {
 
 // --- Report card handlers ---
 
-func (h *Handler) listReportCards(w http.ResponseWriter, r *http.Request) {
-	tenantID, ok := middleware.GetTenantID(r)
+// session returns the school and the signed-in member of staff.
+func session(w http.ResponseWriter, r *http.Request) (tenantID, staffID uuid.UUID, ok bool) {
+	tenantID, ok = middleware.GetTenantID(r)
 	if !ok {
 		httputil.RespondUnauthorized(w, "UNAUTHORIZED", "Tenant ID not found")
 		return
 	}
-	learnerID := r.URL.Query().Get("learner_id")
-	term, _ := strconv.Atoi(r.URL.Query().Get("term"))
-	year, _ := strconv.Atoi(r.URL.Query().Get("year"))
+	staffID, _ = middleware.GetStaffID(r)
+	return
+}
 
-	cards, err := h.service.ListReportCards(r.Context(), tenantID, learnerID, term, year)
+func cardID(w http.ResponseWriter, r *http.Request) (uuid.UUID, bool) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
 	if err != nil {
-		httputil.RespondInternalError(w, err)
+		httputil.RespondNotFound(w, "NOT_FOUND", "Not found")
+		return uuid.Nil, false
+	}
+	return id, true
+}
+
+func decode(w http.ResponseWriter, r *http.Request, into any) bool {
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<18))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(into); err != nil && !errors.Is(err, io.EOF) {
+		httputil.RespondBadRequest(w, "INVALID_REQUEST", "The request could not be read.")
+		return false
+	}
+	return true
+}
+
+func (h *Handler) listReportCards(w http.ResponseWriter, r *http.Request) {
+	tenantID, _, ok := session(w, r)
+	if !ok {
+		return
+	}
+	q := r.URL.Query()
+	term, _ := strconv.Atoi(q.Get("term"))
+	year, _ := strconv.Atoi(q.Get("year"))
+	cards, err := h.service.ListReportCards(r.Context(), tenantID, CardFilter{
+		LearnerID: q.Get("learner_id"), Grade: q.Get("grade"), Stream: q.Get("stream"),
+		Status: q.Get("status"), Term: term, Year: year,
+	})
+	if err != nil {
+		apperr.Respond(w, err)
 		return
 	}
 	httputil.RespondOK(w, cards)
 }
 
 func (h *Handler) getReportCard(w http.ResponseWriter, r *http.Request) {
-	tenantID, ok := middleware.GetTenantID(r)
+	tenantID, _, ok := session(w, r)
 	if !ok {
-		httputil.RespondUnauthorized(w, "UNAUTHORIZED", "Tenant ID not found")
 		return
 	}
-	id, err := uuid.Parse(chi.URLParam(r, "id"))
-	if err != nil {
-		httputil.RespondBadRequest(w, "INVALID_ID", "Invalid report card ID")
+	id, ok := cardID(w, r)
+	if !ok {
 		return
 	}
 	card, err := h.service.GetReportCard(r.Context(), tenantID, id)
 	if err != nil {
-		httputil.RespondNotFound(w, "NOT_FOUND", err.Error())
+		apperr.Respond(w, err)
 		return
 	}
 	httputil.RespondOK(w, card)
 }
 
+// generateReportCard builds one learner's draft card. The learner and term
+// may be given in the body or, as before, in the query string.
 func (h *Handler) generateReportCard(w http.ResponseWriter, r *http.Request) {
-	tenantID, ok := middleware.GetTenantID(r)
+	tenantID, staffID, ok := session(w, r)
 	if !ok {
-		httputil.RespondUnauthorized(w, "UNAUTHORIZED", "Tenant ID not found")
 		return
 	}
-	learnerID, err := uuid.Parse(r.URL.Query().Get("learner_id"))
+	var req struct {
+		LearnerID string `json:"learner_id"`
+		Term      int    `json:"term"`
+		Year      int    `json:"year"`
+		CardInput
+	}
+	if !decode(w, r, &req) {
+		return
+	}
+	q := r.URL.Query()
+	if req.LearnerID == "" {
+		req.LearnerID = q.Get("learner_id")
+	}
+	if req.Term == 0 {
+		req.Term, _ = strconv.Atoi(q.Get("term"))
+	}
+	if req.Year == 0 {
+		req.Year, _ = strconv.Atoi(q.Get("year"))
+	}
+	learnerID, err := uuid.Parse(req.LearnerID)
 	if err != nil {
-		httputil.RespondBadRequest(w, "INVALID_ID", "learner_id parameter is required")
+		httputil.RespondBadRequest(w, "INVALID", "Choose the learner to make a report card for.")
 		return
 	}
-	term, _ := strconv.Atoi(r.URL.Query().Get("term"))
-	year, _ := strconv.Atoi(r.URL.Query().Get("year"))
-	if term < 1 || term > 3 || year <= 0 {
-		httputil.RespondBadRequest(w, "INVALID_PARAM", "term (1-3) and year are required")
-		return
-	}
-
-	var req GenerateReportCardRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		httputil.RespondBadRequest(w, "INVALID_REQUEST", "Invalid request body: "+err.Error())
-		return
-	}
-
-	card, err := h.service.GenerateReportCard(r.Context(), tenantID, learnerID, term, year, req)
+	card, err := h.service.GenerateReportCard(r.Context(), tenantID, learnerID, req.Term, req.Year, staffID, req.CardInput)
 	if err != nil {
-		httputil.RespondBadRequest(w, "GENERATE_FAILED", err.Error())
+		apperr.Respond(w, err)
 		return
 	}
 	httputil.RespondOK(w, card)
+}
+
+func (h *Handler) generateForClass(w http.ResponseWriter, r *http.Request) {
+	tenantID, staffID, ok := session(w, r)
+	if !ok {
+		return
+	}
+	var req struct {
+		Grade  string `json:"grade"`
+		Stream string `json:"stream"`
+		Term   int    `json:"term"`
+		Year   int    `json:"year"`
+	}
+	if !decode(w, r, &req) {
+		return
+	}
+	result, err := h.service.GenerateForClass(r.Context(), tenantID, req.Grade, req.Stream, req.Term, req.Year, staffID)
+	if err != nil {
+		apperr.Respond(w, err)
+		return
+	}
+	httputil.RespondOK(w, result)
 }
 
 func (h *Handler) updateReportCard(w http.ResponseWriter, r *http.Request) {
-	tenantID, ok := middleware.GetTenantID(r)
+	tenantID, _, ok := session(w, r)
 	if !ok {
-		httputil.RespondUnauthorized(w, "UNAUTHORIZED", "Tenant ID not found")
 		return
 	}
-	id, err := uuid.Parse(chi.URLParam(r, "id"))
-	if err != nil {
-		httputil.RespondBadRequest(w, "INVALID_ID", "Invalid report card ID")
+	id, ok := cardID(w, r)
+	if !ok {
 		return
 	}
-	var req UpdateReportCardRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		httputil.RespondBadRequest(w, "INVALID_REQUEST", "Invalid request body: "+err.Error())
+	var req CardInput
+	if !decode(w, r, &req) {
 		return
 	}
 	card, err := h.service.UpdateReportCard(r.Context(), tenantID, id, req)
 	if err != nil {
-		httputil.RespondBadRequest(w, "UPDATE_FAILED", err.Error())
+		apperr.Respond(w, err)
+		return
+	}
+	httputil.RespondOK(w, card)
+}
+
+func (h *Handler) publishReportCard(w http.ResponseWriter, r *http.Request) {
+	tenantID, staffID, ok := session(w, r)
+	if !ok {
+		return
+	}
+	id, ok := cardID(w, r)
+	if !ok {
+		return
+	}
+	card, err := h.service.PublishReportCard(r.Context(), tenantID, id, staffID)
+	if err != nil {
+		apperr.Respond(w, err)
+		return
+	}
+	httputil.RespondOK(w, card)
+}
+
+func (h *Handler) reopenReportCard(w http.ResponseWriter, r *http.Request) {
+	tenantID, _, ok := session(w, r)
+	if !ok {
+		return
+	}
+	id, ok := cardID(w, r)
+	if !ok {
+		return
+	}
+	card, err := h.service.ReopenReportCard(r.Context(), tenantID, id)
+	if err != nil {
+		apperr.Respond(w, err)
 		return
 	}
 	httputil.RespondOK(w, card)
 }
 
 func (h *Handler) deleteReportCard(w http.ResponseWriter, r *http.Request) {
-	tenantID, ok := middleware.GetTenantID(r)
+	tenantID, _, ok := session(w, r)
 	if !ok {
-		httputil.RespondUnauthorized(w, "UNAUTHORIZED", "Tenant ID not found")
 		return
 	}
-	id, err := uuid.Parse(chi.URLParam(r, "id"))
-	if err != nil {
-		httputil.RespondBadRequest(w, "INVALID_ID", "Invalid report card ID")
+	id, ok := cardID(w, r)
+	if !ok {
 		return
 	}
 	if err := h.service.DeleteReportCard(r.Context(), tenantID, id); err != nil {
-		httputil.RespondInternalError(w, err)
+		apperr.Respond(w, err)
 		return
 	}
 	httputil.RespondNoContent(w)
 }
 
-func (h *Handler) generateReportCardPDF(w http.ResponseWriter, r *http.Request) {
-	tenantID, ok := middleware.GetTenantID(r)
+// reportCardPDF answers with the document itself.
+func (h *Handler) reportCardPDF(w http.ResponseWriter, r *http.Request) {
+	tenantID, _, ok := session(w, r)
 	if !ok {
-		httputil.RespondUnauthorized(w, "UNAUTHORIZED", "Tenant ID not found")
 		return
 	}
-
-	id, err := uuid.Parse(chi.URLParam(r, "id"))
-	if err != nil {
-		httputil.RespondBadRequest(w, "INVALID_ID", "Invalid report card ID")
-		return
-	}
-
-	staffID, _ := middleware.GetStaffID(r)
-	if staffID == uuid.Nil {
-		staffID = uuid.MustParse("00000000-0000-0000-0000-000000000000")
-	}
-
-	pdfRecord, err := h.service.GenerateReportCardPDF(r.Context(), tenantID, id, staffID)
-	if err != nil {
-		httputil.RespondBadRequest(w, "PDF_GENERATE_FAILED", err.Error())
-		return
-	}
-	httputil.RespondCreated(w, pdfRecord)
-}
-
-func (h *Handler) getReportCardPDF(w http.ResponseWriter, r *http.Request) {
-	tenantID, ok := middleware.GetTenantID(r)
+	id, ok := cardID(w, r)
 	if !ok {
-		httputil.RespondUnauthorized(w, "UNAUTHORIZED", "Tenant ID not found")
 		return
 	}
-
-	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	pdf, name, err := h.service.ReportCardPDF(r.Context(), tenantID, id)
 	if err != nil {
-		httputil.RespondBadRequest(w, "INVALID_ID", "Invalid report card ID")
+		apperr.Respond(w, err)
 		return
 	}
-
-	pdfs, err := h.service.ListReportCardPDFs(r.Context(), tenantID, id)
-	if err != nil {
-		httputil.RespondInternalError(w, err)
-		return
-	}
-	if len(pdfs) == 0 {
-		httputil.RespondNotFound(w, "NOT_FOUND", "No PDF generated yet")
-		return
-	}
-	httputil.RespondOK(w, pdfs[0])
+	w.Header().Set("Content-Type", "application/pdf")
+	w.Header().Set("Content-Disposition", `attachment; filename="`+name+`"`)
+	w.Header().Set("Content-Length", strconv.Itoa(len(pdf)))
+	// A learner's report is personal: it is not to be kept by a shared cache.
+	w.Header().Set("Cache-Control", "private, no-store")
+	_, _ = w.Write(pdf)
 }
 
 // --- Analytics handlers ---

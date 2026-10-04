@@ -3,7 +3,6 @@ package academic
 import (
 	"encoding/json"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -14,6 +13,7 @@ import (
 	"github.com/shule360/api/internal/academic/attendance"
 	"github.com/shule360/api/internal/academic/curriculum"
 	"github.com/shule360/api/internal/middleware"
+	"github.com/shule360/api/pkg/apperr"
 	"github.com/shule360/api/pkg/httputil"
 )
 
@@ -45,6 +45,7 @@ func (h *Handler) Mount(r chi.Router) {
 	r.Route("/curriculum", func(r chi.Router) {
 		r.Get("/learning-areas", h.listLearningAreas)
 		r.Post("/learning-areas", h.createLearningArea)
+		r.Post("/learning-areas/defaults", h.addDefaultLearningAreas)
 		r.Get("/learning-areas/{id}", h.getLearningArea)
 		r.Put("/learning-areas/{id}", h.updateLearningArea)
 		r.Delete("/learning-areas/{id}", h.deleteLearningArea)
@@ -130,6 +131,27 @@ func (h *Handler) createLearningArea(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httputil.RespondCreated(w, result)
+}
+
+// addDefaultLearningAreas adds the usual learning areas for one grade.
+func (h *Handler) addDefaultLearningAreas(w http.ResponseWriter, r *http.Request) {
+	tenantID, ok := middleware.GetTenantID(r)
+	if !ok {
+		httputil.RespondUnauthorized(w, "UNAUTHORIZED", "Tenant ID not found")
+		return
+	}
+	var req struct {
+		GradeLevel string `json:"grade_level"`
+	}
+	if !decodeBody(w, r, &req) {
+		return
+	}
+	added, err := h.curriculumSvc.AddDefaultLearningAreas(r.Context(), tenantID, req.GradeLevel)
+	if err != nil {
+		apperr.Respond(w, err)
+		return
+	}
+	httputil.RespondOK(w, map[string]any{"added": added, "grade_level": req.GradeLevel})
 }
 
 func (h *Handler) getLearningArea(w http.ResponseWriter, r *http.Request) {
@@ -376,38 +398,21 @@ func (h *Handler) createAssessment(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req assessment.CreateAssessmentRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		httputil.RespondBadRequest(w, "INVALID_REQUEST", "Invalid request body: "+err.Error())
+	if !decodeBody(w, r, &req) {
 		return
 	}
-
-	// An observation is only meaningful against a real learner, a real
-	// sub-strand and one of the four rubric levels. Catching it here returns a
-	// sentence a teacher can act on; the database would answer a constraint
-	// name instead.
-	if req.LearnerID == uuid.Nil {
-		httputil.RespondBadRequest(w, "LEARNER_REQUIRED", "Choose the learner you are observing.")
-		return
+	// Who observed is whoever is signed in, never a field of the request.
+	req.TeacherID, _ = middleware.GetStaffID(r)
+	if req.Term == 0 {
+		req.Term = currentTerm()
 	}
-	if req.SubStrandID == uuid.Nil {
-		httputil.RespondBadRequest(w, "SUB_STRAND_REQUIRED", "Choose the sub-strand being assessed.")
-		return
-	}
-	if req.RubricLevel < 1 || req.RubricLevel > 4 {
-		httputil.RespondBadRequest(w, "INVALID_RUBRIC_LEVEL",
-			"Pick a rubric level between 1 (Below Expectation) and 4 (Exceeding).")
-		return
-	}
-	if req.Term < 1 || req.Term > 3 {
-		httputil.RespondBadRequest(w, "INVALID_TERM", "Term must be 1, 2 or 3.")
-		return
+	if req.Year == 0 {
+		req.Year = currentYear()
 	}
 
 	result, err := h.assessmentSvc.Create(r.Context(), tenantID, req)
 	if err != nil {
-		httputil.RespondWriteError(w, err,
-			"That observation already exists for this learner and sub-strand.",
-			"That learner or sub-strand is not in your school.")
+		apperr.Respond(w, err)
 		return
 	}
 	httputil.RespondCreated(w, result)
@@ -428,7 +433,7 @@ func (h *Handler) getAssessment(w http.ResponseWriter, r *http.Request) {
 
 	result, err := h.assessmentSvc.GetByID(r.Context(), tenantID, id)
 	if err != nil {
-		httputil.RespondNotFound(w, "NOT_FOUND", err.Error())
+		apperr.Respond(w, err)
 		return
 	}
 	httputil.RespondOK(w, result)
@@ -447,11 +452,7 @@ func (h *Handler) listAssessmentsByLearner(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	term, _ := strconv.Atoi(r.URL.Query().Get("term"))
-	year, _ := strconv.Atoi(r.URL.Query().Get("year"))
-	if year == 0 {
-		year = time.Now().Year()
-	}
+	term, year := termParams(r)
 
 	results, err := h.assessmentSvc.ListByLearner(r.Context(), tenantID, learnerID, term, year)
 	if err != nil {
@@ -474,11 +475,7 @@ func (h *Handler) listTermSummaries(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	term, _ := strconv.Atoi(r.URL.Query().Get("term"))
-	year, _ := strconv.Atoi(r.URL.Query().Get("year"))
-	if year == 0 {
-		year = time.Now().Year()
-	}
+	term, year := termParams(r)
 
 	results, err := h.assessmentSvc.ListSummariesByLearner(r.Context(), tenantID, learnerID, term, year)
 	if err != nil {
@@ -501,8 +498,11 @@ func (h *Handler) deleteAssessment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.assessmentSvc.Delete(r.Context(), tenantID, id); err != nil {
-		httputil.RespondBadRequest(w, "DELETE_FAILED", err.Error())
+	staffID, _ := middleware.GetStaffID(r)
+	role, _ := middleware.GetStaffRole(r)
+	manager := role == "principal" || role == "super_admin"
+	if err := h.assessmentSvc.Delete(r.Context(), tenantID, id, staffID, manager); err != nil {
+		apperr.Respond(w, err)
 		return
 	}
 	httputil.RespondNoContent(w)
@@ -518,21 +518,16 @@ func (h *Handler) markAttendance(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req attendance.CreateAttendanceRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		httputil.RespondBadRequest(w, "INVALID_REQUEST", "Invalid request body: "+err.Error())
+	if !decodeBody(w, r, &req) {
 		return
 	}
+	req.MarkedBy, _ = middleware.GetStaffID(r)
 
 	result, err := h.attendanceSvc.MarkAttendance(r.Context(), tenantID, req)
 	if err != nil {
-		httputil.RespondBadRequest(w, "MARK_FAILED", err.Error())
+		respondAttendanceErr(w, err)
 		return
 	}
-
-	if result.Status == "absent" && (result.Reason == "" || !result.SMSNotified) {
-		_ = h.absenceAlertSvc.CheckAndAlert(r.Context(), tenantID, result.Date, "", "")
-	}
-
 	httputil.RespondCreated(w, result)
 }
 
@@ -599,7 +594,7 @@ func (h *Handler) getAttendance(w http.ResponseWriter, r *http.Request) {
 
 	result, err := h.attendanceSvc.GetByID(r.Context(), tenantID, id)
 	if err != nil {
-		httputil.RespondNotFound(w, "NOT_FOUND", err.Error())
+		apperr.Respond(w, err)
 		return
 	}
 	httputil.RespondOK(w, result)

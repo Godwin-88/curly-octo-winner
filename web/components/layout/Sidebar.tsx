@@ -252,7 +252,9 @@ export default function Sidebar({
 
   const visibleNavItems = navItems.filter((item) => {
     // A module the school has not bought is not offered.
-    if (!moduleEnabled(item.label.toLowerCase(), enabledModules)) return false;
+    // Report cards and analytics are part of Academic.
+    const moduleId = item.label === 'Reports & Analytics' ? 'academic' : item.label.toLowerCase();
+    if (!moduleEnabled(moduleId, enabledModules)) return false;
     if (!item.href) return true; // groups are filtered via children below
     return canSee(item.href);
   });

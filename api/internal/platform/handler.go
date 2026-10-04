@@ -27,9 +27,8 @@ func (h *Handler) Mount(r chi.Router) {
 		r.Use(middleware.RequirePlatform)
 
 		r.Get("/groups", h.listGroups)
-		r.Post("/groups", h.createGroup)
 		r.Get("/groups/{id}", h.getGroup)
-		r.Patch("/groups/{id}", h.renameGroup)
+		r.Patch("/groups/{id}", h.updateGroup)
 
 		r.Post("/schools", h.createSchool)
 		r.Patch("/schools/{id}", h.updateSchool)
@@ -97,34 +96,19 @@ func (h *Handler) getGroup(w http.ResponseWriter, r *http.Request) {
 	httputil.RespondOK(w, group)
 }
 
-func (h *Handler) createGroup(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Name string `json:"name"`
-		Slug string `json:"slug"`
-	}
-	if !decode(w, r, &req) {
-		return
-	}
-	group, err := h.service.CreateGroup(r.Context(), req.Name, req.Slug)
-	if err != nil {
-		respondError(w, err)
-		return
-	}
-	httputil.RespondCreated(w, group)
-}
-
-func (h *Handler) renameGroup(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) updateGroup(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathID(w, r)
 	if !ok {
 		return
 	}
 	var req struct {
-		Name string `json:"name"`
+		Name        string `json:"name"`
+		Description string `json:"description"`
 	}
 	if !decode(w, r, &req) {
 		return
 	}
-	group, err := h.service.RenameGroup(r.Context(), id, req.Name)
+	group, err := h.service.UpdateGroup(r.Context(), id, req.Name, req.Description)
 	if err != nil {
 		respondError(w, err)
 		return
@@ -133,9 +117,9 @@ func (h *Handler) renameGroup(w http.ResponseWriter, r *http.Request) {
 }
 
 type schoolRequest struct {
-	Name    string     `json:"name"`
-	Slug    string     `json:"slug"`
-	GroupID *uuid.UUID `json:"group_id"`
+	Name      string `json:"name"`
+	Slug      string `json:"slug"`
+	Ownership string `json:"ownership"`
 }
 
 func (h *Handler) createSchool(w http.ResponseWriter, r *http.Request) {
@@ -143,7 +127,7 @@ func (h *Handler) createSchool(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &req) {
 		return
 	}
-	school, err := h.service.CreateSchool(r.Context(), req.Name, req.Slug, req.GroupID)
+	school, err := h.service.CreateSchool(r.Context(), req.Name, req.Slug, req.Ownership)
 	if err != nil {
 		respondError(w, err)
 		return
@@ -160,7 +144,7 @@ func (h *Handler) updateSchool(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &req) {
 		return
 	}
-	school, err := h.service.UpdateSchool(r.Context(), id, req.Name, req.GroupID)
+	school, err := h.service.UpdateSchool(r.Context(), id, req.Name)
 	if err != nil {
 		respondError(w, err)
 		return

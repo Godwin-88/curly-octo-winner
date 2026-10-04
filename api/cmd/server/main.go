@@ -120,9 +120,6 @@ func main() {
 	}
 	_ = b2Client
 
-	// Initialize Africa's Talking SMS client
-	atClient := sms.NewATClient(cfg.ATAPIKey, cfg.ATUsername, cfg.ATSenderID, cfg.IsProduction()).WithBaseURL(cfg.ATBaseURL)
-
 	// Initialize SMS service (templates; sending is the dispatcher below)
 	smsService := sms.NewSMSService(sb.Pool)
 
@@ -185,7 +182,7 @@ func main() {
 	curriculumSvc := curriculum.NewService(sb.Pool)
 	assessmentSvc := assessment.NewService(sb.Pool)
 	attendanceSvc := attendance.NewService(sb.Pool)
-	absenceAlertSvc := attendance.NewAbsenceAlertService(sb.Pool, atClient)
+	absenceAlertSvc := attendance.NewAbsenceAlertService(sb.Pool, commsService)
 	academicHandler := academic.NewHandler(curriculumSvc, assessmentSvc, attendanceSvc, absenceAlertSvc)
 
 	// Initialize learner services (EPIC 3)
@@ -391,11 +388,14 @@ func main() {
 					commsHandler.Mount(r)
 				})
 				onboardingHandler.MountSchool(r)
-				academicHandler.Mount(r)
+				r.Group(func(r chi.Router) {
+					r.Use(appmiddleware.RequireModule(tenantService, "academic", "Academic"))
+					academicHandler.Mount(r)
+					reportsHandler.Mount(r)
+				})
 				learnerHandler.Mount(r)
 				learnerImportHandler.Mount(r)
 				transportHandler.Mount(r)
-				reportsHandler.Mount(r)
 				teacherHandler.Mount(r)
 
 				// Settings: every staff member can read the school's

@@ -5,6 +5,8 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
+
+	"github.com/shule360/api/pkg/apperr"
 )
 
 // BulkMarkRequest marks a whole register in one call.
@@ -27,6 +29,11 @@ type BulkMarkRequest struct {
 type BulkMarkResult struct {
 	Saved int    `json:"saved"`
 	Date  string `json:"date"`
+	// Alerts is set when the register asked for parents to be texted.
+	Alerts *AlertResult `json:"alerts,omitempty"`
+	// AlertError says why parents could not be texted although the register
+	// itself was saved.
+	AlertError string `json:"alert_error,omitempty"`
 }
 
 // MarkBulk records every mark in a single statement.
@@ -38,10 +45,10 @@ type BulkMarkResult struct {
 // CTE that reports how many rows it touched.
 func (s *Service) MarkBulk(ctx context.Context, tenantID uuid.UUID, req BulkMarkRequest) (*BulkMarkResult, error) {
 	if len(req.Marks) == 0 {
-		return nil, fmt.Errorf("no marks supplied")
+		return nil, apperr.Invalid("Mark at least one learner before saving.")
 	}
-	if req.Date.IsZero() {
-		return nil, fmt.Errorf("date is required")
+	if err := checkDate(req.Date); err != nil {
+		return nil, err
 	}
 
 	// Reject the whole batch if any mark is invalid, rather than saving 30 valid
@@ -53,18 +60,29 @@ func (s *Service) MarkBulk(ctx context.Context, tenantID uuid.UUID, req BulkMark
 
 	for i, m := range req.Marks {
 		if m.LearnerID == uuid.Nil {
-			return nil, fmt.Errorf("mark %d is missing learner_id", i+1)
+			return nil, apperr.Invalid("Mark %d has no learner.", i+1)
 		}
 		if !validStatuses[m.Status] {
 			return nil, fmt.Errorf("mark %d: %w", i+1, ErrInvalidStatus)
 		}
 		if seen[m.LearnerID] {
-			return nil, fmt.Errorf("learner %s appears twice in the same register", m.LearnerID)
+			return nil, apperr.Invalid("A learner appears twice in the same register.")
 		}
 		seen[m.LearnerID] = true
 		learnerIDs = append(learnerIDs, m.LearnerID.String())
 		statuses = append(statuses, string(m.Status))
 		reasons = append(reasons, m.Reason)
+	}
+
+	// A foreign key only proves a learner exists, not that they are this
+	// school's: a register naming another school's learner is refused whole.
+	var inSchool int
+	if err := s.pool.QueryRow(ctx, `SELECT COUNT(*) FROM learners WHERE tenant_id = $1 AND id = ANY($2::uuid[])`,
+		tenantID, learnerIDs).Scan(&inSchool); err != nil {
+		return nil, fmt.Errorf("check learners: %w", err)
+	}
+	if inSchool != len(learnerIDs) {
+		return nil, apperr.Invalid("One of the learners is not in your school. Refresh the register and try again.")
 	}
 
 	// The marker is the same authenticated staff member across the register, so
@@ -74,18 +92,17 @@ func (s *Service) MarkBulk(ctx context.Context, tenantID uuid.UUID, req BulkMark
 	var saved int
 	err := s.pool.QueryRow(ctx, `
 WITH written AS (
-INSERT INTO attendance (tenant_id, learner_id, date, status, marked_by, reason, sms_notified)
-SELECT $1, u.learner_id::uuid, $2, u.status, $3, u.reason, $4
-FROM unnest($5::text[], $6::text[], $7::text[])
+INSERT INTO attendance (tenant_id, learner_id, date, status, marked_by, reason)
+SELECT $1, u.learner_id::uuid, $2, u.status, $3, u.reason
+FROM unnest($4::text[], $5::text[], $6::text[])
 AS u(learner_id, status, reason)
 ON CONFLICT (tenant_id, learner_id, date)
 DO UPDATE SET status = EXCLUDED.status, marked_by = EXCLUDED.marked_by,
-              reason = EXCLUDED.reason, sms_notified = EXCLUDED.sms_notified,
-              updated_at = now()
+              reason = EXCLUDED.reason, updated_at = now()
 RETURNING 1
 )
 SELECT COUNT(*) FROM written
-`, tenantID, req.Date.Time, markedByArg(markedBy), req.Notify,
+`, tenantID, req.Date.Time, markedByArg(markedBy),
 		learnerIDs, statuses, reasons).Scan(&saved)
 	if err != nil {
 		// A learner id outside this tenant violates the foreign key. The single

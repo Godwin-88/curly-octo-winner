@@ -122,9 +122,6 @@ func (h *Handler) signup(w http.ResponseWriter, r *http.Request) {
 		respond(w, invalid("password", "Choose a password of at least 10 characters."))
 		return
 	}
-	// A person registering their own school never chooses a group.
-	req.GroupID = nil
-
 	created, err := h.service.RegisterSchool(r.Context(), req.Registration)
 	if err != nil {
 		respond(w, err)

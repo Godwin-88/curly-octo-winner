@@ -35,7 +35,7 @@ export default function AttendancePage() {
   // Default to today in the browser's own timezone — a teacher in Nairobi
   // marking the register at 7am should not be handed yesterday's date because
   // the server is on UTC.
-  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState(() => new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Nairobi' }).format(new Date()));
   const [tab, setTab] = useState<Tab>('daily');
 
   const [summary, setSummary] = useState<AttendanceSummaryCounts | null>(null);
@@ -88,7 +88,7 @@ export default function AttendancePage() {
             type="date"
             className="input"
             value={date}
-            max={new Date().toISOString().slice(0, 10)}
+            max={new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Nairobi' }).format(new Date())}
             onChange={(e) => setDate(e.target.value)}
           />
         </div>
@@ -129,8 +129,20 @@ export default function AttendancePage() {
           <div className="lg:col-span-2">
             <AttendanceRegister
               date={date}
-              onSaved={async ({ saved }) => {
-                setNotice(`Register saved — ${saved} learner${saved === 1 ? '' : 's'} recorded.`);
+              onSaved={async ({ saved, alerts, alertError }) => {
+                // Say what happened to the texts as plainly as what happened to
+                // the register: who was told, who was not and why.
+                const parts = [`Register saved — ${saved} learner${saved === 1 ? '' : 's'} recorded.`];
+                if (alertError) parts.push(alertError);
+                if (alerts) {
+                  parts.push(
+                    alerts.sent > 0
+                      ? `A text is on its way to the parents of ${alerts.sent} absent learner${alerts.sent === 1 ? '' : 's'}; see Communications for delivery.`
+                      : 'No new texts were sent.'
+                  );
+                  for (const s of alerts.skipped) parts.push(`${s.learner_name} — not texted: ${s.reason}`);
+                }
+                setNotice(parts.join(' '));
                 await loadStats();
               }}
             />
