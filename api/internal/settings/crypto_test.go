@@ -126,7 +126,9 @@ func TestIsPlaceholder(t *testing.T) {
 			t.Errorf("isPlaceholder(%q) = false, want true", v)
 		}
 	}
-	real := []string{"atsk_f87ab869ce725ef", "humane-gopher.upstash.io", "gQAAAAAABJv2AAIg"}
+	// Made-up values shaped like real ones. A test never carries a real
+	// credential, a real host, or any part of either.
+	real := []string{"atsk_0123456789abcde", "example-instance.upstash.io", "gQAAAAAAexampleToken"}
 	for _, v := range real {
 		if isPlaceholder(v) {
 			t.Errorf("isPlaceholder(%q) = true, want false", v)

@@ -5,7 +5,7 @@ import "testing"
 // base is the minimum environment that boots in production.
 func base() map[string]string {
 	return map[string]string{
-		"DATABASE_URL":              "postgres://user:pass@db:5432/shule360",
+		"DATABASE_URL":              "postgres://user:password@db:5432/shule360",
 		"SUPABASE_URL":              "https://project.supabase.co",
 		"SUPABASE_SERVICE_ROLE_KEY": "service-role-key",
 		"JWT_SECRET":                "a-real-secret",
@@ -24,7 +24,7 @@ func TestMpesaPlaceholderDoesNotBlockBoot(t *testing.T) {
 	env := base()
 	// A real consumer key next to an unfilled passkey, which is the state the
 	// service was actually in.
-	env["MPESA_CONSUMER_KEY"] = "7i9Th1TRNiIkOeq7LBcuAG8x7GCl8SpwVngMwkytO6BLA"
+	env["MPESA_CONSUMER_KEY"] = "Zq3Lw8Rt5Yb1Nc6Vd9Mf2Hg7Jk4Pp0Sa8Xe3Ui6OoTy1Bn"
 	env["MPESA_PASSKEY"] = "your_mpesa_passkey_here"
 	// Deliberately no MPESA_ALLOWED_IPS.
 
@@ -110,11 +110,12 @@ func TestLooksPlaceholderKeepsAmbiguousMarkers(t *testing.T) {
 		}
 	}
 
-	// A realistic Daraja consumer key: no marker, and it contains "xxx" in a
+	// Made-up strings shaped like a Daraja consumer key (never a real one, not
+	// even part of one): no marker, and it contains "xxx" in a
 	// position where base64url could plausibly produce it.
 	reals := []string{
-		"7i9Th1TRNiIkOeq7LBcuAG8x7GCl8SpwVngMwkytO6BLA",
-		"AXpMil1EaXj7JmfD8PAgV21TAl8iCE4fRT8SSCKlHn",
+		"Zq3Lw8Rt5Yb1Nc6Vd9Mf2Hg7Jk4Pp0Sa8Xe3Ui6OoTy1Bn",
+		"Kd7Fs2Gh9Jl4Qw1Er6Ty3Ui8Op5As0Df2Gh7Jk4Lz9Xc",
 		"abcxxxdef",
 	}
 	for _, v := range reals {
