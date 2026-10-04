@@ -96,7 +96,7 @@ function LoginForm() {
           {showDemoCredentials && (
             <div className="mt-6 p-4 bg-gray-50 rounded-md text-sm text-gray-600">
               <p className="font-medium mb-2">Demo credentials (development only):</p>
-              <p>super_admin: admin@juakali.sch.ke / password123</p>
+              <p>platform admin: ops@shule360.test / password123</p>
               <p>principal: principal@juakali.sch.ke / password123</p>
               <p>bursar: bursar@juakali.sch.ke / password123</p>
               <p>teacher: teacher1@juakali.sch.ke / password123</p>

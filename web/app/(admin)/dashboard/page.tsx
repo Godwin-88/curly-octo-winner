@@ -24,8 +24,7 @@ import PaymentChannelPie from '@/components/dashboard/PaymentChannelPie';
 import MonthlyTrendLine from '@/components/dashboard/MonthlyTrendLine';
 import CompetencyBar from '@/components/dashboard/CompetencyBar';
 import LearningAreaRadar from '@/components/dashboard/LearningAreaRadar';
-import KenyaMap from '@/components/dashboard/KenyaMap';
-import { PILOT_SCHOOL } from '@/lib/nairobi';
+import { settings as settingsApi } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 
 export default function DashboardPage() {
@@ -42,16 +41,23 @@ export default function DashboardPage() {
   const [failedEndpoints, setFailedEndpoints] = useState<string[]>([]);
 
   // Filters
-  const [term, setTerm] = useState(1);
-  const [year, setYear] = useState(2026);
+  // Kenyan school terms: January–April, May–August, September–December.
+  const [term, setTerm] = useState(() => Math.min(3, Math.floor(new Date().getMonth() / 4) + 1));
+  const [year, setYear] = useState(() => new Date().getFullYear());
   const [grade, setGrade] = useState('');
   const [stream, setStream] = useState('');
-  const [county, setCounty] = useState('');
-  const [subCounty, setSubCounty] = useState('');
+  // The school that is signed in to (or that a platform user has opened),
+  // never a fixed one.
+  const [school, setSchool] = useState<{ name: string; county?: string } | null>(null);
 
   const load = async () => {
     if (!staff) return;
     setLoading(true);
+
+    settingsApi.get(token).then(
+      (bundle) => setSchool({ name: bundle.profile.name, county: bundle.profile.county }),
+      () => setSchool(null),
+    );
 
     const results = await Promise.allSettled([
       api.getSchoolOverview(token).then((v) => ({ k: 'overview' as const, v })),
@@ -137,12 +143,12 @@ export default function DashboardPage() {
         <div>
           <h1 className="text-2xl font-bold">Dashboard</h1>
           <p className="text-gray-500">
-            School overview · {PILOT_SCHOOL.name} ({PILOT_SCHOOL.subCounty}, {PILOT_SCHOOL.county})
+            School overview{school ? ` · ${school.name}` : ''}
           </p>
         </div>
         <div className="inline-flex items-center gap-1 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-full text-sm">
           <MapPin size={14} />
-          {subCounty ? `${subCounty}, ${county}` : county ? county : 'Kenya'}
+          {school?.county ? `${school.county} County` : 'Kenya'}
         </div>
       </div>
 
@@ -224,23 +230,6 @@ export default function DashboardPage() {
             <ChartCard title="Learning Area Performance" subtitle="Average rubric level across learning areas">
               <LearningAreaRadar data={radarData} />
             </ChartCard>
-          </div>
-
-          {/* Kenya map - full width */}
-          <div className="mt-6 bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-            <h2 className="text-lg font-semibold text-gray-900">Kenya School Map</h2>
-            <p className="text-sm text-gray-500 mt-1">
-              Drill down to your county and sub-county to focus the dashboard on your locale.
-            </p>
-            <div className="mt-4">
-              <KenyaMap
-                selectedSubCounty={subCounty}
-                onSelect={(s) => {
-                  setCounty('Nairobi');
-                  setSubCounty(s);
-                }}
-              />
-            </div>
           </div>
         </>
       )}

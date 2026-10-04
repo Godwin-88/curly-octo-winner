@@ -77,6 +77,14 @@ test('a school is registered in three steps and lands on what to set up', async 
   await page.goto('/finance/fee-items');
   await expect(page.getByRole('link', { name: 'Lunch programme' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Tuition', exact: true })).toHaveCount(0);
+
+  // The dashboard is this school's: its own name and county, not the pilot's.
+  await page.goto('/dashboard');
+  const dashboard = page.getByRole('main');
+  await expect(dashboard.getByText(`School overview · ${SCHOOL}`)).toBeVisible();
+  await expect(dashboard.getByText('Nakuru County')).toBeVisible();
+  await expect(dashboard).not.toContainText('Jua Kali');
+  await expect(dashboard).not.toContainText('Kasarani');
 });
 
 test('the principal adds a teacher, who signs in; deactivating them signs them out at once', async ({ page }) => {
