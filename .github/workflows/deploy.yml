@@ -175,11 +175,17 @@ jobs:
           # has to be passed through GitHub Actions.
           NEXT_PUBLIC_API_URL=https://api.invalid npx next build
 
+      # The three Vercel steps run from the repository root, not from web/. The
+      # Vercel project's Root Directory is `web`, and the CLI applies it to the
+      # directory it is run in: run from web/, it looks for web/web and the
+      # install command fails with "spawn sh ENOENT".
+      #
       # `vercel pull` downloads the project settings (root directory, build
       # command, framework preset) and the project's own environment variables —
       # including NEXT_PUBLIC_API_URL, which next.config.js bakes into the
       # /api/v1 rewrite target — into .vercel/.
       - name: Pull the Vercel project settings
+        working-directory: .
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
@@ -193,12 +199,14 @@ jobs:
           npx --yes vercel@62 pull --yes --environment=production --token="$VERCEL_TOKEN"
 
       - name: Build with the Vercel build pipeline
+        working-directory: .
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: npx --yes vercel@62 build --prod --token="$VERCEL_TOKEN"
 
       - name: Deploy to Vercel (production)
         id: deploy
+        working-directory: .
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
@@ -224,7 +232,7 @@ jobs:
         if: failure()
         with:
           name: vercel-build-output
-          path: web/.vercel/output
+          path: .vercel/output
           retention-days: 3
           if-no-files-found: ignore
 
