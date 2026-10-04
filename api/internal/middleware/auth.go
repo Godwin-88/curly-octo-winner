@@ -57,6 +57,9 @@ type SchoolLookup interface {
 	// user inside a school, creating it on first use, and the role they hold
 	// now. active is false when the user has been deactivated.
 	OperatorStaff(ctx context.Context, schoolID, operatorID uuid.UUID) (staffID uuid.UUID, role string, active bool, err error)
+	// StaffAccess returns the role a member of a school's staff holds now.
+	// active is false when they have been deactivated or no longer exist.
+	StaffAccess(ctx context.Context, schoolID, staffID uuid.UUID) (role string, active bool, err error)
 }
 
 // Claims represents the JWT claims structure for Shule360.
@@ -167,8 +170,26 @@ func Auth(jwtSecret string, secure bool, schools SchoolLookup) func(http.Handler
 				return
 			}
 
+			// The role and whether the account is still active are read on
+			// every request, not taken from the token: a user who is
+			// deactivated, or whose role is changed, is affected at once
+			// rather than when their session next expires.
+			role := claims.Role
+			if schools != nil {
+				current, active, lookupErr := schools.StaffAccess(r.Context(), tenantID, staffID)
+				if lookupErr != nil {
+					httputil.RespondInternalError(w, lookupErr)
+					return
+				}
+				if !active {
+					httputil.RespondUnauthorized(w, "ACCOUNT_DEACTIVATED", "This account can no longer sign in. Ask your school's principal.")
+					return
+				}
+				role = current
+			}
+
 			ctx = context.WithValue(ctx, ContextKeyStaffID, staffID)
-			ctx = context.WithValue(ctx, ContextKeyStaffRole, claims.Role)
+			ctx = context.WithValue(ctx, ContextKeyStaffRole, role)
 			r = r.WithContext(ctx)
 			setIdentityHeaders(r)
 			next.ServeHTTP(w, r)
@@ -338,6 +359,37 @@ func RequireRole(allowedRoles ...string) func(http.Handler) http.Handler {
 			role, ok := r.Context().Value(ContextKeyStaffRole).(string)
 			if !ok || !allowed[role] {
 				httputil.RespondForbidden(w, "FORBIDDEN", "Insufficient permissions")
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// ModuleLookup answers whether a school has a module.
+type ModuleLookup interface {
+	ModuleEnabled(ctx context.Context, schoolID uuid.UUID, module string) (bool, error)
+}
+
+// RequireModule refuses a request for a module the school in context does not
+// have. It runs after Auth, which decides the school. The answer is read on
+// every request, so switching a module off takes effect at once.
+func RequireModule(lookup ModuleLookup, module, label string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			tenantID, ok := r.Context().Value(ContextKeyTenantID).(uuid.UUID)
+			if !ok || tenantID == uuid.Nil {
+				// No school chosen: the tenant middleware answers that.
+				next.ServeHTTP(w, r)
+				return
+			}
+			enabled, err := lookup.ModuleEnabled(r.Context(), tenantID, module)
+			if err != nil {
+				httputil.RespondInternalError(w, err)
+				return
+			}
+			if !enabled {
+				httputil.RespondForbidden(w, "MODULE_NOT_ENABLED", label+" is not part of this school's plan.")
 				return
 			}
 			next.ServeHTTP(w, r)

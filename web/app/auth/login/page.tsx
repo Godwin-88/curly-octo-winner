@@ -2,6 +2,7 @@
 
 import { Suspense, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import Link from 'next/link';
 import { useAuth } from '@/lib/auth';
 
 // The page reads ?next= via useSearchParams, so it must render dynamically
@@ -88,6 +89,10 @@ function LoginForm() {
               {loading ? 'Signing in...' : 'Sign In'}
             </button>
           </form>
+          <p className="mt-5 text-center text-sm text-gray-600">
+            New to Shule360?{' '}
+            <Link href="/auth/register" className="font-semibold text-blue-700 underline">Register your school</Link>
+          </p>
           {showDemoCredentials && (
             <div className="mt-6 p-4 bg-gray-50 rounded-md text-sm text-gray-600">
               <p className="font-medium mb-2">Demo credentials (development only):</p>

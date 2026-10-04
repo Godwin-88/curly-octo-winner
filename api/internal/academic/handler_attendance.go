@@ -2,12 +2,14 @@ package academic
 
 import (
 	"errors"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/shule360/api/internal/academic/attendance"
 	"github.com/shule360/api/internal/middleware"
+	"github.com/shule360/api/pkg/apperr"
 	"github.com/shule360/api/pkg/httputil"
 )
 
@@ -40,27 +42,36 @@ func (h *Handler) markAttendanceBulk(w http.ResponseWriter, r *http.Request) {
 
 	result, err := h.attendanceSvc.MarkBulk(r.Context(), tenantID, req)
 	if err != nil {
-		switch {
-		case errors.Is(err, attendance.ErrInvalidStatus):
-			httputil.RespondBadRequest(w, "INVALID_STATUS", err.Error())
-		case httputil.IsForeignKeyViolation(err):
-			// A learner id from another tenant (or a deleted one) reaches the
-			// foreign key. Say so in words: the raw constraint name helps nobody.
-			httputil.RespondBadRequest(w, "INVALID_LEARNER",
-				"One of the learners is not in your school. Refresh the register and try again.")
-		default:
-			httputil.RespondBadRequest(w, "MARK_FAILED", err.Error())
-		}
+		respondAttendanceErr(w, err)
 		return
 	}
 
-	// One alert pass for the day: a per-learner hook would send a duplicate SMS
-	// for every absent learner in the same class.
-	if h.absenceAlertSvc != nil {
-		_ = h.absenceAlertSvc.CheckAndAlert(r.Context(), tenantID, req.Date.Time, "", "")
+	// The register is saved whatever happens to the alerts; what was done
+	// about them is reported beside it rather than swallowed.
+	if req.Notify {
+		staffID, _ := middleware.GetStaffID(r)
+		alerts, err := h.absenceAlertSvc.AlertAbsences(r.Context(), tenantID, staffID, req.Date.Time)
+		var refusal *apperr.ValidationError
+		switch {
+		case err == nil:
+			result.Alerts = alerts
+		case errors.As(err, &refusal):
+			result.AlertError = refusal.Message
+		default:
+			slog.Error("absence alerts failed", "tenant_id", tenantID, "date", result.Date, "error", err)
+			result.AlertError = "The register was saved, but the parents could not be texted. Try again from the register."
+		}
 	}
 
 	httputil.RespondOK(w, result)
+}
+
+func respondAttendanceErr(w http.ResponseWriter, err error) {
+	if errors.Is(err, attendance.ErrInvalidStatus) {
+		httputil.RespondBadRequest(w, "INVALID_STATUS", err.Error())
+		return
+	}
+	apperr.Respond(w, err)
 }
 
 // attendanceSummary powers the "today at a glance" panel.

@@ -4,14 +4,26 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/shule360/api/pkg/httputil"
+	"github.com/shule360/api/pkg/pgxutil"
 )
 
 // Service handles finance domain operations.
+//
+// The rules it keeps:
+//   - a learner is billed once per term;
+//   - an invoice's status and totals follow from its payments and discounts,
+//     and are never set by hand;
+//   - money recorded is never deleted: an invoice is voided, a payment is
+//     reversed, each with who, when and why;
+//   - every confirmed payment has a receipt number, in sequence per school.
 type Service struct {
 	pool *pgxpool.Pool
 }
@@ -19,6 +31,77 @@ type Service struct {
 // NewService creates a finance service.
 func NewService(pool *pgxpool.Pool) *Service {
 	return &Service{pool: pool}
+}
+
+// ErrNotFound: the record does not exist in this school.
+var ErrNotFound = errors.New("not found")
+
+// ValidationError is a request the caller can correct.
+type ValidationError struct{ Message string }
+
+func (e *ValidationError) Error() string { return e.Message }
+
+func invalid(format string, args ...any) error {
+	return &ValidationError{Message: fmt.Sprintf(format, args...)}
+}
+
+// ConflictError is a request that is well formed but contradicts what is
+// already recorded.
+type ConflictError struct{ Message string }
+
+func (e *ConflictError) Error() string { return e.Message }
+
+func conflict(format string, args ...any) error {
+	return &ConflictError{Message: fmt.Sprintf(format, args...)}
+}
+
+// notFound turns the driver's "no rows" into ErrNotFound.
+func notFound(err error) error {
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	}
+	return err
+}
+
+// KES writes an amount in cents the way it is read aloud: "KES 17,500.00".
+func KES(cents int64) string {
+	sign := ""
+	if cents < 0 {
+		sign, cents = "-", -cents
+	}
+	whole := fmt.Sprintf("%d", cents/100)
+	var grouped []byte
+	for i := 0; i < len(whole); i++ {
+		if i > 0 && (len(whole)-i)%3 == 0 {
+			grouped = append(grouped, ',')
+		}
+		grouped = append(grouped, whole[i])
+	}
+	return fmt.Sprintf("%sKES %s.%02d", sign, grouped, cents%100)
+}
+
+func trimmed(s *string) *string {
+	if s == nil {
+		return nil
+	}
+	t := strings.TrimSpace(*s)
+	if t == "" {
+		return nil
+	}
+	return &t
+}
+
+// nextNumber takes the next running number for a school. It runs inside the
+// caller's transaction, so a rolled-back payment leaves no gap in the sequence.
+func nextNumber(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, kind string, year int) (int64, error) {
+	var n int64
+	err := tx.QueryRow(ctx, `
+		INSERT INTO finance_counters (tenant_id, kind, year, last_value)
+		VALUES ($1, $2, $3, 1)
+		ON CONFLICT (tenant_id, kind, year)
+		DO UPDATE SET last_value = finance_counters.last_value + 1
+		RETURNING last_value`, tenantID, kind, year).Scan(&n)
+	return n, err
 }
 
 // --- Fee structure operations ---
@@ -51,17 +134,22 @@ func scanFeeItem(row pgx.Row) (*FeeStructureItem, error) {
 	return &it, nil
 }
 
-// listFeeItems returns all items for a fee structure ordered by sort_order.
-func (s *Service) listFeeItems(ctx context.Context, tenantID, feeStructureID uuid.UUID) ([]FeeStructureItem, error) {
+// querier is what both the pool and a transaction can do.
+type querier interface {
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
+func listFeeItems(ctx context.Context, q querier, tenantID, feeStructureID uuid.UUID) ([]FeeStructureItem, error) {
 	query := fmt.Sprintf(`SELECT %s FROM fee_structure_items
 		WHERE tenant_id = $1 AND fee_structure_id = $2 ORDER BY sort_order, created_at`, feeItemColumns)
-	rows, err := s.pool.Query(ctx, query, tenantID, feeStructureID)
+	rows, err := q.Query(ctx, query, tenantID, feeStructureID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	var items []FeeStructureItem
+	items := []FeeStructureItem{}
 	for rows.Next() {
 		it, err := scanFeeItem(rows)
 		if err != nil {
@@ -76,22 +164,18 @@ func (s *Service) listFeeItems(ctx context.Context, tenantID, feeStructureID uui
 func (s *Service) ListFeeStructures(ctx context.Context, tenantID uuid.UUID, grade string, term, year int) ([]FeeStructure, error) {
 	query := fmt.Sprintf(`SELECT %s FROM fee_structures WHERE tenant_id = $1`, feeStructureColumns)
 	args := []any{tenantID}
-	argIdx := 2
 
 	if grade != "" {
-		query += fmt.Sprintf(` AND grade = $%d`, argIdx)
 		args = append(args, grade)
-		argIdx++
+		query += fmt.Sprintf(` AND grade = $%d`, len(args))
 	}
 	if term > 0 {
-		query += fmt.Sprintf(` AND term = $%d`, argIdx)
 		args = append(args, term)
-		argIdx++
+		query += fmt.Sprintf(` AND term = $%d`, len(args))
 	}
 	if year > 0 {
-		query += fmt.Sprintf(` AND year = $%d`, argIdx)
 		args = append(args, year)
-		argIdx++
+		query += fmt.Sprintf(` AND year = $%d`, len(args))
 	}
 	query += ` ORDER BY year DESC, term DESC, grade`
 
@@ -101,7 +185,7 @@ func (s *Service) ListFeeStructures(ctx context.Context, tenantID uuid.UUID, gra
 	}
 	defer rows.Close()
 
-	var structures []FeeStructure
+	structures := []FeeStructure{}
 	for rows.Next() {
 		fs, err := scanFeeStructure(rows)
 		if err != nil {
@@ -113,9 +197,8 @@ func (s *Service) ListFeeStructures(ctx context.Context, tenantID uuid.UUID, gra
 		return nil, err
 	}
 
-	// Attach items for each structure
 	for i := range structures {
-		items, err := s.listFeeItems(ctx, tenantID, structures[i].ID)
+		items, err := listFeeItems(ctx, s.pool, tenantID, structures[i].ID)
 		if err != nil {
 			return nil, err
 		}
@@ -126,12 +209,16 @@ func (s *Service) ListFeeStructures(ctx context.Context, tenantID uuid.UUID, gra
 
 // GetFeeStructure returns a fee structure with items.
 func (s *Service) GetFeeStructure(ctx context.Context, tenantID, id uuid.UUID) (*FeeStructure, error) {
+	return getFeeStructure(ctx, s.pool, tenantID, id)
+}
+
+func getFeeStructure(ctx context.Context, q querier, tenantID, id uuid.UUID) (*FeeStructure, error) {
 	query := fmt.Sprintf(`SELECT %s FROM fee_structures WHERE tenant_id = $1 AND id = $2`, feeStructureColumns)
-	fs, err := scanFeeStructure(s.pool.QueryRow(ctx, query, tenantID, id))
+	fs, err := scanFeeStructure(q.QueryRow(ctx, query, tenantID, id))
 	if err != nil {
-		return nil, err
+		return nil, notFound(err)
 	}
-	items, err := s.listFeeItems(ctx, tenantID, fs.ID)
+	items, err := listFeeItems(ctx, q, tenantID, fs.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -139,18 +226,57 @@ func (s *Service) GetFeeStructure(ctx context.Context, tenantID, id uuid.UUID) (
 	return fs, nil
 }
 
+// checkItem validates one line of a fee structure. What it is called is up to
+// the school: there is no fixed list of things a school may charge for.
+func checkItem(item *FeeItemInput) error {
+	item.Name = strings.Join(strings.Fields(item.Name), " ")
+	if item.Name == "" {
+		return invalid("Every fee item needs a name.")
+	}
+	if len(item.Name) > 100 {
+		return invalid("%s… is too long a name for a fee item.", item.Name[:40])
+	}
+	if item.AmountCents <= 0 {
+		return invalid("%s needs an amount above zero.", item.Name)
+	}
+	// item_type is kept for records made before schools named their own
+	// items; new ones carry the name alone.
+	if item.ItemType = strings.TrimSpace(item.ItemType); item.ItemType == "" || len(item.ItemType) > 100 {
+		item.ItemType = "other"
+	}
+	return nil
+}
+
+const duplicateStructure = "This grade already has a fee structure for that term and year. Open it and change its items instead."
+
 // CreateFeeStructure inserts a fee structure and its items in a transaction.
-func (s *Service) CreateFeeStructure(ctx context.Context, tenantID uuid.UUID, req CreateFeeStructureRequest) (*FeeStructure, error) {
-	if req.Name == "" || req.Grade == "" || req.Term < 1 || req.Term > 3 || req.Year <= 0 {
-		return nil, errors.New("name, grade, term (1-3), and year are required")
+func (s *Service) CreateFeeStructure(ctx context.Context, tenantID uuid.UUID, actor *uuid.UUID, req CreateFeeStructureRequest) (*FeeStructure, error) {
+	req.Name, req.Grade = strings.TrimSpace(req.Name), strings.TrimSpace(req.Grade)
+	if req.Name == "" || req.Grade == "" {
+		return nil, invalid("A fee structure needs a name and a grade.")
+	}
+	if req.Term < 1 || req.Term > 3 {
+		return nil, invalid("Term must be 1, 2 or 3.")
+	}
+	if req.Year < 2000 || req.Year > 2100 {
+		return nil, invalid("Enter the year in full, for example 2026.")
+	}
+	if len(req.Items) == 0 {
+		return nil, invalid("Add at least one fee item.")
 	}
 
 	var total int64
-	for _, item := range req.Items {
-		if item.AmountCents < 0 {
-			return nil, errors.New("item amounts cannot be negative")
+	seen := map[string]bool{}
+	for i := range req.Items {
+		if err := checkItem(&req.Items[i]); err != nil {
+			return nil, err
 		}
-		total += item.AmountCents
+		key := strings.ToLower(req.Items[i].Name)
+		if seen[key] {
+			return nil, invalid("%s is listed twice.", req.Items[i].Name)
+		}
+		seen[key] = true
+		total += req.Items[i].AmountCents
 	}
 
 	active := true
@@ -162,137 +288,151 @@ func (s *Service) CreateFeeStructure(ctx context.Context, tenantID uuid.UUID, re
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback(ctx) //nolint:errcheck // no-op after commit
 
-	query := fmt.Sprintf(`INSERT INTO fee_structures (tenant_id, name, grade, term, year, total_cents, active, notes, created_by)
+	var id uuid.UUID
+	err = tx.QueryRow(ctx, `
+		INSERT INTO fee_structures (tenant_id, name, grade, term, year, total_cents, active, notes, created_by)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-		RETURNING %s`, feeStructureColumns)
-	fs, err := scanFeeStructure(tx.QueryRow(ctx, query,
-		tenantID, req.Name, req.Grade, req.Term, req.Year, total, active, req.Notes, req.CreatedBy,
-	))
+		RETURNING id`,
+		tenantID, req.Name, req.Grade, req.Term, req.Year, total, active, trimmed(req.Notes), actor,
+	).Scan(&id)
 	if err != nil {
+		if httputil.IsUniqueViolation(err) {
+			return nil, conflict(duplicateStructure)
+		}
 		return nil, err
 	}
 
 	for idx, item := range req.Items {
-		itemType := item.ItemType
-		if itemType == "" {
-			itemType = "other"
-		}
-		isOptional := false
-		if item.IsOptional != nil {
-			isOptional = *item.IsOptional
-		}
+		isOptional := item.IsOptional != nil && *item.IsOptional
 		sortOrder := idx
 		if item.SortOrder != nil {
 			sortOrder = *item.SortOrder
 		}
-		itemQuery := fmt.Sprintf(`INSERT INTO fee_structure_items (tenant_id, fee_structure_id, name, amount_cents, item_type, is_optional, sort_order)
-			VALUES ($1, $2, $3, $4, $5, $6, $7)
-			RETURNING %s`, feeItemColumns)
-		it, err := scanFeeItem(tx.QueryRow(ctx, itemQuery,
-			tenantID, fs.ID, item.Name, item.AmountCents, itemType, isOptional, sortOrder,
-		))
-		if err != nil {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO fee_structure_items (tenant_id, fee_structure_id, name, amount_cents, item_type, is_optional, sort_order)
+			VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+			tenantID, id, item.Name, item.AmountCents, item.ItemType, isOptional, sortOrder,
+		); err != nil {
 			return nil, err
 		}
-		fs.Items = append(fs.Items, *it)
 	}
 
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}
-	return fs, nil
+	return s.GetFeeStructure(ctx, tenantID, id)
 }
 
 // UpdateFeeStructure partially updates a fee structure.
 func (s *Service) UpdateFeeStructure(ctx context.Context, tenantID, id uuid.UUID, req UpdateFeeStructureRequest) (*FeeStructure, error) {
-	if _, err := s.GetFeeStructure(ctx, tenantID, id); err != nil {
-		return nil, err
+	if req.Term != nil && (*req.Term < 1 || *req.Term > 3) {
+		return nil, invalid("Term must be 1, 2 or 3.")
 	}
-	query := fmt.Sprintf(`UPDATE fee_structures SET
-		name = COALESCE($3, name),
-		grade = COALESCE($4, grade),
-		term = COALESCE($5, term),
-		year = COALESCE($6, year),
-		active = COALESCE($7, active),
-		notes = COALESCE($8, notes)
-		WHERE tenant_id = $1 AND id = $2
-		RETURNING %s`, feeStructureColumns)
-	fs, err := scanFeeStructure(s.pool.QueryRow(ctx, query,
-		tenantID, id, req.Name, req.Grade, req.Term, req.Year, req.Active, req.Notes,
-	))
+	if req.Name != nil && strings.TrimSpace(*req.Name) == "" {
+		return nil, invalid("A fee structure needs a name.")
+	}
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE fee_structures SET
+			name = COALESCE($3, name),
+			grade = COALESCE($4, grade),
+			term = COALESCE($5, term),
+			year = COALESCE($6, year),
+			active = COALESCE($7, active),
+			notes = COALESCE($8, notes)
+		WHERE tenant_id = $1 AND id = $2`,
+		tenantID, id, trimmed(req.Name), trimmed(req.Grade), req.Term, req.Year, req.Active, req.Notes,
+	)
 	if err != nil {
+		if httputil.IsUniqueViolation(err) {
+			return nil, conflict(duplicateStructure)
+		}
 		return nil, err
 	}
-	items, err := s.listFeeItems(ctx, tenantID, fs.ID)
-	if err != nil {
-		return nil, err
+	if tag.RowsAffected() == 0 {
+		return nil, ErrNotFound
 	}
-	fs.Items = items
-	return fs, nil
+	return s.GetFeeStructure(ctx, tenantID, id)
 }
 
-// DeleteFeeStructure removes a fee structure.
+// DeleteFeeStructure removes a fee structure. Invoices already issued from it
+// keep their own copy of the items, so they are unaffected.
 func (s *Service) DeleteFeeStructure(ctx context.Context, tenantID, id uuid.UUID) error {
 	tag, err := s.pool.Exec(ctx, `DELETE FROM fee_structures WHERE tenant_id = $1 AND id = $2`, tenantID, id)
 	if err != nil {
 		return err
 	}
 	if tag.RowsAffected() == 0 {
-		return pgx.ErrNoRows
+		return ErrNotFound
 	}
 	return nil
 }
 
 // AddFeeItem adds an item to an existing fee structure.
-func (s *Service) AddFeeItem(ctx context.Context, tenantID, structureID uuid.UUID, input FeeItemInput, sortOrder int) (*FeeStructureItem, error) {
-	if _, err := s.GetFeeStructure(ctx, tenantID, structureID); err != nil {
+func (s *Service) AddFeeItem(ctx context.Context, tenantID, structureID uuid.UUID, input FeeItemInput) (*FeeStructure, error) {
+	if err := checkItem(&input); err != nil {
 		return nil, err
 	}
-	itemType := input.ItemType
-	if itemType == "" {
-		itemType = "other"
-	}
-	isOptional := false
-	if input.IsOptional != nil {
-		isOptional = *input.IsOptional
-	}
-	query := fmt.Sprintf(`INSERT INTO fee_structure_items (tenant_id, fee_structure_id, name, amount_cents, item_type, is_optional, sort_order)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
-		RETURNING %s`, feeItemColumns)
-	// Recompute the structure total after adding the item
-	if err := s.recomputeFeeTotal(ctx, tenantID, structureID); err != nil {
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
 		return nil, err
 	}
-	return scanFeeItem(s.pool.QueryRow(ctx, query,
-		tenantID, structureID, input.Name, input.AmountCents, itemType, isOptional, sortOrder,
-	))
+	defer tx.Rollback(ctx) //nolint:errcheck // no-op after commit
+
+	var count int
+	if err := tx.QueryRow(ctx, `
+		SELECT (SELECT COUNT(*) FROM fee_structure_items WHERE fee_structure_id = fs.id)
+		FROM fee_structures fs WHERE fs.tenant_id = $1 AND fs.id = $2 FOR UPDATE`,
+		tenantID, structureID).Scan(&count); err != nil {
+		return nil, notFound(err)
+	}
+
+	isOptional := input.IsOptional != nil && *input.IsOptional
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO fee_structure_items (tenant_id, fee_structure_id, name, amount_cents, item_type, is_optional, sort_order)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+		tenantID, structureID, input.Name, input.AmountCents, input.ItemType, isOptional, count,
+	); err != nil {
+		if httputil.IsUniqueViolation(err) {
+			return nil, conflict("This fee structure already has an item called %s.", input.Name)
+		}
+		return nil, err
+	}
+	if err := recomputeFeeTotal(ctx, tx, tenantID, structureID); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return s.GetFeeStructure(ctx, tenantID, structureID)
 }
 
 // DeleteFeeItem removes an item from a fee structure.
 func (s *Service) DeleteFeeItem(ctx context.Context, tenantID, itemID uuid.UUID) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // no-op after commit
+
 	var structureID uuid.UUID
-	err := s.pool.QueryRow(ctx,
-		`SELECT fee_structure_id FROM fee_structure_items WHERE tenant_id = $1 AND id = $2`,
-		tenantID, itemID).Scan(&structureID)
-	if err != nil {
+	if err := tx.QueryRow(ctx,
+		`DELETE FROM fee_structure_items WHERE tenant_id = $1 AND id = $2 RETURNING fee_structure_id`,
+		tenantID, itemID).Scan(&structureID); err != nil {
+		return notFound(err)
+	}
+	if err := recomputeFeeTotal(ctx, tx, tenantID, structureID); err != nil {
 		return err
 	}
-	tag, err := s.pool.Exec(ctx, `DELETE FROM fee_structure_items WHERE tenant_id = $1 AND id = $2`, tenantID, itemID)
-	if err != nil {
-		return err
-	}
-	if tag.RowsAffected() == 0 {
-		return pgx.ErrNoRows
-	}
-	return s.recomputeFeeTotal(ctx, tenantID, structureID)
+	return tx.Commit(ctx)
 }
 
-// recomputeFeeTotal recalculates and updates total_cents for a fee structure.
-func (s *Service) recomputeFeeTotal(ctx context.Context, tenantID, structureID uuid.UUID) error {
-	_, err := s.pool.Exec(ctx,
-		`UPDATE fee_structures fs SET total_cents = COALESCE((
+// recomputeFeeTotal recalculates total_cents from the items as they now are.
+func recomputeFeeTotal(ctx context.Context, tx pgx.Tx, tenantID, structureID uuid.UUID) error {
+	_, err := tx.Exec(ctx, `
+		UPDATE fee_structures fs SET total_cents = COALESCE((
 			SELECT SUM(amount_cents) FROM fee_structure_items WHERE fee_structure_id = fs.id
 		), 0)
 		WHERE fs.tenant_id = $1 AND fs.id = $2`, tenantID, structureID)
@@ -301,10 +441,19 @@ func (s *Service) recomputeFeeTotal(ctx context.Context, tenantID, structureID u
 
 // --- Invoice operations ---
 
+// The status shown is "overdue" once the due date has passed and money is
+// still owed; it is worked out when read, so it is right every day without a
+// job that rewrites it.
 const invoiceColumns = `i.id, i.tenant_id, i.learner_id, i.fee_structure_id, i.invoice_number,
 	i.term, i.year, i.issue_date::text, i.due_date::text, i.total_cents, i.discount_cents,
-	i.paid_cents, i.status, i.notes, i.created_by, i.created_at, i.updated_at,
-	l.full_name, l.grade, l.stream`
+	i.paid_cents,
+	CASE WHEN i.status IN ('unpaid', 'partially_paid', 'overdue') AND i.due_date < CURRENT_DATE THEN 'overdue'
+	     WHEN i.status = 'overdue' THEN CASE WHEN i.paid_cents > 0 THEN 'partially_paid' ELSE 'unpaid' END
+	     ELSE i.status END,
+	i.notes, i.created_by, i.created_at, i.updated_at, i.voided_at, i.void_reason,
+	l.full_name, l.grade, COALESCE(l.stream, ''), COALESCE(l.upi, '')`
+
+const invoiceFrom = ` FROM invoices i JOIN learners l ON l.id = i.learner_id `
 
 func scanInvoice(row pgx.Row) (*Invoice, error) {
 	var inv Invoice
@@ -312,33 +461,26 @@ func scanInvoice(row pgx.Row) (*Invoice, error) {
 		&inv.ID, &inv.TenantID, &inv.LearnerID, &inv.FeeStructureID, &inv.InvoiceNumber,
 		&inv.Term, &inv.Year, &inv.IssueDate, &inv.DueDate, &inv.TotalCents, &inv.DiscountCents,
 		&inv.PaidCents, &inv.Status, &inv.Notes, &inv.CreatedBy, &inv.CreatedAt, &inv.UpdatedAt,
-		&inv.LearnerName, &inv.Grade, &inv.Stream,
+		&inv.VoidedAt, &inv.VoidReason,
+		&inv.LearnerName, &inv.Grade, &inv.Stream, &inv.LearnerUPI,
 	)
 	if err != nil {
 		return nil, err
 	}
-	inv.BalanceCents = inv.TotalCents - inv.DiscountCents - inv.PaidCents
-	if inv.BalanceCents < 0 {
-		inv.BalanceCents = 0
+	owed := inv.TotalCents - inv.DiscountCents - inv.PaidCents
+	if inv.Status == "void" {
+		owed = 0
+	}
+	if owed >= 0 {
+		inv.BalanceCents = owed
+	} else {
+		inv.CreditCents = -owed
 	}
 	return &inv, nil
 }
 
 const invoiceItemColumns = `id, tenant_id, invoice_id, name, amount_cents, item_type, is_optional, sort_order, created_at`
 
-func scanInvoiceItem(row pgx.Row) (*InvoiceItem, error) {
-	var it InvoiceItem
-	err := row.Scan(
-		&it.ID, &it.TenantID, &it.InvoiceID, &it.Name, &it.AmountCents,
-		&it.ItemType, &it.IsOptional, &it.SortOrder, &it.CreatedAt,
-	)
-	if err != nil {
-		return nil, err
-	}
-	return &it, nil
-}
-
-// listInvoiceItems returns all snapshot items for an invoice.
 func (s *Service) listInvoiceItems(ctx context.Context, tenantID, invoiceID uuid.UUID) ([]InvoiceItem, error) {
 	query := fmt.Sprintf(`SELECT %s FROM invoice_items
 		WHERE tenant_id = $1 AND invoice_id = $2 ORDER BY sort_order, created_at`, invoiceItemColumns)
@@ -348,46 +490,88 @@ func (s *Service) listInvoiceItems(ctx context.Context, tenantID, invoiceID uuid
 	}
 	defer rows.Close()
 
-	var items []InvoiceItem
+	items := []InvoiceItem{}
 	for rows.Next() {
-		it, err := scanInvoiceItem(rows)
-		if err != nil {
+		var it InvoiceItem
+		if err := rows.Scan(&it.ID, &it.TenantID, &it.InvoiceID, &it.Name, &it.AmountCents,
+			&it.ItemType, &it.IsOptional, &it.SortOrder, &it.CreatedAt); err != nil {
 			return nil, err
 		}
-		items = append(items, *it)
+		items = append(items, it)
 	}
 	return items, rows.Err()
 }
 
-// ListInvoices returns invoices optionally filtered by status/learner/term/year.
-func (s *Service) ListInvoices(ctx context.Context, tenantID uuid.UUID, status, learnerID string, term, year int) ([]Invoice, error) {
-	query := fmt.Sprintf(`SELECT %s FROM invoices i
-		JOIN learners l ON l.id = i.learner_id
-		WHERE i.tenant_id = $1`, invoiceColumns)
-	args := []any{tenantID}
-	argIdx := 2
+// InvoiceFilter narrows a list of invoices.
+type InvoiceFilter struct {
+	// Status: a stored status, "overdue", or "open" for anything still owed.
+	Status    string
+	LearnerID string
+	Grade     string
+	Search    string
+	Term      int
+	Year      int
+	Limit     int
+	Offset    int
+}
 
-	if status != "" {
-		query += fmt.Sprintf(` AND i.status = $%d`, argIdx)
-		args = append(args, status)
-		argIdx++
+func pageBounds(limit, offset int) (int, int) {
+	if limit <= 0 || limit > 200 {
+		limit = 50
 	}
-	if learnerID != "" {
-		query += fmt.Sprintf(` AND i.learner_id = $%d`, argIdx)
-		args = append(args, learnerID)
-		argIdx++
+	if offset < 0 {
+		offset = 0
 	}
-	if term > 0 {
-		query += fmt.Sprintf(` AND i.term = $%d`, argIdx)
-		args = append(args, term)
-		argIdx++
+	return limit, offset
+}
+
+const owing = `i.status IN ('unpaid', 'partially_paid', 'overdue')`
+
+// ListInvoices returns invoices, newest first.
+func (s *Service) ListInvoices(ctx context.Context, tenantID uuid.UUID, f InvoiceFilter) ([]Invoice, error) {
+	query := `SELECT ` + invoiceColumns + invoiceFrom + ` WHERE i.tenant_id = $1`
+	args := []any{tenantID}
+
+	switch f.Status {
+	case "":
+	case "open":
+		query += ` AND ` + owing
+	case "overdue":
+		query += ` AND ` + owing + ` AND i.due_date < CURRENT_DATE`
+	case "unpaid", "partially_paid":
+		args = append(args, f.Status)
+		query += fmt.Sprintf(` AND i.status = $%d AND (i.due_date IS NULL OR i.due_date >= CURRENT_DATE)`, len(args))
+	default:
+		args = append(args, f.Status)
+		query += fmt.Sprintf(` AND i.status = $%d`, len(args))
 	}
-	if year > 0 {
-		query += fmt.Sprintf(` AND i.year = $%d`, argIdx)
-		args = append(args, year)
-		argIdx++
+	if f.LearnerID != "" {
+		id, err := uuid.Parse(f.LearnerID)
+		if err != nil {
+			return nil, invalid("That is not a learner.")
+		}
+		args = append(args, id)
+		query += fmt.Sprintf(` AND i.learner_id = $%d`, len(args))
 	}
-	query += ` ORDER BY i.created_at DESC`
+	if f.Grade != "" {
+		args = append(args, f.Grade)
+		query += fmt.Sprintf(` AND l.grade = $%d`, len(args))
+	}
+	if search := strings.TrimSpace(f.Search); search != "" {
+		args = append(args, "%"+search+"%")
+		query += fmt.Sprintf(` AND (l.full_name ILIKE $%d OR i.invoice_number ILIKE $%d OR l.upi ILIKE $%d)`, len(args), len(args), len(args))
+	}
+	if f.Term > 0 {
+		args = append(args, f.Term)
+		query += fmt.Sprintf(` AND i.term = $%d`, len(args))
+	}
+	if f.Year > 0 {
+		args = append(args, f.Year)
+		query += fmt.Sprintf(` AND i.year = $%d`, len(args))
+	}
+	limit, offset := pageBounds(f.Limit, f.Offset)
+	args = append(args, limit, offset)
+	query += fmt.Sprintf(` ORDER BY i.created_at DESC, i.invoice_number DESC LIMIT $%d OFFSET $%d`, len(args)-1, len(args))
 
 	rows, err := s.pool.Query(ctx, query, args...)
 	if err != nil {
@@ -395,7 +579,7 @@ func (s *Service) ListInvoices(ctx context.Context, tenantID uuid.UUID, status, 
 	}
 	defer rows.Close()
 
-	var invoices []Invoice
+	invoices := []Invoice{}
 	for rows.Next() {
 		inv, err := scanInvoice(rows)
 		if err != nil {
@@ -408,12 +592,10 @@ func (s *Service) ListInvoices(ctx context.Context, tenantID uuid.UUID, status, 
 
 // GetInvoice returns an invoice with items.
 func (s *Service) GetInvoice(ctx context.Context, tenantID, id uuid.UUID) (*Invoice, error) {
-	query := fmt.Sprintf(`SELECT %s FROM invoices i
-		JOIN learners l ON l.id = i.learner_id
-		WHERE i.tenant_id = $1 AND i.id = $2`, invoiceColumns)
-	inv, err := scanInvoice(s.pool.QueryRow(ctx, query, tenantID, id))
+	inv, err := scanInvoice(s.pool.QueryRow(ctx,
+		`SELECT `+invoiceColumns+invoiceFrom+` WHERE i.tenant_id = $1 AND i.id = $2`, tenantID, id))
 	if err != nil {
-		return nil, err
+		return nil, notFound(err)
 	}
 	items, err := s.listInvoiceItems(ctx, tenantID, inv.ID)
 	if err != nil {
@@ -423,18 +605,111 @@ func (s *Service) GetInvoice(ctx context.Context, tenantID, id uuid.UUID) (*Invo
 	return inv, nil
 }
 
-// CreateInvoice creates an invoice for a learner.
-// If fee_structure_id is provided, items are copied from it; otherwise direct items are used.
-func (s *Service) CreateInvoice(ctx context.Context, tenantID uuid.UUID, req CreateInvoiceRequest) (*Invoice, error) {
-	if req.LearnerID == uuid.Nil || req.Term < 1 || req.Term > 3 || req.Year <= 0 {
-		return nil, errors.New("learner_id, term (1-3), and year are required")
+func checkDate(label string, value *string) (*string, error) {
+	value = trimmed(value)
+	if value == nil {
+		return nil, nil
+	}
+	// A date-time from a form is accepted for its date.
+	day := *value
+	if len(day) > 10 {
+		day = day[:10]
+	}
+	if _, err := time.Parse("2006-01-02", day); err != nil {
+		return nil, invalid("%s is not a date.", label)
+	}
+	return &day, nil
+}
+
+// billable is the part of a fee structure that goes on an invoice.
+func billable(fs *FeeStructure, includeOptional bool) []FeeItemInput {
+	var items []FeeItemInput
+	for _, it := range fs.Items {
+		if it.IsOptional && !includeOptional {
+			continue
+		}
+		optional, order := it.IsOptional, it.SortOrder
+		items = append(items, FeeItemInput{
+			Name: it.Name, AmountCents: it.AmountCents, ItemType: it.ItemType,
+			IsOptional: &optional, SortOrder: &order,
+		})
+	}
+	return items
+}
+
+type newInvoice struct {
+	learnerID      uuid.UUID
+	feeStructureID *uuid.UUID
+	term, year     int
+	dueDate        *string
+	notes          *string
+	items          []FeeItemInput
+}
+
+// insertInvoice writes one invoice and its items. created is false when the
+// learner already has a live invoice for that term: nothing was written.
+func insertInvoice(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, actor *uuid.UUID, in newInvoice) (id uuid.UUID, created bool, err error) {
+	var exists bool
+	if err := tx.QueryRow(ctx, `
+		SELECT EXISTS (SELECT 1 FROM invoices
+			WHERE tenant_id = $1 AND learner_id = $2 AND term = $3 AND year = $4 AND status <> 'void')`,
+		tenantID, in.learnerID, in.term, in.year).Scan(&exists); err != nil {
+		return uuid.Nil, false, err
+	}
+	if exists {
+		return uuid.Nil, false, nil
 	}
 
-	// Fetch learner grade to validate fee structure compatibility
-	var learnerGrade string
-	err := s.pool.QueryRow(ctx,
-		`SELECT grade FROM learners WHERE tenant_id = $1 AND id = $2`, tenantID, req.LearnerID).
-		Scan(&learnerGrade)
+	var total int64
+	for _, it := range in.items {
+		total += it.AmountCents
+	}
+	n, err := nextNumber(ctx, tx, tenantID, "invoice", in.year)
+	if err != nil {
+		return uuid.Nil, false, err
+	}
+	number := fmt.Sprintf("INV-%d-%05d", in.year, n)
+
+	// The unique index is the guard against two requests billing the same
+	// learner at once; the check above only saves a number in the usual case.
+	err = tx.QueryRow(ctx, `
+		INSERT INTO invoices (tenant_id, learner_id, fee_structure_id, invoice_number, term, year, due_date, total_cents, notes, created_by)
+		VALUES ($1, $2, $3, $4, $5, $6, $7::date, $8, $9, $10)
+		ON CONFLICT (tenant_id, learner_id, term, year) WHERE status <> 'void' DO NOTHING
+		RETURNING id`,
+		tenantID, in.learnerID, in.feeStructureID, number, in.term, in.year, in.dueDate, total, in.notes, actor,
+	).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return uuid.Nil, false, nil
+	}
+	if err != nil {
+		return uuid.Nil, false, err
+	}
+
+	for idx, it := range in.items {
+		isOptional := it.IsOptional != nil && *it.IsOptional
+		sortOrder := idx
+		if it.SortOrder != nil {
+			sortOrder = *it.SortOrder
+		}
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO invoice_items (tenant_id, invoice_id, name, amount_cents, item_type, is_optional, sort_order)
+			VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+			tenantID, id, it.Name, it.AmountCents, it.ItemType, isOptional, sortOrder,
+		); err != nil {
+			return uuid.Nil, false, err
+		}
+	}
+	return id, true, nil
+}
+
+// CreateInvoice bills one learner for a term, from a fee structure or from
+// items given directly.
+func (s *Service) CreateInvoice(ctx context.Context, tenantID uuid.UUID, actor *uuid.UUID, req CreateInvoiceRequest) (*Invoice, error) {
+	if req.LearnerID == uuid.Nil {
+		return nil, invalid("Choose the learner to bill.")
+	}
+	dueDate, err := checkDate("The due date", req.DueDate)
 	if err != nil {
 		return nil, err
 	}
@@ -443,138 +718,240 @@ func (s *Service) CreateInvoice(ctx context.Context, tenantID uuid.UUID, req Cre
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback(ctx) //nolint:errcheck // no-op after commit
 
-	// Determine items and total
-	var items []FeeItemInput
+	var learnerGrade, learnerName string
+	var active bool
+	if err := tx.QueryRow(ctx,
+		`SELECT grade, full_name, is_active FROM learners WHERE tenant_id = $1 AND id = $2`,
+		tenantID, req.LearnerID).Scan(&learnerGrade, &learnerName, &active); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, invalid("That learner is not in this school.")
+		}
+		return nil, err
+	}
+	if !active {
+		return nil, invalid("%s is no longer an active learner.", learnerName)
+	}
+
+	in := newInvoice{learnerID: req.LearnerID, term: req.Term, year: req.Year, dueDate: dueDate, notes: trimmed(req.Notes)}
 	if req.FeeStructureID != nil && *req.FeeStructureID != uuid.Nil {
-		fs, err := s.GetFeeStructure(ctx, tenantID, *req.FeeStructureID)
+		fs, err := getFeeStructure(ctx, tx, tenantID, *req.FeeStructureID)
 		if err != nil {
+			if errors.Is(err, ErrNotFound) {
+				return nil, invalid("That fee structure is not in this school.")
+			}
 			return nil, err
 		}
 		if fs.Grade != learnerGrade {
-			return nil, errors.New("fee structure grade does not match learner grade")
+			return nil, invalid("%s is in %s; this fee structure is for %s.", learnerName, learnerGrade, fs.Grade)
 		}
-		for _, it := range fs.Items {
-			items = append(items, FeeItemInput{
-				Name:        it.Name,
-				AmountCents: it.AmountCents,
-				ItemType:    it.ItemType,
-				IsOptional:  &it.IsOptional,
-				SortOrder:   &it.SortOrder,
-			})
+		if !fs.Active {
+			return nil, invalid("%s is switched off. Make it active before billing from it.", fs.Name)
 		}
+		// The term and year are the fee structure's: billing Term 1 fees as a
+		// Term 2 invoice would defeat the once-per-term rule.
+		in.feeStructureID, in.term, in.year = &fs.ID, fs.Term, fs.Year
+		in.items = billable(fs, req.IncludeOptional)
 	} else {
-		items = req.Items
-	}
-	if len(items) == 0 {
-		return nil, errors.New("no fee items provided")
-	}
-
-	var total int64
-	for _, it := range items {
-		if it.AmountCents < 0 {
-			return nil, errors.New("item amounts cannot be negative")
+		if req.Term < 1 || req.Term > 3 {
+			return nil, invalid("Term must be 1, 2 or 3.")
 		}
-		total += it.AmountCents
+		if req.Year < 2000 || req.Year > 2100 {
+			return nil, invalid("Enter the year in full, for example 2026.")
+		}
+		for i := range req.Items {
+			if err := checkItem(&req.Items[i]); err != nil {
+				return nil, err
+			}
+		}
+		in.items = req.Items
+	}
+	if len(in.items) == 0 {
+		return nil, invalid("There is nothing to bill: the invoice has no fee items.")
 	}
 
-	// Generate invoice number: INV-{YEAR}-{TERM}-{last 6 of uuid}
-	invoiceNumber := fmt.Sprintf("INV-%d-%d-%s", req.Year, req.Term, uuid.NewString()[:6])
-	issueDate := time.Now().Format("2006-01-02")
-	if req.IssueDate != nil {
-		issueDate = *req.IssueDate
-	}
-
-	_, err = tx.Exec(ctx,
-		`INSERT INTO invoices (tenant_id, learner_id, fee_structure_id, invoice_number, term, year, issue_date, due_date, total_cents, notes, created_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-		RETURNING id`,
-		tenantID, req.LearnerID, req.FeeStructureID, invoiceNumber, req.Term, req.Year,
-		issueDate, req.DueDate, total, req.Notes, req.CreatedBy,
-	)
+	id, created, err := insertInvoice(ctx, tx, tenantID, actor, in)
 	if err != nil {
 		return nil, err
 	}
-
-	// Fetch the inserted invoice id
-	var invoiceID uuid.UUID
-	err = tx.QueryRow(ctx,
-		`SELECT id FROM invoices WHERE tenant_id = $1 AND invoice_number = $2`, tenantID, invoiceNumber).
-		Scan(&invoiceID)
-	if err != nil {
-		return nil, err
+	if !created {
+		return nil, conflict("%s already has an invoice for Term %d %d. Open that one, or void it first.", learnerName, in.term, in.year)
 	}
-
-	for idx, it := range items {
-		itemType := it.ItemType
-		if itemType == "" {
-			itemType = "other"
-		}
-		isOptional := false
-		if it.IsOptional != nil {
-			isOptional = *it.IsOptional
-		}
-		sortOrder := idx
-		if it.SortOrder != nil {
-			sortOrder = *it.SortOrder
-		}
-		_, err := tx.Exec(ctx,
-			`INSERT INTO invoice_items (tenant_id, invoice_id, name, amount_cents, item_type, is_optional, sort_order)
-			VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-			tenantID, invoiceID, it.Name, it.AmountCents, itemType, isOptional, sortOrder,
-		)
-		if err != nil {
-			return nil, err
-		}
-	}
-
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}
-	return s.GetInvoice(ctx, tenantID, invoiceID)
+	return s.GetInvoice(ctx, tenantID, id)
 }
 
-// UpdateInvoice partially updates an invoice (due date, status, notes).
+// BulkInvoice bills every active learner of the fee structure's grade who has
+// not been billed for that term yet. Run twice, it creates nothing the second
+// time.
+func (s *Service) BulkInvoice(ctx context.Context, tenantID uuid.UUID, actor *uuid.UUID, req BulkInvoiceRequest) (*BulkInvoiceResult, error) {
+	dueDate, err := checkDate("The due date", req.DueDate)
+	if err != nil {
+		return nil, err
+	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // no-op after commit
+
+	fs, err := getFeeStructure(ctx, tx, tenantID, req.FeeStructureID)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return nil, invalid("Choose the fee structure to bill from.")
+		}
+		return nil, err
+	}
+	if !fs.Active {
+		return nil, invalid("%s is switched off. Make it active before billing from it.", fs.Name)
+	}
+	items := billable(fs, req.IncludeOptional)
+	if len(items) == 0 {
+		return nil, invalid("%s has no items to bill.", fs.Name)
+	}
+	var each int64
+	for _, it := range items {
+		each += it.AmountCents
+	}
+
+	query := `SELECT id FROM learners WHERE tenant_id = $1 AND grade = $2 AND is_active = true`
+	args := []any{tenantID, fs.Grade}
+	if stream := strings.TrimSpace(req.Stream); stream != "" {
+		args = append(args, stream)
+		query += ` AND stream = $3`
+	}
+	rows, err := tx.Query(ctx, query+` ORDER BY full_name`, args...)
+	if err != nil {
+		return nil, err
+	}
+	var learners []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		learners = append(learners, id)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	result := &BulkInvoiceResult{Learners: len(learners), EachCents: each}
+	if req.DryRun {
+		if err := tx.QueryRow(ctx, `
+			SELECT COUNT(*) FROM invoices
+			WHERE tenant_id = $1 AND term = $2 AND year = $3 AND status <> 'void' AND learner_id = ANY($4::uuid[])`,
+			tenantID, fs.Term, fs.Year, pgxutil.UUIDArray(learners)).Scan(&result.AlreadyInvoiced); err != nil {
+			return nil, err
+		}
+		result.Created = result.Learners - result.AlreadyInvoiced
+		result.TotalCents = int64(result.Created) * each
+		return result, nil
+	}
+
+	for _, learnerID := range learners {
+		_, created, err := insertInvoice(ctx, tx, tenantID, actor, newInvoice{
+			learnerID: learnerID, feeStructureID: &fs.ID, term: fs.Term, year: fs.Year,
+			dueDate: dueDate, items: items,
+		})
+		if err != nil {
+			return nil, err
+		}
+		if created {
+			result.Created++
+		} else {
+			result.AlreadyInvoiced++
+		}
+	}
+	result.TotalCents = int64(result.Created) * each
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+// UpdateInvoice changes the due date or notes of an invoice.
 func (s *Service) UpdateInvoice(ctx context.Context, tenantID, id uuid.UUID, req UpdateInvoiceRequest) (*Invoice, error) {
-	if _, err := s.GetInvoice(ctx, tenantID, id); err != nil {
-		return nil, err
-	}
-	query := fmt.Sprintf(`UPDATE invoices i SET
-		due_date = COALESCE($3, i.due_date),
-		status = COALESCE($4, i.status),
-		notes = COALESCE($5, i.notes)
-		WHERE i.tenant_id = $1 AND i.id = $2
-		RETURNING %s`, invoiceColumns+" FROM learners l WHERE l.id = i.learner_id")
-	inv, err := scanInvoice(s.pool.QueryRow(ctx, query,
-		tenantID, id, req.DueDate, req.Status, req.Notes,
-	))
+	dueDate, err := checkDate("The due date", req.DueDate)
 	if err != nil {
 		return nil, err
 	}
-	items, err := s.listInvoiceItems(ctx, tenantID, inv.ID)
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE invoices SET
+			due_date = COALESCE($3::date, due_date),
+			notes = COALESCE($4, notes)
+		WHERE tenant_id = $1 AND id = $2 AND status <> 'void'`,
+		tenantID, id, dueDate, req.Notes)
 	if err != nil {
 		return nil, err
-	}
-	inv.Items = items
-	return inv, nil
-}
-
-// DeleteInvoice removes an invoice (hard delete).
-func (s *Service) DeleteInvoice(ctx context.Context, tenantID, id uuid.UUID) error {
-	tag, err := s.pool.Exec(ctx, `DELETE FROM invoices WHERE tenant_id = $1 AND id = $2`, tenantID, id)
-	if err != nil {
-		return err
 	}
 	if tag.RowsAffected() == 0 {
-		return pgx.ErrNoRows
+		if _, err := s.GetInvoice(ctx, tenantID, id); err != nil {
+			return nil, err
+		}
+		return nil, conflict("A voided invoice cannot be changed.")
 	}
-	return nil
+	return s.GetInvoice(ctx, tenantID, id)
+}
+
+// VoidInvoice cancels an invoice that was raised in error. An invoice with
+// money against it cannot be voided: reverse the payments first, so the
+// record shows where the money went.
+func (s *Service) VoidInvoice(ctx context.Context, tenantID uuid.UUID, actor *uuid.UUID, id uuid.UUID, reason string) (*Invoice, error) {
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		return nil, invalid("Say why this invoice is being voided.")
+	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // no-op after commit
+
+	var status string
+	if err := tx.QueryRow(ctx,
+		`SELECT status FROM invoices WHERE tenant_id = $1 AND id = $2 FOR UPDATE`, tenantID, id).Scan(&status); err != nil {
+		return nil, notFound(err)
+	}
+	if status == "void" {
+		return nil, conflict("This invoice is already void.")
+	}
+	var completed, pending int
+	if err := tx.QueryRow(ctx, `
+		SELECT COUNT(*) FILTER (WHERE status = 'completed'), COUNT(*) FILTER (WHERE status = 'pending')
+		FROM payments WHERE tenant_id = $1 AND invoice_id = $2`, tenantID, id).Scan(&completed, &pending); err != nil {
+		return nil, err
+	}
+	if completed > 0 {
+		return nil, conflict("This invoice has %d payment(s) against it. Reverse them before voiding it.", completed)
+	}
+	if pending > 0 {
+		return nil, conflict("An M-Pesa request for this invoice is still waiting for the parent. Try again in a few minutes.")
+	}
+
+	if _, err := tx.Exec(ctx, `
+		UPDATE invoices SET status = 'void', voided_at = now(), voided_by = $3, void_reason = $4
+		WHERE tenant_id = $1 AND id = $2`, tenantID, id, actor, reason); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return s.GetInvoice(ctx, tenantID, id)
 }
 
 // --- Discount operations ---
 
 const discountColumns = `id, tenant_id, invoice_id, amount_cents, discount_type, reason, approved_by, created_at`
+
+var discountTypes = map[string]bool{"scholarship": true, "sibling": true, "waiver": true, "other": true}
 
 func scanDiscount(row pgx.Row) (*Discount, error) {
 	var d Discount
@@ -594,7 +971,7 @@ func (s *Service) ListDiscounts(ctx context.Context, tenantID, invoiceID uuid.UU
 	}
 	defer rows.Close()
 
-	var discounts []Discount
+	discounts := []Discount{}
 	for rows.Next() {
 		d, err := scanDiscount(rows)
 		if err != nil {
@@ -605,36 +982,59 @@ func (s *Service) ListDiscounts(ctx context.Context, tenantID, invoiceID uuid.UU
 	return discounts, rows.Err()
 }
 
-// CreateDiscount adds a discount and updates the invoice's discount_cents and status.
-func (s *Service) CreateDiscount(ctx context.Context, tenantID, invoiceID uuid.UUID, req CreateDiscountRequest) (*Discount, error) {
+// lockInvoice locks an invoice for the rest of the transaction and returns
+// its status and what is still owed on it.
+func lockInvoice(ctx context.Context, tx pgx.Tx, tenantID, invoiceID uuid.UUID) (status string, balance int64, err error) {
+	err = tx.QueryRow(ctx, `
+		SELECT status, total_cents - discount_cents - paid_cents
+		FROM invoices WHERE tenant_id = $1 AND id = $2 FOR UPDATE`, tenantID, invoiceID).Scan(&status, &balance)
+	return status, balance, notFound(err)
+}
+
+// CreateDiscount takes an amount off an invoice. The signed-in user is
+// recorded as the approver.
+func (s *Service) CreateDiscount(ctx context.Context, tenantID uuid.UUID, actor *uuid.UUID, invoiceID uuid.UUID, req CreateDiscountRequest) (*Discount, error) {
 	if req.AmountCents <= 0 {
-		return nil, errors.New("amount_cents must be positive")
+		return nil, invalid("Enter the amount to take off.")
 	}
-	discountType := req.DiscountType
-	if discountType == "" {
-		discountType = "other"
+	if req.DiscountType == "" {
+		req.DiscountType = "other"
+	}
+	if !discountTypes[req.DiscountType] {
+		return nil, invalid("%s is not a kind of discount.", req.DiscountType)
+	}
+	reason := trimmed(req.Reason)
+	if reason == nil {
+		return nil, invalid("Say why this discount is given.")
 	}
 
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback(ctx) //nolint:errcheck // no-op after commit
+
+	status, balance, err := lockInvoice(ctx, tx, tenantID, invoiceID)
+	if err != nil {
+		return nil, err
+	}
+	if status == "void" {
+		return nil, conflict("A voided invoice cannot be discounted.")
+	}
+	if req.AmountCents > balance {
+		return nil, invalid("Only %s is still owed on this invoice; the discount cannot be more than that.", KES(max(balance, 0)))
+	}
 
 	query := fmt.Sprintf(`INSERT INTO discounts (tenant_id, invoice_id, amount_cents, discount_type, reason, approved_by)
 		VALUES ($1, $2, $3, $4, $5, $6)
 		RETURNING %s`, discountColumns)
-	d, err := scanDiscount(tx.QueryRow(ctx, query,
-		tenantID, invoiceID, req.AmountCents, discountType, req.Reason, req.ApprovedBy,
-	))
+	d, err := scanDiscount(tx.QueryRow(ctx, query, tenantID, invoiceID, req.AmountCents, req.DiscountType, reason, actor))
 	if err != nil {
 		return nil, err
 	}
-
 	if err := refreshInvoiceFinance(ctx, tx, tenantID, invoiceID); err != nil {
 		return nil, err
 	}
-
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}
@@ -643,51 +1043,52 @@ func (s *Service) CreateDiscount(ctx context.Context, tenantID, invoiceID uuid.U
 
 // DeleteDiscount removes a discount and refreshes the invoice.
 func (s *Service) DeleteDiscount(ctx context.Context, tenantID, discountID uuid.UUID) error {
-	var invoiceID uuid.UUID
-	err := s.pool.QueryRow(ctx,
-		`SELECT invoice_id FROM discounts WHERE tenant_id = $1 AND id = $2`,
-		tenantID, discountID).Scan(&invoiceID)
-	if err != nil {
-		return err
-	}
-
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback(ctx) //nolint:errcheck // no-op after commit
 
-	tag, err := tx.Exec(ctx, `DELETE FROM discounts WHERE tenant_id = $1 AND id = $2`, tenantID, discountID)
+	var invoiceID uuid.UUID
+	if err := tx.QueryRow(ctx,
+		`SELECT invoice_id FROM discounts WHERE tenant_id = $1 AND id = $2`, tenantID, discountID).Scan(&invoiceID); err != nil {
+		return notFound(err)
+	}
+	status, _, err := lockInvoice(ctx, tx, tenantID, invoiceID)
 	if err != nil {
 		return err
 	}
-	if tag.RowsAffected() == 0 {
-		return pgx.ErrNoRows
+	if status == "void" {
+		return conflict("A voided invoice cannot be changed.")
 	}
-
+	if _, err := tx.Exec(ctx, `DELETE FROM discounts WHERE tenant_id = $1 AND id = $2`, tenantID, discountID); err != nil {
+		return err
+	}
 	if err := refreshInvoiceFinance(ctx, tx, tenantID, invoiceID); err != nil {
 		return err
 	}
-
 	return tx.Commit(ctx)
 }
 
-// refreshInvoiceFinance recomputes discount_cents, paid_cents, and status for an invoice.
-// It must be called inside a transaction.
+// refreshInvoiceFinance recomputes discount_cents, paid_cents and status for
+// an invoice from its discounts and completed payments, the only source of
+// truth for them. It must be called inside a transaction.
 func refreshInvoiceFinance(ctx context.Context, tx pgx.Tx, tenantID, invoiceID uuid.UUID) error {
 	_, err := tx.Exec(ctx, `
 		UPDATE invoices i SET
-			discount_cents = COALESCE((SELECT SUM(amount_cents) FROM discounts WHERE invoice_id = i.id), 0),
-			paid_cents = COALESCE((SELECT SUM(amount_cents) FROM payments WHERE invoice_id = i.id AND status = 'completed'), 0),
+			discount_cents = t.discounts,
+			paid_cents = t.paid,
 			status = CASE
 				WHEN i.status = 'void' THEN 'void'
-				WHEN COALESCE((SELECT SUM(amount_cents) FROM payments WHERE invoice_id = i.id AND status = 'completed'), 0) >= i.total_cents - COALESCE((SELECT SUM(amount_cents) FROM discounts WHERE invoice_id = i.id), 0)
-					THEN 'paid'
-				WHEN COALESCE((SELECT SUM(amount_cents) FROM payments WHERE invoice_id = i.id AND status = 'completed'), 0) > 0
-					THEN 'partially_paid'
-				WHEN i.due_date IS NOT NULL AND i.due_date < CURRENT_DATE THEN 'overdue'
+				WHEN t.paid >= i.total_cents - t.discounts THEN 'paid'
+				WHEN t.paid > 0 THEN 'partially_paid'
 				ELSE 'unpaid'
 			END
+		FROM (
+			SELECT
+				COALESCE((SELECT SUM(amount_cents) FROM discounts WHERE tenant_id = $1 AND invoice_id = $2), 0) AS discounts,
+				COALESCE((SELECT SUM(amount_cents) FROM payments WHERE tenant_id = $1 AND invoice_id = $2 AND status = 'completed'), 0) AS paid
+		) t
 		WHERE i.tenant_id = $1 AND i.id = $2`, tenantID, invoiceID)
 	return err
 }
@@ -698,7 +1099,12 @@ const paymentColumns = `p.id, p.tenant_id, p.invoice_id, p.amount_cents, p.chann
 	p.reference, p.paid_by, p.phone, p.paid_at, p.received_by, p.notes,
 	p.checkout_request_id, p.merchant_request_id, p.mpesa_receipt, p.mpesa_result_code, p.mpesa_result_desc,
 	p.created_at, p.updated_at,
-	i.invoice_number, l.full_name, l.grade`
+	p.receipt_number, p.failure_code, p.reversed_at, p.reversal_reason,
+	i.invoice_number, i.learner_id, l.full_name, l.grade`
+
+const paymentFrom = ` FROM payments p
+	JOIN invoices i ON i.id = p.invoice_id
+	JOIN learners l ON l.id = i.learner_id `
 
 func scanPayment(row pgx.Row) (*Payment, error) {
 	var pay Payment
@@ -707,7 +1113,8 @@ func scanPayment(row pgx.Row) (*Payment, error) {
 		&pay.Reference, &pay.PaidBy, &pay.Phone, &pay.PaidAt, &pay.ReceivedBy, &pay.Notes,
 		&pay.CheckoutRequestID, &pay.MerchantRequestID, &pay.MpesaReceipt, &pay.MpesaResultCode, &pay.MpesaResultDesc,
 		&pay.CreatedAt, &pay.UpdatedAt,
-		&pay.InvoiceNumber, &pay.LearnerName, &pay.Grade,
+		&pay.ReceiptNumber, &pay.FailureCode, &pay.ReversedAt, &pay.ReversalReason,
+		&pay.InvoiceNumber, &pay.LearnerID, &pay.LearnerName, &pay.Grade,
 	)
 	if err != nil {
 		return nil, err
@@ -715,44 +1122,9 @@ func scanPayment(row pgx.Row) (*Payment, error) {
 	return &pay, nil
 }
 
-// ListPayments returns payments optionally filtered by status/channel/term/year.
-func (s *Service) ListPayments(ctx context.Context, tenantID uuid.UUID, status, channel string, term, year int) ([]Payment, error) {
-	query := fmt.Sprintf(`SELECT %s FROM payments p
-		JOIN invoices i ON i.id = p.invoice_id
-		JOIN learners l ON l.id = i.learner_id
-		WHERE p.tenant_id = $1`, paymentColumns)
-	args := []any{tenantID}
-	argIdx := 2
-
-	if status != "" {
-		query += fmt.Sprintf(` AND p.status = $%d`, argIdx)
-		args = append(args, status)
-		argIdx++
-	}
-	if channel != "" {
-		query += fmt.Sprintf(` AND p.channel = $%d`, argIdx)
-		args = append(args, channel)
-		argIdx++
-	}
-	if term > 0 {
-		query += fmt.Sprintf(` AND i.term = $%d`, argIdx)
-		args = append(args, term)
-		argIdx++
-	}
-	if year > 0 {
-		query += fmt.Sprintf(` AND i.year = $%d`, argIdx)
-		args = append(args, year)
-		argIdx++
-	}
-	query += ` ORDER BY p.created_at DESC LIMIT 500`
-
-	rows, err := s.pool.Query(ctx, query, args...)
-	if err != nil {
-		return nil, err
-	}
+func scanPayments(rows pgx.Rows) ([]Payment, error) {
 	defer rows.Close()
-
-	var payments []Payment
+	payments := []Payment{}
 	for rows.Next() {
 		pay, err := scanPayment(rows)
 		if err != nil {
@@ -763,102 +1135,424 @@ func (s *Service) ListPayments(ctx context.Context, tenantID uuid.UUID, status, 
 	return payments, rows.Err()
 }
 
-// GetPayment returns a single payment.
-func (s *Service) GetPayment(ctx context.Context, tenantID, id uuid.UUID) (*Payment, error) {
-	query := fmt.Sprintf(`SELECT %s FROM payments p
-		JOIN invoices i ON i.id = p.invoice_id
-		JOIN learners l ON l.id = i.learner_id
-		WHERE p.tenant_id = $1 AND p.id = $2`, paymentColumns)
-	return scanPayment(s.pool.QueryRow(ctx, query, tenantID, id))
+// PaymentFilter narrows a list of payments.
+type PaymentFilter struct {
+	Status  string
+	Channel string
+	Search  string
+	Term    int
+	Year    int
+	Limit   int
+	Offset  int
 }
 
-// CreatePayment records a payment (cash, bank, cheque, or manual M-Pesa entry).
-// For non-M-Pesa channels it is immediately completed and refreshes the invoice.
-func (s *Service) CreatePayment(ctx context.Context, tenantID uuid.UUID, req CreatePaymentRequest) (*Payment, error) {
-	if req.InvoiceID == uuid.Nil || req.AmountCents <= 0 {
-		return nil, errors.New("invoice_id and a positive amount_cents are required")
-	}
-	channel := req.Channel
-	if channel == "" {
-		channel = "cash"
-	}
+// ListPayments returns payments, newest first.
+func (s *Service) ListPayments(ctx context.Context, tenantID uuid.UUID, f PaymentFilter) ([]Payment, error) {
+	query := `SELECT ` + paymentColumns + paymentFrom + ` WHERE p.tenant_id = $1`
+	args := []any{tenantID}
 
-	// Verify invoice belongs to tenant
-	var invoiceExists bool
-	err := s.pool.QueryRow(ctx,
-		`SELECT EXISTS(SELECT 1 FROM invoices WHERE tenant_id = $1 AND id = $2)`,
-		tenantID, req.InvoiceID).Scan(&invoiceExists)
+	if f.Status != "" {
+		args = append(args, f.Status)
+		query += fmt.Sprintf(` AND p.status = $%d`, len(args))
+	}
+	if f.Channel != "" {
+		args = append(args, f.Channel)
+		query += fmt.Sprintf(` AND p.channel = $%d`, len(args))
+	}
+	if search := strings.TrimSpace(f.Search); search != "" {
+		args = append(args, "%"+search+"%")
+		n := len(args)
+		query += fmt.Sprintf(` AND (l.full_name ILIKE $%d OR p.receipt_number ILIKE $%d OR p.reference ILIKE $%d
+			OR p.mpesa_receipt ILIKE $%d OR i.invoice_number ILIKE $%d)`, n, n, n, n, n)
+	}
+	if f.Term > 0 {
+		args = append(args, f.Term)
+		query += fmt.Sprintf(` AND i.term = $%d`, len(args))
+	}
+	if f.Year > 0 {
+		args = append(args, f.Year)
+		query += fmt.Sprintf(` AND i.year = $%d`, len(args))
+	}
+	limit, offset := pageBounds(f.Limit, f.Offset)
+	args = append(args, limit, offset)
+	query += fmt.Sprintf(` ORDER BY p.created_at DESC, p.id LIMIT $%d OFFSET $%d`, len(args)-1, len(args))
+
+	rows, err := s.pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
-	if !invoiceExists {
-		return nil, pgx.ErrNoRows
-	}
+	return scanPayments(rows)
+}
 
-	status := "completed"
+// ListInvoicePayments returns all payments for an invoice.
+func (s *Service) ListInvoicePayments(ctx context.Context, tenantID, invoiceID uuid.UUID) ([]Payment, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT `+paymentColumns+paymentFrom+` WHERE p.tenant_id = $1 AND p.invoice_id = $2 ORDER BY p.created_at DESC`,
+		tenantID, invoiceID)
+	if err != nil {
+		return nil, err
+	}
+	return scanPayments(rows)
+}
+
+// GetPayment returns a single payment.
+func (s *Service) GetPayment(ctx context.Context, tenantID, id uuid.UUID) (*Payment, error) {
+	pay, err := scanPayment(s.pool.QueryRow(ctx,
+		`SELECT `+paymentColumns+paymentFrom+` WHERE p.tenant_id = $1 AND p.id = $2`, tenantID, id))
+	return pay, notFound(err)
+}
+
+// paymentByKey returns the payment an earlier request with the same
+// idempotency key created, if there is one.
+func (s *Service) paymentByKey(ctx context.Context, tenantID uuid.UUID, key string) (*Payment, error) {
+	if key == "" {
+		return nil, nil
+	}
+	pay, err := scanPayment(s.pool.QueryRow(ctx,
+		`SELECT `+paymentColumns+paymentFrom+` WHERE p.tenant_id = $1 AND p.idempotency_key = $2`, tenantID, key))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	return pay, err
+}
+
+// receiptNumber takes the next receipt number for a school.
+func receiptNumber(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, at time.Time) (string, error) {
+	year := at.In(nairobi).Year()
+	n, err := nextNumber(ctx, tx, tenantID, "receipt", year)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("RCT-%d-%05d", year, n), nil
+}
+
+var nairobi = time.FixedZone("EAT", 3*60*60)
+
+var manualChannels = map[string]string{"cash": "cash", "bank": "bank", "cheque": "cheque", "mpesa": "M-Pesa"}
+
+// CreatePayment records money the school has already received: cash, a bank
+// deposit, a cheque, or an M-Pesa payment entered from its confirmation code.
+// It is completed at once, with a receipt number.
+func (s *Service) CreatePayment(ctx context.Context, tenantID uuid.UUID, actor *uuid.UUID, req CreatePaymentRequest) (*Payment, error) {
+	if req.InvoiceID == uuid.Nil {
+		return nil, invalid("Choose the invoice this payment is for.")
+	}
+	if req.AmountCents <= 0 {
+		return nil, invalid("Enter the amount received.")
+	}
+	if req.Channel == "" {
+		req.Channel = "cash"
+	}
+	label, ok := manualChannels[req.Channel]
+	if !ok {
+		return nil, invalid("%s is not a way of paying.", req.Channel)
+	}
+	reference := trimmed(req.Reference)
+	if reference != nil {
+		upper := strings.ToUpper(*reference)
+		reference = &upper
+	}
+	if req.Channel != "cash" && reference == nil {
+		return nil, invalid("Enter the %s reference, so this payment can be traced.", label)
+	}
 	paidAt := time.Now()
 	if req.PaidAt != nil {
+		if req.PaidAt.After(paidAt.Add(5 * time.Minute)) {
+			return nil, invalid("The payment date is in the future.")
+		}
 		paidAt = *req.PaidAt
+	}
+
+	if existing, err := s.paymentByKey(ctx, tenantID, req.IdempotencyKey); err != nil || existing != nil {
+		return existing, err
 	}
 
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback(ctx) //nolint:errcheck // no-op after commit
 
-	query := fmt.Sprintf(`INSERT INTO payments (tenant_id, invoice_id, amount_cents, channel, status, reference, paid_by, phone, paid_at, received_by, notes)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-		RETURNING %s`, paymentColumns+`
-		FROM invoices i JOIN learners l ON l.id = i.learner_id WHERE i.id = payments.invoice_id`)
-	pay, err := scanPayment(tx.QueryRow(ctx, query,
-		tenantID, req.InvoiceID, req.AmountCents, channel, status, req.Reference, req.PaidBy, req.Phone,
-		paidAt, req.ReceivedBy, req.Notes,
-	))
+	status, balance, err := lockInvoice(ctx, tx, tenantID, req.InvoiceID)
 	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return nil, invalid("That invoice is not in this school.")
+		}
+		return nil, err
+	}
+	if status == "void" {
+		return nil, conflict("This invoice is void; a payment cannot be recorded against it.")
+	}
+	if balance <= 0 {
+		return nil, conflict("This invoice is already paid in full.")
+	}
+	if req.AmountCents > balance {
+		return nil, invalid("Only %s is still owed on this invoice. Record at most that; put the rest against the learner's next invoice.", KES(balance))
+	}
+
+	if reference != nil {
+		var receipt *string
+		err := tx.QueryRow(ctx, `
+			SELECT receipt_number FROM payments
+			WHERE tenant_id = $1 AND status = 'completed' AND channel = $2
+			  AND (upper(reference) = $3 OR upper(mpesa_receipt) = $3)
+			LIMIT 1`, tenantID, req.Channel, *reference).Scan(&receipt)
+		if err == nil {
+			return nil, conflict("%s reference %s is already recorded%s.", label, *reference, receiptSuffix(receipt))
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return nil, err
+		}
+		if req.Channel == "mpesa" {
+			var inInbox bool
+			if err := tx.QueryRow(ctx,
+				`SELECT EXISTS (SELECT 1 FROM mpesa_inbox WHERE upper(trans_id) = $1)`, *reference).Scan(&inInbox); err != nil {
+				return nil, err
+			}
+			if inInbox {
+				return nil, conflict("M-Pesa payment %s has already arrived from Safaricom. Allocate it under Paybill payments instead of entering it by hand.", *reference)
+			}
+		}
+	}
+
+	receipt, err := receiptNumber(ctx, tx, tenantID, paidAt)
+	if err != nil {
+		return nil, err
+	}
+	var key *string
+	if req.IdempotencyKey != "" {
+		key = &req.IdempotencyKey
+	}
+	var id uuid.UUID
+	err = tx.QueryRow(ctx, `
+		INSERT INTO payments (tenant_id, invoice_id, amount_cents, channel, status, reference, paid_by, phone,
+			paid_at, received_by, notes, receipt_number, idempotency_key)
+		VALUES ($1, $2, $3, $4, 'completed', $5, $6, $7, $8, $9, $10, $11, $12)
+		RETURNING id`,
+		tenantID, req.InvoiceID, req.AmountCents, req.Channel, reference, trimmed(req.PaidBy), trimmed(req.Phone),
+		paidAt, actor, trimmed(req.Notes), receipt, key,
+	).Scan(&id)
+	if err != nil {
+		if httputil.IsUniqueViolation(err) {
+			// Two submissions of the same form raced; the other one won.
+			if existing, lookupErr := s.paymentByKey(ctx, tenantID, req.IdempotencyKey); lookupErr == nil && existing != nil {
+				return existing, nil
+			}
+		}
 		return nil, err
 	}
 
 	if err := refreshInvoiceFinance(ctx, tx, tenantID, req.InvoiceID); err != nil {
 		return nil, err
 	}
-
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}
-	return pay, nil
+	return s.GetPayment(ctx, tenantID, id)
 }
 
-// ReversePayment reverses a payment (status -> reversed) and refreshes the invoice.
-func (s *Service) ReversePayment(ctx context.Context, tenantID, id uuid.UUID) (*Payment, error) {
-	var invoiceID uuid.UUID
-	err := s.pool.QueryRow(ctx,
-		`SELECT invoice_id FROM payments WHERE tenant_id = $1 AND id = $2`, tenantID, id).Scan(&invoiceID)
-	if err != nil {
-		return nil, err
+func receiptSuffix(receipt *string) string {
+	if receipt == nil || *receipt == "" {
+		return ""
+	}
+	return " as receipt " + *receipt
+}
+
+// ReversePayment undoes a confirmed payment: a bounced cheque, money entered
+// against the wrong learner. The payment stays on record as reversed, with
+// who reversed it and why, and the invoice is owed again.
+func (s *Service) ReversePayment(ctx context.Context, tenantID uuid.UUID, actor *uuid.UUID, id uuid.UUID, reason string) (*Payment, error) {
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		return nil, invalid("Say why this payment is being reversed.")
 	}
 
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback(ctx) //nolint:errcheck // no-op after commit
 
-	query := fmt.Sprintf(`UPDATE payments p SET status = 'reversed'
-		WHERE p.tenant_id = $1 AND p.id = $2 AND p.status = 'completed'
-		RETURNING %s`, paymentColumns+`
-		FROM invoices i JOIN learners l ON l.id = i.learner_id WHERE i.id = p.invoice_id`)
-	pay, err := scanPayment(tx.QueryRow(ctx, query, tenantID, id))
-	if err != nil {
+	var invoiceID uuid.UUID
+	var status string
+	var inboxID *uuid.UUID
+	var amount int64
+	if err := tx.QueryRow(ctx, `
+		SELECT invoice_id, status, inbox_id, amount_cents FROM payments
+		WHERE tenant_id = $1 AND id = $2 FOR UPDATE`, tenantID, id).Scan(&invoiceID, &status, &inboxID, &amount); err != nil {
+		return nil, notFound(err)
+	}
+	switch status {
+	case "completed":
+	case "reversed":
+		return nil, conflict("This payment has already been reversed.")
+	default:
+		return nil, conflict("Only a confirmed payment can be reversed; this one is %s.", status)
+	}
+	if _, _, err := lockInvoice(ctx, tx, tenantID, invoiceID); err != nil {
 		return nil, err
 	}
 
+	if _, err := tx.Exec(ctx, `
+		UPDATE payments SET status = 'reversed', reversed_at = now(), reversed_by = $3, reversal_reason = $4
+		WHERE tenant_id = $1 AND id = $2`, tenantID, id, actor, reason); err != nil {
+		return nil, err
+	}
+	// Money that came from the paybill goes back to be allocated again: it was
+	// received, whatever invoice it was first put against.
+	if inboxID != nil {
+		if _, err := tx.Exec(ctx, `
+			UPDATE mpesa_inbox SET
+				allocated_cents = allocated_cents - $3,
+				status = CASE WHEN allocated_cents - $3 <= 0 THEN 'unmatched' ELSE 'part_allocated' END
+			WHERE tenant_id = $1 AND id = $2`, tenantID, *inboxID, amount); err != nil {
+			return nil, err
+		}
+	}
 	if err := refreshInvoiceFinance(ctx, tx, tenantID, invoiceID); err != nil {
 		return nil, err
 	}
-
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}
-	return pay, nil
+	return s.GetPayment(ctx, tenantID, id)
+}
+
+// --- Position: arrears, statement, summary ---
+
+// Arrears lists the learners who still owe fees, largest balance first.
+func (s *Service) Arrears(ctx context.Context, tenantID uuid.UUID, grade, search string, limit, offset int) ([]ArrearsRow, error) {
+	query := `
+		SELECT l.id, l.full_name, l.grade, COALESCE(l.stream, ''), COUNT(i.id),
+		       SUM(i.total_cents - i.discount_cents - i.paid_cents), MIN(i.due_date)::text
+		FROM invoices i JOIN learners l ON l.id = i.learner_id
+		WHERE i.tenant_id = $1 AND ` + owing + ` AND i.total_cents - i.discount_cents - i.paid_cents > 0`
+	args := []any{tenantID}
+	if grade != "" {
+		args = append(args, grade)
+		query += fmt.Sprintf(` AND l.grade = $%d`, len(args))
+	}
+	if search = strings.TrimSpace(search); search != "" {
+		args = append(args, "%"+search+"%")
+		query += fmt.Sprintf(` AND l.full_name ILIKE $%d`, len(args))
+	}
+	limit, offset = pageBounds(limit, offset)
+	args = append(args, limit, offset)
+	query += fmt.Sprintf(` GROUP BY l.id, l.full_name, l.grade, l.stream
+		ORDER BY 6 DESC, l.full_name LIMIT $%d OFFSET $%d`, len(args)-1, len(args))
+
+	rows, err := s.pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := []ArrearsRow{}
+	for rows.Next() {
+		var r ArrearsRow
+		if err := rows.Scan(&r.LearnerID, &r.LearnerName, &r.Grade, &r.Stream, &r.Invoices, &r.BalanceCents, &r.OldestDue); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// Statement returns everything billed to and received for one learner.
+func (s *Service) Statement(ctx context.Context, tenantID, learnerID uuid.UUID) (*Statement, error) {
+	st := &Statement{LearnerID: learnerID}
+	if err := s.pool.QueryRow(ctx,
+		`SELECT full_name, grade, COALESCE(stream, '') FROM learners WHERE tenant_id = $1 AND id = $2`,
+		tenantID, learnerID).Scan(&st.LearnerName, &st.Grade, &st.Stream); err != nil {
+		return nil, notFound(err)
+	}
+
+	invoices, err := s.ListInvoices(ctx, tenantID, InvoiceFilter{LearnerID: learnerID.String(), Limit: 200})
+	if err != nil {
+		return nil, err
+	}
+	st.Invoices = invoices
+	for _, inv := range invoices {
+		if inv.Status == "void" {
+			continue
+		}
+		st.BilledCents += inv.TotalCents - inv.DiscountCents
+		st.PaidCents += inv.PaidCents
+	}
+	st.BalanceCents = st.BilledCents - st.PaidCents
+
+	rows, err := s.pool.Query(ctx,
+		`SELECT `+paymentColumns+paymentFrom+`
+		 WHERE p.tenant_id = $1 AND i.learner_id = $2 AND p.status IN ('completed', 'reversed')
+		 ORDER BY p.paid_at DESC NULLS LAST, p.created_at DESC`, tenantID, learnerID)
+	if err != nil {
+		return nil, err
+	}
+	st.Payments, err = scanPayments(rows)
+	return st, err
+}
+
+// Summary returns the school's fee position, for one term when term and year
+// are given.
+func (s *Service) Summary(ctx context.Context, tenantID uuid.UUID, term, year int) (*Summary, error) {
+	out := &Summary{ByChannel: map[string]int64{}}
+	period := ``
+	args := []any{tenantID}
+	if term > 0 {
+		args = append(args, term)
+		period += fmt.Sprintf(` AND i.term = $%d`, len(args))
+	}
+	if year > 0 {
+		args = append(args, year)
+		period += fmt.Sprintf(` AND i.year = $%d`, len(args))
+	}
+
+	if err := s.pool.QueryRow(ctx, `
+		SELECT COUNT(*),
+		       COALESCE(SUM(i.total_cents), 0),
+		       COALESCE(SUM(i.discount_cents), 0),
+		       COALESCE(SUM(i.paid_cents), 0),
+		       COALESCE(SUM(GREATEST(i.total_cents - i.discount_cents - i.paid_cents, 0)), 0),
+		       COALESCE(SUM(GREATEST(i.total_cents - i.discount_cents - i.paid_cents, 0)) FILTER (WHERE i.due_date < CURRENT_DATE), 0),
+		       COUNT(DISTINCT i.learner_id) FILTER (WHERE i.total_cents - i.discount_cents - i.paid_cents > 0)
+		FROM invoices i
+		WHERE i.tenant_id = $1 AND i.status <> 'void'`+period, args...).Scan(
+		&out.Invoices, &out.BilledCents, &out.DiscountCents, &out.CollectedCents,
+		&out.OutstandingCents, &out.OverdueCents, &out.LearnersOwing); err != nil {
+		return nil, err
+	}
+
+	rows, err := s.pool.Query(ctx, `
+		SELECT p.channel, COALESCE(SUM(p.amount_cents), 0)
+		FROM payments p JOIN invoices i ON i.id = p.invoice_id
+		WHERE p.tenant_id = $1 AND p.status = 'completed' AND i.status <> 'void'`+period+`
+		GROUP BY p.channel`, args...)
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var channel string
+		var cents int64
+		if err := rows.Scan(&channel, &cents); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		out.ByChannel[channel] = cents
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	if err := s.pool.QueryRow(ctx, `
+		SELECT COUNT(*), COALESCE(SUM(amount_cents - allocated_cents), 0)
+		FROM mpesa_inbox WHERE tenant_id = $1 AND status <> 'allocated'`, tenantID).Scan(&out.UnmatchedCount, &out.UnmatchedCents); err != nil {
+		return nil, err
+	}
+	if err := s.pool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM payments WHERE tenant_id = $1 AND channel = 'mpesa' AND status = 'pending'`,
+		tenantID).Scan(&out.PendingMpesa); err != nil {
+		return nil, err
+	}
+	return out, nil
 }

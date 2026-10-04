@@ -114,9 +114,9 @@ test.describe('school staff', () => {
     await page.goto('/communications/messages');
     await page.getByRole('link', { name: 'New SMS' }).click();
 
-    await page.getByRole('textbox', { name: 'Message', exact: true }).fill('You owe {{fee_balance}}');
+    await page.getByRole('textbox', { name: 'Message', exact: true }).fill('Bus {{bus_number}}');
     await page.getByRole('button', { name: 'Check and continue' }).click();
-    await expect(page.getByRole('main').getByRole('alert')).toContainText('{{fee_balance}} is not something that can be filled in');
+    await expect(page.getByRole('main').getByRole('alert')).toContainText('{{bus_number}} is not something that can be filled in');
 
     await page.getByRole('textbox', { name: 'Message', exact: true }).fill('a'.repeat(460));
     await expect(page.getByText(/over the limit of 3 units/)).toBeVisible();
@@ -274,7 +274,8 @@ test.describe('context switching', () => {
     await page.getByRole('table', { name: 'Messages' }).getByRole('link').first().click();
     await expect(page).toHaveURL(/\/communications\/messages\/[0-9a-f-]{36}$/);
 
-    // The group crumb narrows the school list: a school of no group is not offered.
+    // Jua Kali is private, so the group is now Private schools, and the school
+    // list is narrowed to it: Baraka, a public school, is not offered.
     const context = page.getByRole('navigation', { name: 'Context' });
     await context.getByRole('button', { name: /^School/ }).click();
     await expect(page.getByRole('option', { name: /Jua Kali Primary School/ })).toBeVisible();
@@ -288,18 +289,22 @@ test.describe('context switching', () => {
 
     await context.getByRole('button', { name: /^School/ }).click();
     await page.getByRole('option', { name: /Baraka Academy/ }).getByRole('button').click();
-    await expect(page).toHaveURL(/\/w\/all\/a0000000-0000-0000-0000-000000000002\/communications\/messages$/);
+    // Baraka is public, so the group becomes Public schools with it.
+    await expect(page).toHaveURL(/\/w\/[0-9a-f-]{36}\/a0000000-0000-0000-0000-000000000002\/communications\/messages$/);
+    await expect(context.getByRole('button', { name: /^Group/ })).toContainText('Public schools');
     await expect(page.getByText('No messages yet')).toBeVisible();
   });
 
   test('a group user sees only the schools of their group', async ({ page }) => {
     await signIn(page, 'trust@juakali.test');
-    await expect(page).toHaveURL(/\/w\/b0000000-0000-0000-0000-000000000001\/all\/platform\/schools$/);
+    // They are the private schools' user: Jua Kali is theirs, Baraka (public) is not.
+    await expect(page).toHaveURL(/\/w\/[0-9a-f-]{36}\/all\/platform\/schools$/);
+    const group = new URL(page.url()).pathname.split('/')[2];
     await expect(page.getByRole('link', { name: SCHOOL })).toBeVisible();
     await expect(page.getByRole('link', { name: 'Baraka Academy' })).toHaveCount(0);
 
     // A school outside the group answers like one that does not exist.
-    await page.goto('/w/b0000000-0000-0000-0000-000000000001/a0000000-0000-0000-0000-000000000002/communications/messages');
+    await page.goto(`/w/${group}/a0000000-0000-0000-0000-000000000002/communications/messages`);
     await expect(page.getByRole('main').getByRole('alert')).toContainText(/School not found|does not exist/);
     await expect(page.getByRole('table', { name: 'Messages' })).toHaveCount(0);
   });
@@ -307,27 +312,48 @@ test.describe('context switching', () => {
 
 test.describe('platform administration', () => {
   const suffix = String(Date.now()).slice(-7);
-  const groupName = `Hilltop Trust ${suffix}`;
+  const groupName = 'Public schools';
   const schoolName = `Hilltop Primary ${suffix}`;
   const userEmail = `director-${suffix}@example.test`;
   const userName = `Hilltop Director ${suffix}`;
   let password = '';
 
-  test('adds a group, a school in it, and a user for that group', async ({ page }) => {
+  test('there are two groups; a school joins the one for its kind, and a user is added for that group', async ({ page }) => {
     await signIn(page, 'ops@shule360.test');
     await page.goto('/w/all/all/platform/groups');
 
-    await page.getByRole('link', { name: 'Add group' }).click();
-    await page.getByRole('textbox', { name: 'Group name', exact: true }).fill(groupName);
-    await page.getByRole('button', { name: 'Add group' }).click();
-    await expect(page.getByRole('region', { name: 'group detail' }).getByRole('heading', { name: groupName })).toBeVisible();
+    // Public schools and private schools, and no way to add a third.
+    const groups = page.getByRole('table', { name: 'Groups' });
+    await expect(groups.getByRole('link')).toHaveText(['Public schools', 'Private schools']);
+    await expect(page.getByRole('link', { name: 'Add group' })).toHaveCount(0);
+    const created = await page.request.post('/api/v1/platform/groups', { data: { name: 'A third group' } });
+    expect([404, 405]).toContain(created.status());
+
+    // A group can be described; it stays the group it is.
+    await groups.getByRole('link', { name: 'Public schools' }).click();
+    const group = page.getByRole('region', { name: 'group detail' });
+    await expect(group).toContainText('Public (government) schools');
+    await group.getByRole('button', { name: 'Edit' }).click();
+    const about = `Government schools, funded by the state. Checked ${suffix}.`;
+    await group.getByRole('textbox', { name: 'About this group' }).fill(about);
+    await group.getByRole('button', { name: 'Save' }).click();
+    await expect(group).toContainText(about);
 
     await page.getByRole('navigation', { name: 'Platform sections' }).getByRole('link', { name: 'Schools' }).click();
     await page.getByRole('link', { name: 'Add school' }).click();
     await page.getByRole('textbox', { name: 'School name', exact: true }).fill(schoolName);
-    await page.getByLabel('Group').selectOption({ label: groupName });
-    await page.getByRole('button', { name: 'Add school' }).click();
-    await expect(page.getByRole('region', { name: 'school detail' })).toContainText(groupName);
+    // A school is created with the person who will run it, so it can be signed in to.
+    const newSchool = page.getByRole('region', { name: 'school detail' });
+    await expect(newSchool.getByLabel('Group')).toHaveCount(0);
+    await newSchool.getByLabel('Public or private').selectOption('public');
+    await newSchool.getByLabel('County').selectOption('Kisumu');
+    await newSchool.getByRole('textbox', { name: 'Principal’s full name' }).fill('Peter Otieno');
+    await newSchool.getByRole('textbox', { name: 'Principal’s email' }).fill(`head-${Date.now()}@example.test`);
+    await newSchool.getByRole('button', { name: 'Add school' }).click();
+    await expect(newSchool.getByRole('status').filter({ hasText: `${schoolName} is ready` })).toBeVisible();
+    await newSchool.getByRole('button', { name: 'I have saved it' }).click();
+    // Being public is being in the public group.
+    await expect(newSchool).toContainText(groupName);
 
     await page.getByRole('navigation', { name: 'Platform sections' }).getByRole('link', { name: 'Users' }).click();
     await page.getByRole('link', { name: 'Add user' }).click();
@@ -360,9 +386,14 @@ test.describe('platform administration', () => {
     expect(login.status()).toBe(200);
     expect((await login.json()).session.scope).toBe('group');
 
-    const visible = await (await theirs.get('/api/v1/schools')).json();
-    expect(visible.map((school: { name: string }) => school.name)).toEqual([schoolName]);
-    const hilltop = visible[0].id as string;
+    // Every public school, and no private one.
+    const visible: { id: string; name: string; ownership: string }[] = await (await theirs.get('/api/v1/schools')).json();
+    const names = visible.map((school) => school.name);
+    expect(names).toContain(schoolName);
+    expect(names).toContain('Baraka Academy');
+    expect(names).not.toContain(SCHOOL);
+    expect(visible.every((school) => school.ownership === 'public')).toBe(true);
+    const hilltop = visible.find((school) => school.name === schoolName)!.id;
 
     // Inside their school, a screen that records who acted works for them.
     const added = await theirs.post('/api/v1/contacts', {
@@ -399,7 +430,7 @@ test.describe('platform administration', () => {
 
   test('a platform user can use the screens that have not moved yet', async ({ page }) => {
     await signIn(page, 'ops@shule360.test');
-    await page.goto('/w/b0000000-0000-0000-0000-000000000001/a0000000-0000-0000-0000-000000000001/communications/messages');
+    await page.goto('/w/all/a0000000-0000-0000-0000-000000000001/communications/messages');
     await expect(page.getByRole('heading', { name: 'Messages', level: 1 })).toBeVisible();
 
     // Settings is one of the screens that requires a staff identity.

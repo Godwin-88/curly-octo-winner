@@ -35,6 +35,23 @@ func (f fakeSchools) OperatorStaff(_ context.Context, _, operatorID uuid.UUID) (
 
 var deactivatedOperator = uuid.New()
 
+// deactivatedStaff is a staff member whose account was switched off after
+// their token was issued; demotedStaff has since been made a teacher.
+var (
+	deactivatedStaff = uuid.New()
+	demotedStaff     = uuid.New()
+)
+
+func (f fakeSchools) StaffAccess(_ context.Context, _, staffID uuid.UUID) (string, bool, error) {
+	switch staffID {
+	case deactivatedStaff:
+		return "principal", false, nil
+	case demotedStaff:
+		return "teacher", true, nil
+	}
+	return "principal", true, nil
+}
+
 func signed(t *testing.T, claims jwt.MapClaims) string {
 	t.Helper()
 	claims["exp"] = time.Now().Add(time.Hour).Unix()
@@ -203,4 +220,60 @@ func TestSessionScopes(t *testing.T) {
 			t.Fatalf("status %d, want 404", status)
 		}
 	})
+}
+
+type fakeModules map[string]bool
+
+func (f fakeModules) ModuleEnabled(_ context.Context, _ uuid.UUID, module string) (bool, error) {
+	return f[module], nil
+}
+
+// A module the school does not have is refused before the handler runs; one
+// it has passes through.
+func TestRequireModule(t *testing.T) {
+	school := uuid.New()
+	called := false
+	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { called = true; w.WriteHeader(http.StatusOK) })
+
+	for _, tc := range []struct {
+		name    string
+		modules fakeModules
+		want    int
+		reaches bool
+	}{
+		{"enabled", fakeModules{"finance": true}, http.StatusOK, true},
+		{"not enabled", fakeModules{"communications": true}, http.StatusForbidden, false},
+	} {
+		called = false
+		req := httptest.NewRequest(http.MethodGet, "/invoices", nil)
+		req = req.WithContext(context.WithValue(req.Context(), ContextKeyTenantID, school))
+		rec := httptest.NewRecorder()
+		RequireModule(tc.modules, "finance", "Finance")(next).ServeHTTP(rec, req)
+		if rec.Code != tc.want || called != tc.reaches {
+			t.Errorf("%s: status %d reached=%v, want %d reached=%v", tc.name, rec.Code, called, tc.want, tc.reaches)
+		}
+	}
+}
+
+// What a staff member may do follows the staff record as it is now, not the
+// token they were given when they signed in.
+func TestStaffAccessFollowsTheRecordNotTheToken(t *testing.T) {
+	school := uuid.New()
+	schools := fakeSchools{school: nil}
+	token := func(staff uuid.UUID) string {
+		return signed(t, jwt.MapClaims{"tenant_id": school.String(), "staff_id": staff.String(), "role": "principal"})
+	}
+
+	status, _, code := call(t, schools, token(deactivatedStaff), nil)
+	if status != http.StatusUnauthorized || code != "ACCOUNT_DEACTIVATED" {
+		t.Errorf("deactivated staff: status %d code %q, want 401 ACCOUNT_DEACTIVATED", status, code)
+	}
+	status, got, _ := call(t, schools, token(demotedStaff), nil)
+	if status != http.StatusOK || got.Role != "teacher" {
+		t.Errorf("demoted staff: status %d role %q, want 200 as teacher", status, got.Role)
+	}
+	status, got, _ = call(t, schools, token(uuid.New()), nil)
+	if status != http.StatusOK || got.Role != "principal" {
+		t.Errorf("active staff: status %d role %q", status, got.Role)
+	}
 }

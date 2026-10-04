@@ -19,6 +19,7 @@ const GUARDIAN_COOKIE = 'shule360_guardian_session';
 // Both require a staff JWT.
 const STAFF_PREFIXES = [
   '/dashboard',
+  '/school',
   '/communications',
   '/academic',
   '/learners',

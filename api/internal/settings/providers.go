@@ -168,7 +168,7 @@ func testMpesa(ctx context.Context, secrets map[string]string, config map[string
 	}
 	base := pick(secrets, config, platform.MpesaBaseURL, "base_url", "base_url")
 	if base == "" {
-		base = "https://sandbox.safaricomm.co.ke"
+		base = "https://sandbox.safaricom.co.ke"
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,

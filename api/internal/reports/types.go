@@ -6,65 +6,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// ReportCard is a CBC-compliant report card for a learner per term/year.
-type ReportCard struct {
-	ID                    uuid.UUID         `json:"id"`
-	TenantID              uuid.UUID         `json:"tenant_id"`
-	LearnerID             uuid.UUID         `json:"learner_id"`
-	LearnerName           string            `json:"learner_name,omitempty"`
-	Grade                 string            `json:"grade,omitempty"`
-	Stream                string            `json:"stream,omitempty"`
-	UPI                   string            `json:"upi,omitempty"`
-	Term                  int               `json:"term"`
-	Year                  int               `json:"year"`
-	Status                string            `json:"status"`
-	OverallRating         *int              `json:"overall_rating,omitempty"`
-	CoreCompetencyRemarks map[string]string `json:"core_competency_remarks,omitempty"`
-	TeacherComments       map[string]string `json:"teacher_comments,omitempty"`
-	AttendanceSummary     map[string]any    `json:"attendance_summary,omitempty"`
-	GeneratedBy           *uuid.UUID        `json:"generated_by,omitempty"`
-	GeneratedAt           time.Time         `json:"generated_at"`
-	CreatedAt             time.Time         `json:"created_at"`
-	UpdatedAt             time.Time         `json:"updated_at"`
-	// Items populated on detail generation
-	Items []ReportCardItem `json:"items,omitempty"`
-}
-
-// ReportCardItem is a line item on a report card (per sub-strand).
-type ReportCardItem struct {
-	ID             uuid.UUID  `json:"id"`
-	TenantID       uuid.UUID  `json:"tenant_id"`
-	ReportCardID   uuid.UUID  `json:"report_card_id"`
-	LearningAreaID *uuid.UUID `json:"learning_area_id,omitempty"`
-	StrandID       *uuid.UUID `json:"strand_id,omitempty"`
-	SubStrandID    *uuid.UUID `json:"sub_strand_id,omitempty"`
-	LearningArea   string     `json:"learning_area,omitempty"`
-	StrandName     string     `json:"strand_name,omitempty"`
-	SubStrandName  string     `json:"sub_strand_name,omitempty"`
-	RubricLevel    *int       `json:"rubric_level,omitempty"`
-	RubricLabel    string     `json:"rubric_label,omitempty"`
-	Comment        *string    `json:"comment,omitempty"`
-	SortOrder      int        `json:"sort_order"`
-	CreatedAt      time.Time  `json:"created_at"`
-}
-
-// GenerateReportCardRequest is the payload to generate a report card.
-type GenerateReportCardRequest struct {
-	Status                *string           `json:"status,omitempty"`
-	OverallRating         *int              `json:"overall_rating,omitempty"`
-	CoreCompetencyRemarks map[string]string `json:"core_competency_remarks,omitempty"`
-	TeacherComments       map[string]string `json:"teacher_comments,omitempty"`
-	GeneratedBy           *uuid.UUID        `json:"generated_by,omitempty"`
-}
-
-// UpdateReportCardRequest is a partial update payload.
-type UpdateReportCardRequest struct {
-	Status                *string           `json:"status,omitempty"`
-	OverallRating         *int              `json:"overall_rating,omitempty"`
-	CoreCompetencyRemarks map[string]string `json:"core_competency_remarks,omitempty"`
-	TeacherComments       map[string]string `json:"teacher_comments,omitempty"`
-}
-
 // --- Analytics ---
 
 // SchoolOverview is the top-level dashboard summary.

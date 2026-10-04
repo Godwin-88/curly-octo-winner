@@ -3,11 +3,14 @@ package assessment
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/shule360/api/pkg/apperr"
 )
 
 // Assessment represents a formative assessment observation.
@@ -27,16 +30,23 @@ type Assessment struct {
 }
 
 // CreateAssessmentRequest is the request payload for creating an assessment.
+//
+// The JSON tags matter: without them {"learner_id": ...} never reached
+// LearnerID and no observation could be recorded. TeacherID is not read from
+// the request at all: it is whoever is signed in.
 type CreateAssessmentRequest struct {
-	LearnerID    uuid.UUID
-	SubStrandID  uuid.UUID
-	RubricLevel  int
-	Note         string
-	EvidenceURLs []string
-	TeacherID    uuid.UUID
-	Term         int
-	Year         int
+	LearnerID    uuid.UUID `json:"learner_id"`
+	SubStrandID  uuid.UUID `json:"sub_strand_id"`
+	RubricLevel  int       `json:"rubric_level"`
+	Note         string    `json:"note"`
+	EvidenceURLs []string  `json:"evidence_urls"`
+	TeacherID    uuid.UUID `json:"-"`
+	Term         int       `json:"term"`
+	Year         int       `json:"year"`
 }
+
+// maxNoteLength keeps a note to what fits on a report card.
+const maxNoteLength = 1000
 
 // AssessmentSummary is a joined view of assessment with learner and strand info.
 type AssessmentSummary struct {
@@ -86,17 +96,55 @@ func NewService(pool *pgxpool.Pool) *Service {
 	return &Service{pool: pool}
 }
 
-// Create inserts a new assessment observation.
+// Create records an observation of one learner against one sub-strand.
 func (s *Service) Create(ctx context.Context, tenantID uuid.UUID, req CreateAssessmentRequest) (*Assessment, error) {
+	if req.LearnerID == uuid.Nil {
+		return nil, apperr.Invalid("Choose the learner you are observing.")
+	}
+	if req.SubStrandID == uuid.Nil {
+		return nil, apperr.Invalid("Choose the sub-strand being assessed.")
+	}
 	if req.RubricLevel < 1 || req.RubricLevel > 4 {
-		return nil, fmt.Errorf("rubric_level must be between 1 and 4")
+		return nil, apperr.Invalid("Pick a rubric level between 1 (Below Expectation) and 4 (Exceeding Expectation).")
+	}
+	if req.Term < 1 || req.Term > 3 {
+		return nil, apperr.Invalid("Term must be 1, 2 or 3.")
+	}
+	if req.Year < 2000 || req.Year > time.Now().Year()+1 {
+		return nil, apperr.Invalid("That year is not one an observation can be recorded for.")
+	}
+	if req.TeacherID == uuid.Nil {
+		return nil, apperr.Invalid("Sign in as a member of the school's staff to record an observation.")
+	}
+	req.Note = strings.TrimSpace(req.Note)
+	if len([]rune(req.Note)) > maxNoteLength {
+		return nil, apperr.Invalid("Keep the note under %d characters.", maxNoteLength)
+	}
+	if req.EvidenceURLs == nil {
+		req.EvidenceURLs = []string{}
+	}
+
+	// The foreign keys only say that the learner and sub-strand exist; these
+	// say they are this school's.
+	var learnerOK, subStrandOK bool
+	if err := s.pool.QueryRow(ctx, `
+		SELECT EXISTS (SELECT 1 FROM learners WHERE tenant_id = $1 AND id = $2),
+		       EXISTS (SELECT 1 FROM sub_strands WHERE tenant_id = $1 AND id = $3)
+	`, tenantID, req.LearnerID, req.SubStrandID).Scan(&learnerOK, &subStrandOK); err != nil {
+		return nil, fmt.Errorf("check assessment references: %w", err)
+	}
+	if !learnerOK {
+		return nil, apperr.Invalid("That learner is not in your school.")
+	}
+	if !subStrandOK {
+		return nil, apperr.Invalid("That sub-strand is not in your school's curriculum.")
 	}
 
 	var a Assessment
 	err := s.pool.QueryRow(ctx, `
 		INSERT INTO assessments (tenant_id, learner_id, sub_strand_id, rubric_level, note, evidence_urls, teacher_id, term, year)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-		RETURNING id, tenant_id, learner_id, sub_strand_id, rubric_level, note, evidence_urls, teacher_id, term, year, created_at, updated_at
+		RETURNING id, tenant_id, learner_id, sub_strand_id, rubric_level, COALESCE(note, ''), evidence_urls, teacher_id, term, year, created_at, updated_at
 	`, tenantID, req.LearnerID, req.SubStrandID, req.RubricLevel, req.Note, req.EvidenceURLs, req.TeacherID, req.Term, req.Year).Scan(
 		&a.ID, &a.TenantID, &a.LearnerID, &a.SubStrandID, &a.RubricLevel,
 		&a.Note, &a.EvidenceURLs, &a.TeacherID, &a.Term, &a.Year,
@@ -111,7 +159,7 @@ func (s *Service) Create(ctx context.Context, tenantID uuid.UUID, req CreateAsse
 // ListByLearner returns all assessments for a specific learner in a term/year.
 func (s *Service) ListByLearner(ctx context.Context, tenantID, learnerID uuid.UUID, term, year int) ([]Assessment, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, tenant_id, learner_id, sub_strand_id, rubric_level, note, evidence_urls, teacher_id, term, year, created_at, updated_at
+		SELECT id, tenant_id, learner_id, sub_strand_id, rubric_level, COALESCE(note, ''), evidence_urls, teacher_id, term, year, created_at, updated_at
 		FROM assessments
 		WHERE tenant_id = $1 AND learner_id = $2 AND term = $3 AND year = $4
 		ORDER BY created_at DESC
@@ -139,7 +187,7 @@ func (s *Service) ListByLearner(ctx context.Context, tenantID, learnerID uuid.UU
 // ListByTermYear returns all assessments for a tenant in a term/year.
 func (s *Service) ListByTermYear(ctx context.Context, tenantID uuid.UUID, term, year int) ([]Assessment, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, tenant_id, learner_id, sub_strand_id, rubric_level, note, evidence_urls, teacher_id, term, year, created_at, updated_at
+		SELECT id, tenant_id, learner_id, sub_strand_id, rubric_level, COALESCE(note, ''), evidence_urls, teacher_id, term, year, created_at, updated_at
 		FROM assessments
 		WHERE tenant_id = $1 AND term = $2 AND year = $3
 		ORDER BY created_at DESC
@@ -173,7 +221,7 @@ func (s *Service) ListByTermYear(ctx context.Context, tenantID uuid.UUID, term, 
 func (s *Service) ListSummariesByTermYear(ctx context.Context, tenantID uuid.UUID, term, year int) ([]AssessmentSummary, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT
-			a.id, a.learner_id, l.full_name AS learner_name, l.grade, l.stream,
+			a.id, a.learner_id, l.full_name AS learner_name, l.grade, COALESCE(l.stream, ''),
 			a.sub_strand_id, ss.name AS sub_strand_name, COALESCE(ss.kicd_code, '') AS sub_strand_code,
 			st.name AS strand_name, la.name AS learning_area,
 			a.rubric_level,
@@ -184,7 +232,7 @@ func (s *Service) ListSummariesByTermYear(ctx context.Context, tenantID uuid.UUI
 				WHEN 4 THEN 'Exceeding'
 				ELSE 'Unrated'
 			END AS rubric_label,
-			a.note, a.evidence_urls, a.teacher_id, a.term, a.year, a.created_at
+			COALESCE(a.note, ''), a.evidence_urls, a.teacher_id, a.term, a.year, a.created_at
 		FROM assessments a
 		JOIN learners l ON l.id = a.learner_id AND l.tenant_id = a.tenant_id
 		JOIN sub_strands ss ON ss.id = a.sub_strand_id AND ss.tenant_id = a.tenant_id
@@ -218,7 +266,7 @@ func (s *Service) ListSummariesByTermYear(ctx context.Context, tenantID uuid.UUI
 func (s *Service) ListSummariesByLearner(ctx context.Context, tenantID, learnerID uuid.UUID, term, year int) ([]AssessmentSummary, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT
-			a.id, a.learner_id, l.full_name AS learner_name, l.grade, l.stream,
+			a.id, a.learner_id, l.full_name AS learner_name, l.grade, COALESCE(l.stream, ''),
 			a.sub_strand_id, s.name AS sub_strand_name, COALESCE(s.kicd_code, '') AS sub_strand_code,
 			str.name AS strand_name, la.name AS learning_area,
 			a.rubric_level,
@@ -228,7 +276,7 @@ func (s *Service) ListSummariesByLearner(ctx context.Context, tenantID, learnerI
 				WHEN 3 THEN 'Meeting Expectation'
 				WHEN 4 THEN 'Exceeding Expectation'
 			END AS rubric_label,
-			a.note, a.term, a.year, a.teacher_id, a.created_at
+			COALESCE(a.note, ''), a.term, a.year, a.teacher_id, a.created_at
 		FROM assessments a
 		JOIN learners l ON l.id = a.learner_id AND l.tenant_id = a.tenant_id
 		JOIN sub_strands s ON s.id = a.sub_strand_id AND s.tenant_id = a.tenant_id
@@ -262,7 +310,7 @@ func (s *Service) ListSummariesByLearner(ctx context.Context, tenantID, learnerI
 func (s *Service) GetByID(ctx context.Context, tenantID, id uuid.UUID) (*Assessment, error) {
 	var a Assessment
 	err := s.pool.QueryRow(ctx, `
-		SELECT id, tenant_id, learner_id, sub_strand_id, rubric_level, note, evidence_urls, teacher_id, term, year, created_at, updated_at
+		SELECT id, tenant_id, learner_id, sub_strand_id, rubric_level, COALESCE(note, ''), evidence_urls, teacher_id, term, year, created_at, updated_at
 		FROM assessments
 		WHERE tenant_id = $1 AND id = $2
 	`, tenantID, id).Scan(
@@ -272,20 +320,25 @@ func (s *Service) GetByID(ctx context.Context, tenantID, id uuid.UUID) (*Assessm
 	)
 	if err != nil {
 		if err == pgx.ErrNoRows {
-			return nil, fmt.Errorf("assessment not found")
+			return nil, apperr.ErrNotFound
 		}
 		return nil, fmt.Errorf("query assessment: %w", err)
 	}
 	return &a, nil
 }
 
-// Delete removes an assessment.
-func (s *Service) Delete(ctx context.Context, tenantID, id uuid.UUID) error {
-	_, err := s.pool.Exec(ctx, `
-		DELETE FROM assessments
-		WHERE tenant_id = $1 AND id = $2
-	`, tenantID, id)
+// Delete removes an observation. Only the teacher who recorded it, or someone
+// who runs the school, may: an observation is a teacher's judgement of a
+// learner, and it feeds the report card.
+func (s *Service) Delete(ctx context.Context, tenantID, id, actorID uuid.UUID, manager bool) error {
+	a, err := s.GetByID(ctx, tenantID, id)
 	if err != nil {
+		return err
+	}
+	if !manager && a.TeacherID != actorID {
+		return apperr.Invalid("Only the teacher who recorded this observation, or the principal, can remove it.")
+	}
+	if _, err := s.pool.Exec(ctx, `DELETE FROM assessments WHERE tenant_id = $1 AND id = $2`, tenantID, id); err != nil {
 		return fmt.Errorf("delete assessment: %w", err)
 	}
 	return nil

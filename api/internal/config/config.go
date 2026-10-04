@@ -49,6 +49,15 @@ type Config struct {
 	// MpesaAllowedIPs restricts the M-Pesa webhook to these IPs/CIDRs
 	// (MPESA_ALLOWED_IPS, comma separated). Empty = allow all (dev only).
 	MpesaAllowedIPs []string
+	// SignupMode says who may register a school themselves (SIGNUP_MODE):
+	// "open", "code" (needs SIGNUP_CODE) or "closed". Left unset it is closed
+	// in production and open in development.
+	SignupMode string
+	SignupCode string
+	// MpesaWebhookToken is the secret path segment of the addresses Safaricom
+	// reports to (MPESA_WEBHOOK_TOKEN). Paybill confirmations are refused
+	// without it.
+	MpesaWebhookToken string
 
 	// CORSAllowedOrigins adds extra origins to the default CORS allowlist
 	// (CORS_ALLOWED_ORIGINS, comma separated). The defaults already include
@@ -98,6 +107,9 @@ func Load() (*Config, error) {
 		MpesaCallbackURL:         os.Getenv("MPESA_CALLBACK_URL"),
 		MpesaBaseURL:             os.Getenv("MPESA_BASE_URL"),
 		MpesaAllowedIPs:          splitCSV(os.Getenv("MPESA_ALLOWED_IPS")),
+		MpesaWebhookToken:        os.Getenv("MPESA_WEBHOOK_TOKEN"),
+		SignupMode:               strings.ToLower(strings.TrimSpace(os.Getenv("SIGNUP_MODE"))),
+		SignupCode:               os.Getenv("SIGNUP_CODE"),
 		CORSAllowedOrigins:       splitCSV(os.Getenv("CORS_ALLOWED_ORIGINS")),
 		JWTSecret:                os.Getenv("JWT_SECRET"),
 		SettingsEncryptionKey:    os.Getenv("SETTINGS_ENCRYPTION_KEY"),
@@ -146,6 +158,31 @@ func Load() (*Config, error) {
 	// host. It is a development switch and must never be set on a live server.
 	if cfg.IsProduction() && cfg.ATBaseURL != "" {
 		return nil, fmt.Errorf("AT_BASE_URL must not be set in production (it redirects all SMS away from Africa's Talking)")
+	}
+
+	switch cfg.SignupMode {
+	case "":
+		cfg.SignupMode = "open"
+		if cfg.IsProduction() {
+			cfg.SignupMode = "closed"
+		}
+	case "open", "closed":
+	case "code":
+		if len(strings.TrimSpace(cfg.SignupCode)) < 8 {
+			return nil, fmt.Errorf("SIGNUP_MODE=code needs a SIGNUP_CODE of at least 8 characters")
+		}
+	default:
+		return nil, fmt.Errorf("SIGNUP_MODE must be open, code or closed, got %q", cfg.SignupMode)
+	}
+
+	// Production safety: MPESA_BASE_URL decides where every school's payment
+	// requests go. On a live server it may only be Safaricom.
+	if cfg.IsProduction() && cfg.MpesaBaseURL != "" {
+		switch strings.TrimRight(cfg.MpesaBaseURL, "/") {
+		case "https://api.safaricom.co.ke", "https://sandbox.safaricom.co.ke":
+		default:
+			return nil, fmt.Errorf("MPESA_BASE_URL must be https://api.safaricom.co.ke or https://sandbox.safaricom.co.ke in production")
+		}
 	}
 
 	// Production safety: never boot with live M-Pesa credentials and an

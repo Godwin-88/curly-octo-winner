@@ -2,6 +2,7 @@ package parent
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -137,8 +138,10 @@ func (h *Handler) listResults(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.pool.Query(r.Context(), `
 		SELECT rc.id, rc.learner_id, l.full_name, rc.term, rc.year, rc.status, rc.overall_rating, rc.generated_at
 		FROM report_cards rc
-		JOIN learners l ON l.id = rc.learner_id
+		JOIN learners l ON l.id = rc.learner_id AND l.tenant_id = rc.tenant_id
 		WHERE rc.tenant_id = $1 AND rc.learner_id = $2 AND $3 = ANY(l.guardian_ids)
+		  AND rc.status = 'final'
+		ORDER BY rc.year DESC, rc.term DESC
 	`, tenantID, learnerID, guardianID)
 	if err != nil {
 		httputil.RespondInternalError(w, err)
@@ -154,7 +157,7 @@ func (h *Handler) listResults(w http.ResponseWriter, r *http.Request) {
 		Year          int       `json:"year"`
 		Status        string    `json:"status"`
 		OverallRating *int      `json:"overall_rating,omitempty"`
-		GeneratedAt   string    `json:"generated_at"`
+		GeneratedAt   time.Time `json:"generated_at"`
 	}
 	var cards []ReportCardBrief
 	for rows.Next() {

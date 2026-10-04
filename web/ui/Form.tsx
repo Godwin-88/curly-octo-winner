@@ -80,9 +80,9 @@ function Control({ field, ctx, value, onChange, describedBy }: {
       control = (
         <input
           {...common}
-          className={`${INPUT} ${field.type === 'number' ? 'tabular-nums' : ''}`}
-          type={field.type === 'datetime' ? 'datetime-local' : 'text'}
-          inputMode={field.type === 'number' ? 'numeric' : undefined}
+          className={`${INPUT} ${field.type === 'number' || field.type === 'money' ? 'tabular-nums' : ''}`}
+          type={field.type === 'datetime' ? 'datetime-local' : field.type === 'date' ? 'date' : 'text'}
+          inputMode={field.type === 'number' ? 'numeric' : field.type === 'money' ? 'decimal' : undefined}
           value={text}
           onChange={(event) => onChange(event.target.value)}
         />
@@ -208,6 +208,21 @@ export function toPayload(fields: FormField[], values: FormValues): { payload: F
       case 'number':
         if (/^\d+$/.test(String(raw).trim())) payload[field.name] = Number(raw);
         else problems[field.name] = 'Enter a whole number.';
+        break;
+      case 'money': {
+        // Shillings as typed, with or without thousands commas; cents out, so
+        // no amount ever passes through a fraction.
+        const typed = String(raw).trim().replace(/^kes\s*/i, '').replace(/,/g, '');
+        const match = /^(\d{1,10})(?:\.(\d{1,2}))?$/.exec(typed);
+        const cents = match ? Number(match[1]) * 100 + Number((match[2] ?? '').padEnd(2, '0')) : 0;
+        if (!match) problems[field.name] = 'Enter an amount in shillings, such as 17500.';
+        else if (cents <= 0) problems[field.name] = 'Enter an amount above zero.';
+        else payload[field.name] = cents;
+        break;
+      }
+      case 'date':
+        if (/^\d{4}-\d{2}-\d{2}$/.test(String(raw))) payload[field.name] = String(raw);
+        else problems[field.name] = 'Enter a date.';
         break;
       case 'picker':
         payload[field.name] = (raw as Option[]).map((option) => option.value);

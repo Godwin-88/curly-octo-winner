@@ -59,7 +59,11 @@ export interface Option {
 export interface FormField {
   name: string;
   label: string;
-  type: 'text' | 'number' | 'select' | 'tags' | 'textarea' | 'datetime' | 'checkbox' | 'picker';
+  /**
+   * money: typed in shillings ("17,500" or "17500.50"), handed on in cents.
+   * date: a calendar day, handed on as YYYY-MM-DD.
+   */
+  type: 'text' | 'number' | 'money' | 'select' | 'tags' | 'textarea' | 'date' | 'datetime' | 'checkbox' | 'picker';
   required?: boolean;
   options?: Option[] | ((ctx: Ctx) => Promise<Option[]>);
   help?: string;

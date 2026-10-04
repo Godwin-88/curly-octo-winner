@@ -35,6 +35,7 @@ import (
 	"github.com/shule360/api/internal/learnerimport"
 	appmiddleware "github.com/shule360/api/internal/middleware"
 	"github.com/shule360/api/internal/nemis"
+	"github.com/shule360/api/internal/onboarding"
 	"github.com/shule360/api/internal/parent"
 	"github.com/shule360/api/internal/platform"
 	"github.com/shule360/api/internal/procurement"
@@ -47,7 +48,6 @@ import (
 	"github.com/shule360/api/pkg/backblaze"
 	"github.com/shule360/api/pkg/groq"
 	"github.com/shule360/api/pkg/httputil"
-	"github.com/shule360/api/pkg/mpesa"
 	supabaseclient "github.com/shule360/api/pkg/supabase"
 	"github.com/shule360/api/pkg/upstash"
 )
@@ -120,9 +120,6 @@ func main() {
 	}
 	_ = b2Client
 
-	// Initialize Africa's Talking SMS client
-	atClient := sms.NewATClient(cfg.ATAPIKey, cfg.ATUsername, cfg.ATSenderID, cfg.IsProduction()).WithBaseURL(cfg.ATBaseURL)
-
 	// Initialize SMS service (templates; sending is the dispatcher below)
 	smsService := sms.NewSMSService(sb.Pool)
 
@@ -185,7 +182,7 @@ func main() {
 	curriculumSvc := curriculum.NewService(sb.Pool)
 	assessmentSvc := assessment.NewService(sb.Pool)
 	attendanceSvc := attendance.NewService(sb.Pool)
-	absenceAlertSvc := attendance.NewAbsenceAlertService(sb.Pool, atClient)
+	absenceAlertSvc := attendance.NewAbsenceAlertService(sb.Pool, commsService)
 	academicHandler := academic.NewHandler(curriculumSvc, assessmentSvc, attendanceSvc, absenceAlertSvc)
 
 	// Initialize learner services (EPIC 3)
@@ -197,18 +194,25 @@ func main() {
 	learnerImportSvc := learnerimport.NewService(sb.Pool)
 	learnerImportHandler := learnerimport.NewHandler(learnerImportSvc)
 
-	// Initialize M-Pesa Daraja client (EPIC 5)
-	mpesaClient := mpesa.NewClient(cfg.MpesaConsumerKey, cfg.MpesaConsumerSecret,
-		cfg.MpesaPasskey, cfg.MpesaShortCode, cfg.MpesaBaseURL)
-
 	// Initialize transport services (EPIC 4)
 	transportSvc := transport.NewService(sb.Pool)
 	transportHandler := transport.NewHandler(transportSvc)
 
 	// Initialize finance services (EPIC 5)
 	financeSvc := finance.NewService(sb.Pool)
-	financeMpesa := finance.NewMpesaService(sb.Pool, mpesaClient, cfg.MpesaCallbackURL)
-	financeHandler := finance.NewHandler(financeSvc, financeMpesa)
+	// Each school collects into its own Daraja account when it has entered
+	// one; a request is recorded before Safaricom is called, and anything
+	// Safaricom never reports back on is asked about every minute.
+	financeMpesa := finance.NewMpesaService(sb.Pool, finance.NewGatewayFactory(settingsService, finance.PlatformMpesa{
+		ConsumerKey:    cfg.MpesaConsumerKey,
+		ConsumerSecret: cfg.MpesaConsumerSecret,
+		Passkey:        cfg.MpesaPasskey,
+		ShortCode:      cfg.MpesaShortCode,
+		BaseURL:        cfg.MpesaBaseURL,
+		CallbackURL:    cfg.MpesaCallbackURL,
+	}))
+	go financeMpesa.Run(dispatchCtx)
+	financeHandler := finance.NewHandler(financeSvc, financeMpesa, cfg.MpesaWebhookToken)
 
 	// Initialize reports & analytics services (EPIC 6)
 	reportsSvc := reports.NewService(sb.Pool)
@@ -259,6 +263,10 @@ func main() {
 
 	// Initialize auth handler
 	authHandler := auth.NewHandler(sb, cfg, redisClient)
+
+	// Registering a school with its first administrator, the setup checklist
+	// and a school's own users.
+	onboardingHandler := onboarding.NewHandler(onboarding.NewService(sb.Pool, sb), redisClient, cfg.SignupMode, cfg.SignupCode)
 	tenantService := tenant.NewService(sb.Pool)
 	platformHandler := platform.NewHandler(platform.NewService(sb.Pool, sb))
 
@@ -304,6 +312,7 @@ func main() {
 		// IP / per account per 15-minute window, fail-closed.
 		authHandler.Mount(r)
 		guardianAuthHandler.Mount(r)
+		onboardingHandler.MountPublic(r)
 
 		// Webhooks (no auth). The M-Pesa callback is restricted to Daraja
 		// egress IPs when MPESA_ALLOWED_IPS is configured; an empty list
@@ -331,6 +340,10 @@ func main() {
 			// Schools, groups and the users above a school: platform
 			// administrators only (enforced inside Mount).
 			platformHandler.Mount(r)
+			r.Group(func(r chi.Router) {
+				r.Use(appmiddleware.RequirePlatform)
+				onboardingHandler.MountPlatform(r)
+			})
 		})
 
 		// Authenticated routes inside one school
@@ -352,7 +365,10 @@ func main() {
 			// Finance, procurement & financial intelligence — bursar/principal
 			r.Group(func(r chi.Router) {
 				r.Use(appmiddleware.RequireRole(financeRoles...))
-				financeHandler.Mount(r)
+				r.Group(func(r chi.Router) {
+					r.Use(appmiddleware.RequireModule(tenantService, "finance", "Finance"))
+					financeHandler.Mount(r)
+				})
 				procurementHandler.Mount(r)
 				intelligenceHandler.Mount(r)
 			})
@@ -367,12 +383,19 @@ func main() {
 			// Academic & teaching operations — all staff roles
 			r.Group(func(r chi.Router) {
 				r.Use(appmiddleware.RequireRole(allStaff...))
-				commsHandler.Mount(r)
-				academicHandler.Mount(r)
+				r.Group(func(r chi.Router) {
+					r.Use(appmiddleware.RequireModule(tenantService, "communications", "Communications"))
+					commsHandler.Mount(r)
+				})
+				onboardingHandler.MountSchool(r)
+				r.Group(func(r chi.Router) {
+					r.Use(appmiddleware.RequireModule(tenantService, "academic", "Academic"))
+					academicHandler.Mount(r)
+					reportsHandler.Mount(r)
+				})
 				learnerHandler.Mount(r)
 				learnerImportHandler.Mount(r)
 				transportHandler.Mount(r)
-				reportsHandler.Mount(r)
 				teacherHandler.Mount(r)
 
 				// Settings: every staff member can read the school's

@@ -5,11 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/shule360/api/pkg/apperr"
 )
 
 // AttendanceStatus represents the possible attendance states.
@@ -85,12 +88,35 @@ func (d Date) MarshalJSON() ([]byte, error) {
 // JSON body of {"learner_id": ...} would silently leave LearnerID as the zero
 // UUID and record attendance against nobody.
 type CreateAttendanceRequest struct {
-	LearnerID   uuid.UUID        `json:"learner_id"`
-	Date        Date             `json:"date"`
-	Status      AttendanceStatus `json:"status"`
-	MarkedBy    uuid.UUID        `json:"marked_by"`
-	Reason      string           `json:"reason"`
-	SMSNotified bool             `json:"sms_notified"`
+	LearnerID uuid.UUID        `json:"learner_id"`
+	Date      Date             `json:"date"`
+	Status    AttendanceStatus `json:"status"`
+	Reason    string           `json:"reason"`
+	// MarkedBy is whoever is signed in. Whether a parent was texted is not in
+	// the request either: it is recorded when an alert is actually queued.
+	MarkedBy uuid.UUID `json:"-"`
+}
+
+// eat is the school day's time zone. The API server runs in UTC, where "today"
+// is still yesterday until 3 a.m. in Nairobi.
+var eat = time.FixedZone("EAT", 3*60*60)
+
+// Today is the current date in Kenya, as a date with no time of day.
+func Today() time.Time {
+	now := time.Now().In(eat)
+	return time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+}
+
+// checkDate refuses a register for a day that has not happened.
+func checkDate(d Date) error {
+	if d.IsZero() {
+		return apperr.Invalid("Choose the date of the register.")
+	}
+	day := time.Date(d.Year(), d.Month(), d.Day(), 0, 0, 0, 0, time.UTC)
+	if day.After(Today()) {
+		return apperr.Invalid("Attendance cannot be marked for a day that has not happened yet.")
+	}
+	return nil
 }
 
 // validStatuses is the closed set the attendance CHECK constraint enforces.
@@ -148,19 +174,44 @@ func (s *Service) MarkAttendance(ctx context.Context, tenantID uuid.UUID, req Cr
 	if !validStatuses[req.Status] {
 		return nil, ErrInvalidStatus
 	}
-	var a Attendance
-	err := s.pool.QueryRow(ctx, `
-		INSERT INTO attendance (tenant_id, learner_id, date, status, marked_by, reason, sms_notified)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+	if err := checkDate(req.Date); err != nil {
+		return nil, err
+	}
+	var inSchool bool
+	if err := s.pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM learners WHERE tenant_id = $1 AND id = $2)`,
+		tenantID, req.LearnerID).Scan(&inSchool); err != nil {
+		return nil, fmt.Errorf("check learner: %w", err)
+	}
+	if !inSchool {
+		return nil, apperr.Invalid("That learner is not in your school.")
+	}
+	// A changed mark keeps what is already known about the alert: the parent
+	// was either texted or not, whatever the mark says now.
+	row := s.pool.QueryRow(ctx, `
+		INSERT INTO attendance (tenant_id, learner_id, date, status, marked_by, reason)
+		VALUES ($1, $2, $3, $4, $5, $6)
 		ON CONFLICT (tenant_id, learner_id, date)
-		DO UPDATE SET status = EXCLUDED.status, marked_by = EXCLUDED.marked_by, reason = EXCLUDED.reason, sms_notified = EXCLUDED.sms_notified, updated_at = now()
-		RETURNING id, tenant_id, learner_id, date, status, marked_by, reason, sms_notified, created_at, updated_at
-	`, tenantID, req.LearnerID, req.Date.Time, string(req.Status), markedByArg(req.MarkedBy), req.Reason, req.SMSNotified).Scan(
-		&a.ID, &a.TenantID, &a.LearnerID, &a.Date, &a.Status,
-		&a.MarkedBy, &a.Reason, &a.SMSNotified, &a.CreatedAt, &a.UpdatedAt,
-	)
+		DO UPDATE SET status = EXCLUDED.status, marked_by = EXCLUDED.marked_by, reason = EXCLUDED.reason, updated_at = now()
+		RETURNING `+attendanceColumns,
+		tenantID, req.LearnerID, req.Date.Time, string(req.Status), markedByArg(req.MarkedBy), strings.TrimSpace(req.Reason))
+	a, err := scanAttendance(row)
 	if err != nil {
 		return nil, fmt.Errorf("mark attendance: %w", err)
+	}
+	return a, nil
+}
+
+// reason is nullable; reading it into a string without COALESCE made every
+// list of a learner's attendance fail on the first mark without one.
+const attendanceColumns = `id, tenant_id, learner_id, date, status, marked_by, COALESCE(reason, ''), sms_notified, created_at, updated_at`
+
+func scanAttendance(row pgx.Row) (*Attendance, error) {
+	var a Attendance
+	if err := row.Scan(
+		&a.ID, &a.TenantID, &a.LearnerID, &a.Date, &a.Status,
+		&a.MarkedBy, &a.Reason, &a.SMSNotified, &a.CreatedAt, &a.UpdatedAt,
+	); err != nil {
+		return nil, err
 	}
 	return &a, nil
 }
@@ -168,7 +219,7 @@ func (s *Service) MarkAttendance(ctx context.Context, tenantID uuid.UUID, req Cr
 // ListByDate returns attendance records for a specific date.
 func (s *Service) ListByDate(ctx context.Context, tenantID uuid.UUID, date time.Time) ([]Attendance, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, tenant_id, learner_id, date, status, marked_by, reason, sms_notified, created_at, updated_at
+		SELECT id, tenant_id, learner_id, date, status, marked_by, COALESCE(reason, ''), sms_notified, created_at, updated_at
 		FROM attendance
 		WHERE tenant_id = $1 AND date = $2
 		ORDER BY created_at
@@ -195,7 +246,7 @@ func (s *Service) ListByDate(ctx context.Context, tenantID uuid.UUID, date time.
 // ListByLearner returns attendance records for a specific learner.
 func (s *Service) ListByLearner(ctx context.Context, tenantID, learnerID uuid.UUID) ([]Attendance, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, tenant_id, learner_id, date, status, marked_by, reason, sms_notified, created_at, updated_at
+		SELECT id, tenant_id, learner_id, date, status, marked_by, COALESCE(reason, ''), sms_notified, created_at, updated_at
 		FROM attendance
 		WHERE tenant_id = $1 AND learner_id = $2
 		ORDER BY date DESC
@@ -223,8 +274,8 @@ func (s *Service) ListByLearner(ctx context.Context, tenantID, learnerID uuid.UU
 func (s *Service) ListSummariesByDate(ctx context.Context, tenantID uuid.UUID, date time.Time) ([]AttendanceSummary, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT
-			a.id, a.learner_id, l.full_name AS learner_name, l.grade, l.stream,
-			a.date, a.status, a.reason, a.sms_notified, a.created_at
+			a.id, a.learner_id, l.full_name AS learner_name, l.grade, COALESCE(l.stream, ''),
+			a.date, a.status, COALESCE(a.reason, ''), a.sms_notified, a.created_at
 		FROM attendance a
 		JOIN learners l ON l.id = a.learner_id AND l.tenant_id = a.tenant_id
 		WHERE a.tenant_id = $1 AND a.date = $2
@@ -253,7 +304,7 @@ func (s *Service) ListSummariesByDate(ctx context.Context, tenantID uuid.UUID, d
 func (s *Service) GetByID(ctx context.Context, tenantID, id uuid.UUID) (*Attendance, error) {
 	var a Attendance
 	err := s.pool.QueryRow(ctx, `
-		SELECT id, tenant_id, learner_id, date, status, marked_by, reason, sms_notified, created_at, updated_at
+		SELECT id, tenant_id, learner_id, date, status, marked_by, COALESCE(reason, ''), sms_notified, created_at, updated_at
 		FROM attendance
 		WHERE tenant_id = $1 AND id = $2
 	`, tenantID, id).Scan(
@@ -262,7 +313,7 @@ func (s *Service) GetByID(ctx context.Context, tenantID, id uuid.UUID) (*Attenda
 	)
 	if err != nil {
 		if err == pgx.ErrNoRows {
-			return nil, fmt.Errorf("attendance record not found")
+			return nil, apperr.ErrNotFound
 		}
 		return nil, fmt.Errorf("query attendance: %w", err)
 	}
@@ -320,7 +371,7 @@ func (s *Service) ChronicAbsenteeism(ctx context.Context, tenantID uuid.UUID, th
 			l.id AS learner_id,
 			l.full_name AS learner_name,
 			l.grade,
-			l.stream,
+			COALESCE(l.stream, ''),
 			COUNT(*) AS total_days,
 			COUNT(*) FILTER (WHERE a.status = 'absent') AS absent_days,
 			ROUND(

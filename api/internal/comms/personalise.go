@@ -14,14 +14,16 @@ import (
 
 // Variables a message may contain, and what each is filled in with.
 //
-// {{fee_balance}} is deliberately absent: until the balance shown to a parent
-// is reconciled against payments made straight to the paybill, texting it
-// would state a figure the school cannot stand behind.
+// {{fee_balance}} is what is still owed on the live invoices of that parent's
+// learners, from confirmed payments only. A parent who owes nothing has no
+// balance to state, so the send is refused for an audience that includes one:
+// use "Parents with a fee balance".
 var supportedVariables = map[string]string{
 	"parent_name":  "the recipient's name",
 	"learner_name": "the learner(s) of that parent",
 	"class":        "the class of those learner(s)",
 	"school_name":  "the school's name",
+	"fee_balance":  "an outstanding fee balance",
 }
 
 // SupportedVariables lists the {{names}} a message may use, sorted.
@@ -111,6 +113,43 @@ func (s *CommsService) personalise(ctx context.Context, tenantID uuid.UUID, cont
 		}
 	}
 
+	balances := map[uuid.UUID]int64{}
+	if uses("fee_balance") {
+		var guardianIDs []uuid.UUID
+		for _, r := range out.valid {
+			if r.Type == "guardian" && r.ID != uuid.Nil {
+				guardianIDs = append(guardianIDs, r.ID)
+			}
+		}
+		if len(guardianIDs) > 0 {
+			rows, err := s.pool.Query(ctx, `
+				SELECT gid, SUM(i.total_cents - i.discount_cents - i.paid_cents)
+				FROM learners l
+				CROSS JOIN LATERAL unnest(l.guardian_ids) AS gid
+				JOIN invoices i ON i.tenant_id = l.tenant_id AND i.learner_id = l.id
+				WHERE l.tenant_id = $1 AND gid = ANY($2::uuid[])
+				  AND i.status NOT IN ('draft', 'void', 'paid')
+				  AND i.total_cents - i.discount_cents - i.paid_cents > 0
+				GROUP BY gid
+			`, tenantID, pgxutil.UUIDArray(guardianIDs))
+			if err != nil {
+				return fmt.Errorf("load fee balances for personalisation: %w", err)
+			}
+			defer rows.Close()
+			for rows.Next() {
+				var id uuid.UUID
+				var cents int64
+				if err := rows.Scan(&id, &cents); err != nil {
+					return fmt.Errorf("scan fee balances for personalisation: %w", err)
+				}
+				balances[id] = cents
+			}
+			if err := rows.Err(); err != nil {
+				return err
+			}
+		}
+	}
+
 	missingCount := map[string]int{}
 	missingExample := map[string]string{}
 	for i := range out.valid {
@@ -129,6 +168,9 @@ func (s *CommsService) personalise(ctx context.Context, tenantID uuid.UUID, cont
 			if info.classes != "" {
 				data["class"] = info.classes
 			}
+		}
+		if cents := balances[r.ID]; cents > 0 && r.Type == "guardian" {
+			data["fee_balance"] = shillings(cents)
 		}
 		for _, name := range used {
 			if _, ok := data[name]; !ok {
@@ -167,4 +209,21 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+// shillings writes cents as a parent reads an amount in a text: "KES 12,500",
+// with cents only when there are any.
+func shillings(cents int64) string {
+	whole := fmt.Sprintf("%d", cents/100)
+	var grouped []byte
+	for i := 0; i < len(whole); i++ {
+		if i > 0 && (len(whole)-i)%3 == 0 {
+			grouped = append(grouped, ',')
+		}
+		grouped = append(grouped, whole[i])
+	}
+	if cents%100 == 0 {
+		return "KES " + string(grouped)
+	}
+	return fmt.Sprintf("KES %s.%02d", grouped, cents%100)
 }

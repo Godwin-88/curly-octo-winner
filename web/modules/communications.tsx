@@ -75,6 +75,7 @@ const VARIABLE_LABEL: Record<string, string> = {
   learner_name: 'Learner name',
   class: 'Class',
   school_name: 'School name',
+  fee_balance: 'Fee balance',
 };
 
 function audienceLabel(row: Pick<Message, 'audience_type' | 'audience_filter'>): string {
@@ -285,7 +286,7 @@ const messages = resource<MessageRow>({
         name: 'content', label: 'Message', type: 'textarea', required: true,
         meter: describeSegments,
         inserts: Object.entries(VARIABLE_LABEL).map(([name, label]) => ({ value: `{{${name}}}`, label })),
-        help: 'Inserted names are filled in for each recipient.',
+        help: 'Inserted names are filled in for each recipient. "Fee balance" works only when sending to parents with a fee balance.',
       },
       {
         name: 'scheduled_at', label: 'Send later (optional)', type: 'datetime',

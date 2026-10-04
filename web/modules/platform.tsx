@@ -7,15 +7,17 @@ import type { School } from '@/shell/ContextBar';
 import { ALL } from '@/shell/context';
 import { Status, when } from '@/ui/kit';
 
-// What sits above a school: the schools themselves, school groups, and the
-// people who can open more than one school. Shown when no school is chosen.
-// Groups and users are for platform administrators; a group user sees only
-// the schools of their group.
+// What sits above a school: the schools themselves, the two school groups
+// (public schools and private schools), and the people who can open more than
+// one school. Shown when no school is chosen. Groups and users are for platform
+// administrators; a group user sees only the schools of their group.
 
 interface Group {
   id: string;
   name: string;
   slug: string;
+  ownership: 'public' | 'private';
+  description: string;
   school_count: number;
   user_count: number;
   created_at: string;
@@ -57,9 +59,27 @@ function OpenSchool({ row, ctx }: { row: School; ctx: Ctx }) {
   );
 }
 
+interface Onboarded {
+  school_id: string;
+  school_name: string;
+  admin_email: string;
+  temp_password?: string;
+}
+
+const OWNERSHIP: Option[] = [
+  { value: 'public', label: 'Public (government school)' },
+  { value: 'private', label: 'Private' },
+];
+
+/** The modules a school can have or not have. */
+const SOLD: Option[] = [
+  { value: 'communications', label: 'Communications', hint: 'SMS to parents and contacts, with delivery reports.' },
+  { value: 'finance', label: 'Finance', hint: 'Fee structures, invoices, payments, M-Pesa and balances.' },
+  { value: 'academic', label: 'Academic', hint: 'Curriculum, observations, attendance registers and report cards.' },
+];
+
 const schoolFields: FormField[] = [
   { name: 'name', label: 'School name', type: 'text', required: true, placeholder: 'Jua Kali Primary School' },
-  { name: 'group_id', label: 'Group', type: 'select', options: groupOptions, help: 'Leave as "Any" for a school that belongs to no group.' },
 ];
 
 const schools = resource<School>({
@@ -79,8 +99,12 @@ const schools = resource<School>({
     { header: 'Group', cell: (row) => row.group_name ?? '—' },
   ],
   fields: [
-    { label: 'Group', value: (row) => row.group_name ?? 'Not in a group' },
+    { label: 'Group', value: (row) => row.group_name ?? (row.ownership === 'public' ? 'Public schools' : 'Private schools') },
     { label: 'Short name', value: (row) => row.slug },
+    {
+      label: 'Modules',
+      value: (row) => SOLD.filter((module) => row.modules?.includes(module.value)).map((module) => module.label).join(', ') || 'None',
+    },
   ],
   extra: OpenSchool,
   create: {
@@ -89,28 +113,73 @@ const schools = resource<School>({
     when: isPlatform,
     fields: [
       ...schoolFields,
-      { name: 'slug', label: 'Short name', type: 'text', placeholder: 'juakali-primary', help: 'Lowercase letters, numbers and dashes. Leave empty to make one from the name. It cannot be changed later.' },
+      { name: 'ownership', label: 'Public or private', type: 'select', required: true, options: OWNERSHIP, help: 'This is the group the school joins. It also sets the fee items the school starts with, which the school changes afterwards.' },
+      {
+        name: 'county', label: 'County', type: 'select', required: true,
+        options: async () => (await apiRequest<{ counties: string[] }>('/signup')).counties.map((county) => ({ value: county, label: county })),
+      },
+      { name: 'admin_name', label: 'Principal’s full name', type: 'text', required: true, help: 'The first person who can sign in to the school. They add everyone else.' },
+      { name: 'admin_email', label: 'Principal’s email', type: 'text', required: true, placeholder: 'principal@school.ac.ke' },
+      { name: 'admin_phone', label: 'Principal’s phone', type: 'text', placeholder: '0712 345 678' },
     ],
-    initial: (_row, ctx) => ({ group_id: ctx.groupId ?? '' }),
-    run: (_ctx, _row, values) => apiRequest<School>('/platform/schools', { method: 'POST', body: schoolBody(values) }),
-    createdId: (school: School) => school.id,
+    confirm: 'The school is created together with its principal’s account. Their password is shown to you once, to hand over.',
+    run: (_ctx, _row, values) =>
+      apiRequest<Onboarded>('/platform/onboard-school', {
+        method: 'POST',
+        body: {
+          school_name: values.name, county: values.county, ownership: values.ownership,
+          admin_name: values.admin_name, admin_email: values.admin_email, admin_phone: values.admin_phone ?? '',
+        },
+      }),
+    createdId: (created: Onboarded) => created.school_id,
+    reveal: (created: Onboarded): Reveal => ({
+      title: `${created.school_name} is ready`,
+      note: 'Give these sign-in details to the principal. The password is shown this once and cannot be shown again.',
+      items: [
+        { label: 'Email', value: created.admin_email },
+        { label: 'Password', value: created.temp_password ?? '' },
+      ],
+    }),
   },
   actions: [
     {
       id: 'edit',
-      label: 'Rename or move',
+      label: 'Rename',
       when: isPlatform,
       fields: schoolFields,
-      initial: (row) => ({ name: row.name, group_id: row.group_id ?? '' }),
-      confirm: 'Moving a school changes which group users can open it, from their next request.',
+      initial: (row) => ({ name: row.name }),
       submitLabel: 'Save changes',
       run: (_ctx, row, values) => apiRequest<School>(`/platform/schools/${row.id}`, { method: 'PATCH', body: schoolBody(values) }),
+    },
+    {
+      id: 'ownership',
+      label: 'Move to public or private',
+      when: isPlatform,
+      fields: [{ name: 'ownership', label: 'Public or private', type: 'select', required: true, options: OWNERSHIP }],
+      initial: (row) => ({ ownership: row.ownership ?? 'private' }),
+      confirm: 'The school moves to the other group, which changes which group users can open it from their next request. The fee items it has already set up are not changed.',
+      submitLabel: 'Save',
+      run: (_ctx, row, values) => apiRequest<School>(`/platform/schools/${row.id}/ownership`, { method: 'PUT', body: { ownership: values.ownership } }),
+    },
+    {
+      id: 'modules',
+      label: 'Choose modules',
+      when: isPlatform,
+      fields: SOLD.map((module) => ({ name: module.value, label: module.label, type: 'checkbox' as const, help: module.hint })),
+      initial: (row) => Object.fromEntries(SOLD.map((module) => [module.value, row.modules?.includes(module.value) ?? true])),
+      confirm: 'A module that is switched off disappears from this school’s menus and its screens stop working at once. Nothing recorded is deleted; switching it back on brings everything back.',
+      submitLabel: 'Save modules',
+      run: (_ctx, row, values) =>
+        apiRequest<School>(`/platform/schools/${row.id}/modules`, {
+          method: 'PUT',
+          body: { modules: SOLD.filter((module) => values[module.value]).map((module) => module.value) },
+        }),
     },
   ],
 });
 
 function schoolBody(values: FormValues) {
-  return { name: values.name, slug: values.slug ?? '', group_id: values.group_id || null };
+  return { name: values.name };
 }
 
 // --- Groups -----------------------------------------------------------------
@@ -121,7 +190,7 @@ const groups = resource<Group>({
   noun: 'group',
   scopes: ['portfolio'],
   sessions: ['platform'],
-  purpose: 'An owner of several schools, such as a trust or a diocese. A group user can open every school in their group.',
+  purpose: 'There are two groups, public schools and private schools, and every school is in one of them. A group user can open every school in their group.',
   list: async () => ({ items: await apiRequest<Group[]>('/platform/groups') }),
   get: (_ctx, id) => apiRequest<Group>(`/platform/groups/${id}`),
   rowId: (row) => row.id,
@@ -132,29 +201,23 @@ const groups = resource<Group>({
     { header: 'Users', cell: (row) => row.user_count, align: 'right' },
   ],
   fields: [
-    { label: 'Schools', value: (row) => (row.school_count === 0 ? 'None yet: add or move a school into this group under Schools.' : row.school_count) },
+    { label: 'Holds', value: (row) => (row.ownership === 'public' ? 'Public (government) schools' : 'Private schools') },
+    { label: 'About', value: (row) => row.description || '—' },
+    { label: 'Schools', value: (row) => (row.school_count === 0 ? 'None yet: add one under Schools.' : row.school_count) },
     { label: 'Active users', value: (row) => row.user_count },
-    { label: 'Short name', value: (row) => row.slug },
-    { label: 'Created', value: (row) => when(row.created_at) },
   ],
-  create: {
-    id: 'create',
-    label: 'Add group',
-    fields: [
-      { name: 'name', label: 'Group name', type: 'text', required: true, placeholder: 'Jua Kali Schools Trust' },
-      { name: 'slug', label: 'Short name', type: 'text', help: 'Leave empty to make one from the name.' },
-    ],
-    run: (_ctx, _row, values) => apiRequest<Group>('/platform/groups', { method: 'POST', body: { name: values.name, slug: values.slug ?? '' } }),
-    createdId: (group: Group) => group.id,
-  },
   actions: [
     {
-      id: 'rename',
-      label: 'Rename',
-      fields: [{ name: 'name', label: 'Group name', type: 'text', required: true }],
-      initial: (row) => ({ name: row.name }),
+      id: 'edit',
+      label: 'Edit',
+      fields: [
+        { name: 'name', label: 'Group name', type: 'text', required: true },
+        { name: 'description', label: 'About this group', type: 'textarea', help: 'What sets these schools apart, for the people who support them.' },
+      ],
+      initial: (row) => ({ name: row.name, description: row.description }),
       submitLabel: 'Save',
-      run: (_ctx, row, values) => apiRequest<Group>(`/platform/groups/${row.id}`, { method: 'PATCH', body: { name: values.name } }),
+      run: (_ctx, row, values) =>
+        apiRequest<Group>(`/platform/groups/${row.id}`, { method: 'PATCH', body: { name: values.name, description: values.description ?? '' } }),
     },
   ],
 });

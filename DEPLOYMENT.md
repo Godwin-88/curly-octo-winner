@@ -64,7 +64,7 @@ go run ./cmd/migrate            # apply every pending migration
 go run ./cmd/migrate -baseline  # mark all as applied WITHOUT running them
 ```
 
-- **Fresh database:** `make migrate-up` creates the whole schema (001 → 041).
+- **Fresh database:** `make migrate-up` creates the whole schema (001 → 046).
 - **Render deploys do not run migrations** (that needs a paid instance's
   pre-deploy command — see `render.yaml`): run `make migrate-up` from a machine
   that can reach the database before deploying API code that depends on new
@@ -311,6 +311,131 @@ report said so. Without the callback, messages stay at *sent*.
 
 `AT_BASE_URL` must never be set in production; the server refuses to start.
 
+## Academic: observations, registers and report cards
+
+Academic is a module a school has or does not have (Platform → Schools →
+Choose modules); it covers the curriculum, observations, attendance and report
+cards. Migration 045 gives it to every school that already had an explicit
+list of modules.
+
+- **Observations** are recorded by the member of staff who is signed in; only
+  that teacher or a principal can remove one.
+- **The register** is marked one class at a time and never for a day that has
+  not happened (the date is Kenya's). "Text the parents of absent learners" is
+  off unless ticked, applies to today's register only, and sends one ordinary
+  message per absent learner: it appears under Communications with its
+  delivery, respects a parent's opt-out, and is sent once per learner per day
+  however often the register is saved. It needs the Communications module.
+- **Report cards** are drafts until published. A draft is built from the
+  term's observations (the latest level per sub-strand) and can be rebuilt,
+  commented on or deleted. A published card is what the parent portal shows; it
+  is not edited, rebuilt or deleted until a principal reopens it. The PDF is
+  produced when asked for and is not stored; `report_card_pdfs` is no longer
+  used.
+- **Curriculum.** A new school starts with the seven core competencies and
+  eight values. Learning areas are added per grade from Academic → Curriculum
+  ("Add the usual learning areas for…"), then edited. **Check that list against
+  the current KICD curriculum designs before relying on it**, and note that
+  strands and sub-strands are not supplied: the school enters the ones it
+  teaches, and observations are recorded against sub-strands.
+
+## Getting a school started
+
+A school and its first administrator are created together, so there is never a
+school nobody can sign in to. There are two ways in:
+
+- **The school registers itself** at `/auth/register`: three steps (the school
+  and whether it is public or private, the person registering, the current
+  term), one request. That person becomes the school's principal and is signed
+  in to a checklist of what to set up.
+- **A platform administrator creates it** under Platform → Schools → Add
+  school, naming the principal. The principal's password is generated and shown
+  once, to hand over.
+
+`SIGNUP_MODE` decides whether the first way is available: `open`, `code`
+(the form asks for `SIGNUP_CODE`) or `closed`. Unset, it is closed in
+production. Registration creates accounts without confirming the email
+address, so `open` lets anyone create a school under any unused email: prefer
+`code` or `closed` on a live server. Registration shares the sign-in limit of
+5 attempts per address per 15 minutes.
+
+Inside a school, a principal manages who can sign in under School setup →
+Users: add a person (their password is shown once), change their role, reset a
+password, deactivate or reactivate. One email is one person across every
+school. A change of role or a deactivation applies at that person's next
+request, not when their session expires. A school always keeps one active
+principal, and nobody can deactivate themselves.
+
+School setup → Getting started is worked out from what is recorded (users,
+learners, learning areas, fee structures and invoices, the paybill, messages),
+so it cannot show a step as done that is not.
+
+## Fees and M-Pesa
+
+Finance bills learners from fee structures, records what is paid and shows
+what is owed. The rules the API keeps:
+
+- A learner has one live invoice per term. Billing a grade twice creates
+  nothing the second time.
+- An invoice's status follows from its payments; it is never set by hand.
+- Nothing recorded is deleted. An invoice is voided, a payment is reversed,
+  each with who did it and why. The database itself refuses to delete an
+  invoice that has a payment.
+- Every confirmed payment gets a receipt number (`RCT-2026-00001`), in
+  sequence per school and year with no gaps.
+
+**M-Pesa request (STK push).** The request is recorded before Safaricom is
+called. It counts as paid only when Safaricom says so: by its callback, or,
+when no callback arrives, by the status query the server makes every minute.
+A request Safaricom never answers is closed as *outcome unknown* and is never
+repeated automatically.
+
+**Paybill payments.** A parent paying from the M-Pesa menu types an account
+number: the learner's UPI or the invoice number. The payment goes against that
+learner's oldest unpaid invoices. Money that matches nobody, or exceeds what
+is owed, waits under Finance → Paybill payments until someone allocates it.
+
+**What a school charges is its own list.** Finance → Fee items holds everything
+a school charges for; the school adds, renames and retires entries, and fee
+structures are built from the list. Nothing is built in. A new school starts
+with the usual items for its kind: a private school with tuition, activity
+fee, lunch, transport, boarding and caution money; a public school, which
+charges no tuition, with lunch programme, activity, assessment and development
+levies, remedial teaching, transport and boarding. Whether a school is public
+or private is chosen at registration and changed under Platform → Schools.
+
+Before a school collects real money:
+
+| Step | Where |
+|---|---|
+| The school's own Daraja consumer key, secret, passkey and paybill | Settings → Integrations → M-Pesa. Without them the platform's account is used, and the money lands in the platform's paybill |
+| The paybill number on the school | Settings → School (`tenants.mpesa_shortcode`); it is how a paybill payment finds its school |
+| A long random `MPESA_WEBHOOK_TOKEN` | API environment |
+| `MPESA_CALLBACK_URL` = `https://<api host>/api/v1/webhooks/mpesa/<token>/stk` | API environment |
+| Confirmation URL `https://<api host>/api/v1/webhooks/mpesa/<token>/c2b/confirmation` and validation URL `…/c2b/validation` registered for the paybill | Safaricom (Daraja "Register URL"); done once per paybill, outside this app |
+| `MPESA_ALLOWED_IPS` set to Safaricom's addresses | API environment |
+| `MPESA_BASE_URL` = `https://api.safaricom.co.ke` | API environment; production refuses any other host than Safaricom's two |
+| Migrations 042 to 044 applied | `make migrate-up` |
+
+Migration 042 adds "one live invoice per learner per term". It stops, changing
+nothing, if a learner is already billed twice for a term: void one of the two
+invoices and run it again.
+
+Two schools sharing one paybill can only be told apart when the account number
+names a learner; a payment that names nobody is logged as an error and not
+recorded. Give each school its own paybill.
+
+`{{fee_balance}}` in an SMS is what a parent still owes, from confirmed
+payments. It is refused for an audience that includes anyone who owes nothing:
+send to "Parents with a fee balance".
+
+## Modules per school
+
+Communications and Finance are switched on or off per school under Platform →
+Schools → Choose modules. A module that is off disappears from that school's
+menus and its API answers `403 MODULE_NOT_ENABLED` at once; nothing recorded
+is deleted. Schools that existed before migration 043 have every module.
+
 ## Running everything locally
 
 ```bash
@@ -324,10 +449,20 @@ Auth and Africa's Talking, prints each SMS instead of sending it
 (`docker compose logs -f devstub`) and posts delivery reports back. Sign-in
 details are at the top of `docker-compose.yml`.
 
-Browser tests against that stack:
+The stand-in also plays Safaricom: an M-Pesa request "pays" after three
+seconds, and a parent paying the paybill from their phone is
+
+```bash
+curl -d 'amount=5000&account=TEST00000003&shortcode=174379' localhost:9191/dev/c2b
+```
+
+Browser tests against that stack (run them one file at a time: together they
+exceed the sign-in limit of 5 per 15 minutes):
 
 ```bash
 cd web && E2E_STACK=1 npx playwright test e2e/communications.spec.ts
+cd web && E2E_STACK=1 npx playwright test e2e/finance.spec.ts
+cd web && E2E_STACK=1 npx playwright test e2e/onboarding.spec.ts
 ```
 
 ## School context (platform, group, school)
@@ -337,10 +472,25 @@ of user live in `platform_users`:
 
 - `scope = 'group'` with a `group_id`: may open the schools of that group
   (`tenants.group_id`).
-- `scope = 'platform'`: may open any school.
+- `scope = 'platform'`: may open any school. With the role `super_admin` this
+  is the platform's own administrator.
+
+There are exactly two groups, **Public schools** and **Private schools**
+(migration 046). Every school is in the one for its kind: a school is created
+as public or private, and "Move to public or private" on the school is the
+only way it changes group. The database enforces both, so a group cannot be
+added or removed and a school cannot be put in the wrong one. A group's name
+and description can be edited. A group user therefore opens every public
+school, or every private one.
+
+Migration 046 removes any group that existed before. A user who was limited to
+one of those is moved to the public or private group and **deactivated**,
+because that group holds more schools than they were given; reactivate them
+under Platform → Users if that is intended.
 
 A platform administrator manages all of this in the web app under
-**Platform**: *Schools* (which group a school belongs to), *School groups*, and
+**Platform**: *Schools* (add a school with its principal, rename it, move it
+between public and private, choose its modules), *Groups*, and
 *Users* (create a platform or group user, reset a password, deactivate). A new
 user's password is generated and shown once, on the screen that created it.
 The last active platform administrator cannot be deactivated, and an email that
